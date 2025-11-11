@@ -1,4 +1,20 @@
 name: Hourly Health
 on:
-  workflow_dispatch: {}   # ⬅️ kör manuellt först
+  workflow_dispatch: {}
   # schedule: [{ cron: "15 * * * *" }]
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Healthcheck API
+        run: curl -sf https://api.frost.solutions/health || exit 1
+      - name: Notify
+        if: failure()
+        run: |
+          [ -z "$SLACK_WEBHOOK_URL" ] && exit 0
+          curl -X POST -H "Content-Type: application/json" \
+               -d '{"text":"❗ Night Factory: healthcheck failed"}' \
+               $SLACK_WEBHOOK_URL
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

@@ -1,4 +1,62 @@
 name: Nightly Deep Cycle
 on:
-  workflow_dispatch: {}   # ⬅️ kör manuellt tills allt är klart
-  # schedule: [{ cron: "0 22 * * *" }]
+  workflow_dispatch: {}
+  # schedule: [{ cron: "0 22 * * *" }]  # slå på när första manuella körningen funkar
+
+jobs:
+  guardrails:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kill-switch via Notion
+        run: |
+          curl -s -H "Authorization: Bearer $NOTION_API_KEY" \
+               -H "Notion-Version: 2022-06-28" \
+               https://api.notion.com/v1/databases/$NOTION_DB_FLAGS/query > flags.json
+          if grep -qi '"STOP": *true' flags.json; then
+            echo "STOP active, exiting"; exit 0; fi
+    env:
+      NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
+      NOTION_DB_FLAGS: ${{ secrets.NOTION_DB_FLAGS }}
+
+  run-cycle:
+    needs: guardrails
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+
+      - name: Install deps
+        run: npm ci || true
+
+      - name: Research (Perplexity)
+        run: node scripts/research.js
+        env:
+          PPLX_API_KEY: ${{ secrets.PPLX_API_KEY }}
+          NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
+          NOTION_DB_RESEARCH: ${{ secrets.NOTION_DB_RESEARCH }}
+
+      - name: Plan (Gemini)
+        run: node scripts/plan_tasks.js
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+      - name: Code apply (scaffolds + PRs)
+        run: node scripts/code_apply.js
+
+      - name: Morning brief → Notion
+        run: node scripts/morning_brief.js
+        env:
+          NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
+          NOTION_DB_MORNING: ${{ secrets.NOTION_DB_MORNING }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: night-artifacts
+          path: |
+            research/**
+            plans/**
+            podcast/briefs/**
+            reports/**

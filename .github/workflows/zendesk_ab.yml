@@ -11,12 +11,19 @@ jobs:
         with: { node-version: 20 }
       - name: Install deps
         run: npm ci || true
-      - name: Run AB script (Gemini = B)
+      - name: Run AB script (Gemini → fallback Perplexity)
         run: node scripts/zendesk_ab_test.js
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PPLX_API_KEY:  ${{ secrets.PPLX_API_KEY }}
+
       - name: Upload AB artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: zendesk-ab-results
-          path: reports/zendesk_ab*
+          path: |
+            reports/zendesk_ab.json
+            reports/zendesk_ab_results.csv
+          if-no-files-found: error
+          retention-days: 7

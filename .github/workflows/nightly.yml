@@ -65,6 +65,15 @@ jobs:
           NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
           NOTION_DB_MORNING: ${{ secrets.NOTION_DB_MORNING }}
 
+      - name: Show files created
+        run: |
+          echo "PWD = $(pwd)"
+          ls -la
+          echo "---- research ----";  [ -d research ] && find research -type f -maxdepth 2 -print || echo "no research dir"
+          echo "---- plans ----";     [ -d plans ] && find plans -type f -maxdepth 2 -print || echo "no plans dir"
+          echo "---- podcast ----";   [ -d podcast ] && find podcast -type f -maxdepth 3 -print || echo "no podcast dir"
+          echo "---- reports ----";   [ -d reports ] && find reports -type f -maxdepth 2 -print || echo "no reports dir"
+
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -75,3 +84,5 @@ jobs:
             plans/**
             podcast/briefs/**
             reports/**
+          if-no-files-found: error
+          retention-days: 7

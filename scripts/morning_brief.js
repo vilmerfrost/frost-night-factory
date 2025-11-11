@@ -20,9 +20,22 @@ try {
   budgetDetails = `Total: ${cost} SEK (${breakdown})`;
 } catch {}
 
+// Läs Drive upload metadata
+let driveDetails = "Inga uploads";
+try {
+  const uploads = JSON.parse(await fs.readFile("reports/drive_uploads.json","utf8"));
+  if (uploads.length > 0) {
+    const totalSize = uploads.reduce((sum, u) => sum + u.size, 0);
+    const sizeKB = Math.round(totalSize / 1024);
+    const created = uploads.filter(u => u.action === "created").length;
+    const updated = uploads.filter(u => u.action === "updated").length;
+    driveDetails = `${uploads.length} fil(er): ${created} ny, ${updated} uppdaterad (${sizeKB} KB)`;
+  }
+} catch {}
+
 const summary = `- Nattens plan körd\n- Se artifacts + PR-länkar`;
 const prs = `Kolla GitHub → Pull Requests (label: nightly)`;
-const podcast = `Ladda NotebookLM med podcast/briefs (om skapade)`;
+const podcast = `Ladda NotebookLM med podcast/briefs (om skapade)\n${driveDetails}`;
 
 await fs.writeFile("reports/morning.md", `# Morning Brief ${today}
 

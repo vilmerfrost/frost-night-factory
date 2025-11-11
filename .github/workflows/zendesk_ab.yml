@@ -1,0 +1,22 @@
+name: Zendesk vs Gemini AB
+on:
+  workflow_dispatch: {}
+
+jobs:
+  abtest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: Install deps
+        run: npm ci || true
+      - name: Run AB script (Gemini = B)
+        run: node scripts/zendesk_ab_test.js
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      - name: Upload AB artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: zendesk-ab-results
+          path: reports/zendesk_ab*

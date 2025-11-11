@@ -1,0 +1,11 @@
+subject,description,category,customer
+"ROT-fråga","Hur aktiverar jag ROT i fakturan för projekt 123?","billing","anna@example.com"
+"Inloggning","Jag får 'redirect_uri_mismatch' vid OAuth-login.","auth","jonas@example.com"
+"Tidrapport","Kan jag exportera tidrapporter vecka 45?","timesheet","lisa@example.com"
+"PEPPOL","E-faktura returnerar felkod 37.","billing","mats@example.com"
+"Projekt","Hur byter jag projektledare i Frost?","project","sofia@example.com"
+"Löneperiod","Knappen 'Spara' gör inget i löneperioder.","bug","erik@example.com"
+"BankID","Fel vid signering av avtal.","auth","maria@example.com"
+"Import","Hur importerar jag kunder från Excel?","project","timo@example.com"
+"Leverantörs-OCR","OCR läser fel totalbelopp.","billing","emil@example.com"
+"Personalliggare","Hur lägger jag till personal i personalliggaren?","project","ida@example.com"

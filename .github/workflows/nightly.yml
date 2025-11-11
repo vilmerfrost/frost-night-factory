@@ -54,6 +54,9 @@ jobs:
           PPLX_API_KEY: ${{ secrets.PPLX_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
+      - name: Pack briefs → TXT
+        run: node scripts/pack_briefs.js
+
       - name: Code apply (scaffolds + PRs)
         run: node scripts/code_apply.js
         continue-on-error: true
@@ -83,6 +86,7 @@ jobs:
             research/**
             plans/**
             podcast/briefs/**
+            podcast/export/**
             reports/**
           if-no-files-found: error
           retention-days: 7

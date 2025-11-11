@@ -28,7 +28,12 @@ jobs:
         with: { node-version: 20 }
 
       - name: Install deps
-        run: npm ci || true
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci --no-audit --progress=false
+          else
+            npm i --no-audit --progress=false
+          fi
 
       - name: Configure Git identity
         run: |

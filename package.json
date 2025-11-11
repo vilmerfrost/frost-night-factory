@@ -8,6 +8,7 @@
   "dependencies": {
     "@notionhq/client": "^2.2.15",
     "@supabase/supabase-js": "^2.46.1",
+    "googleapis": "^136.0.0",
     "js-yaml": "^4.1.0",
     "node-fetch": "^3.3.2"
   }

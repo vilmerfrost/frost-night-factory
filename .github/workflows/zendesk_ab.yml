@@ -10,7 +10,12 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
       - name: Install deps
-        run: npm ci || true
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci --no-audit --progress=false
+          else
+            npm i --no-audit --progress=false
+          fi
       - name: Run AB script (Gemini → fallback Perplexity)
         run: node scripts/zendesk_ab_test.js
         env:

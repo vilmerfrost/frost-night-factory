@@ -57,6 +57,12 @@ jobs:
       - name: Pack briefs → TXT
         run: node scripts/pack_briefs.js
 
+      - name: Upload briefs to Google Drive
+        run: node scripts/upload_to_drive.js
+        env:
+          GDRIVE_SA_JSON: ${{ secrets.GDRIVE_SA_JSON }}
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+
       - name: Code apply (scaffolds + PRs)
         run: node scripts/code_apply.js
         continue-on-error: true

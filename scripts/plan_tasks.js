@@ -87,3 +87,56 @@ try {
 
 await fs.writeFile("plans/today.md", text);
 console.log("✅ plan ready");
+
+// Write Cursor task file for PLAN→ACT integration
+await fs.mkdir(".cursor/memory-bank/session", { recursive: true });
+const today = new Date().toISOString().slice(0, 10);
+const cursorTask = `# Night Factory Task – ${today}
+
+## Objective
+Implement automated improvements based on nightly research
+
+## Context
+Night Factory has completed research and generated task recommendations.
+Review the plan below and implement in small, reviewable PRs.
+
+## Generated Plan
+${text}
+
+## Files to Touch
+[Review plan above for specific files]
+
+## Tests Required
+- [ ] All existing tests pass
+- [ ] New tests added per plan requirements
+- [ ] Budget stays under 150 SEK per task
+
+## Acceptance Criteria
+- [ ] Implementation matches plan goals
+- [ ] Code follows existing patterns
+- [ ] No schema/auth/RLS changes without manual review
+- [ ] PR created with clear description
+- [ ] Rollback plan documented
+
+## Constraints
+- Max budget per task: 150 SEK
+- No breaking changes
+- No database schema changes
+- No security/auth changes
+- Must be reversible
+
+## Human Gates
+- ✅ PLAN written (this file) → Human reviews
+- ⏳ ACT execution → Cursor/human implements
+- ⏳ MERGE → Human approves PR
+
+---
+
+**Generated:** ${new Date().toISOString()}
+**Source:** scripts/plan_tasks.js
+**Research:** research/notes.md
+**Detailed Plan:** plans/today.md
+`;
+
+await fs.writeFile(".cursor/memory-bank/session/current-task.md", cursorTask);
+console.log("✅ cursor task file updated");

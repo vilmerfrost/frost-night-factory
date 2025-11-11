@@ -1,6 +1,15 @@
 import { execSync } from "node:child_process";
 import fs from "fs/promises";
 
+// Sätt alltid lokal git-identitet i detta repo (failsafe på runnern)
+try {
+  const actor = process.env.GITHUB_ACTOR || "night-factory-bot";
+  execSync(`git config --local user.name "${actor}"`, { stdio: "inherit" });
+  execSync(`git config --local user.email "${actor}@users.noreply.github.com"`, { stdio: "inherit" });
+} catch (e) {
+  console.warn("Could not set local git identity:", e?.message);
+}
+
 await fs.mkdir("tasks", { recursive: true });
 const plan = await fs.readFile("plans/today.md","utf8");
 

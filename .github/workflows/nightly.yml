@@ -30,6 +30,11 @@ jobs:
       - name: Install deps
         run: npm ci || true
 
+      - name: Configure Git identity
+        run: |
+          git config --local user.name  "${GITHUB_ACTOR}"
+          git config --local user.email "${GITHUB_ACTOR}@users.noreply.github.com"
+
       - name: Research (Perplexity)
         run: node scripts/research.js
         env:
@@ -43,16 +48,25 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PPLX_API_KEY: ${{ secrets.PPLX_API_KEY }}
 
+      - name: Make NotebookLM podcast briefs
+        run: node scripts/make_podcast_briefs.js
+        env:
+          PPLX_API_KEY: ${{ secrets.PPLX_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
       - name: Code apply (scaffolds + PRs)
         run: node scripts/code_apply.js
+        continue-on-error: true
 
       - name: Morning brief → Notion
+        if: always()
         run: node scripts/morning_brief.js
         env:
           NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
           NOTION_DB_MORNING: ${{ secrets.NOTION_DB_MORNING }}
 
       - name: Upload artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: night-artifacts

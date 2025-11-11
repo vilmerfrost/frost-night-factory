@@ -1,0 +1,8 @@
+- **Supabase pgvector best practices EU + audit logging**: https://supabase.com/blog/pgvector-performance — 1.  - pgvector prestandaoptimering för produktion
+- **Supabase pgvector best practices EU + audit logging**: https://supabase.com/docs/guides/database/extensions/pgaudit — 2.  - PGAudit konfiguration och loggning
+- **Supabase pgvector best practices EU + audit logging**: https://supabase.com/blog/fewer-dimensions-are-better-pgvector — 3.  - Best practices för vektordimensioner
+- **Supabase pgvector best practices EU + audit logging**: https://supabase.com/docs/guides/ai/vector-columns — 4.  - Vektorkolumner documentation
+- **Supabase pgvector best practices EU + audit logging**: https://supabase.com/blog/pgvector-fast-builds — 5.  - pgvector 0.6.0 med snabbare indexbygge
+- **Supabase pgvector best practices EU + audit logging**: https://supabase.com/docs/guides/database/extensions/pgvector — 6.  - pgvector grundläggande dokumentation
+- **Supabase pgvector best practices EU + audit logging**: https://cookbook.openai.com/examples/vector_databases/supabase/semantic-search — 7.  - Semantisk sökning med Supabase
+- **Supabase pgvector best practices EU + audit logging**: https://blog.logrocket.com/using-supabases-vector-database-postgresql/ — 8.  - Supabase vector database guide

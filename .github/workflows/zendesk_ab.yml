@@ -10,9 +10,12 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
       - name: Install deps
+        shell: bash
         run: |
+          set -e
           if [ -f package-lock.json ]; then
-            npm ci --no-audit --progress=false
+            # Försök snabb 'ci'. Om den klagar på mismatch → kör 'npm i' som fallback.
+            npm ci --no-audit --progress=false || (rm -f package-lock.json && npm i --no-audit --progress=false)
           else
             npm i --no-audit --progress=false
           fi

@@ -37,10 +37,11 @@ jobs:
           NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
           NOTION_DB_RESEARCH: ${{ secrets.NOTION_DB_RESEARCH }}
 
-      - name: Plan (Gemini)
+      - name: Plan (Gemini → fallback Perplexity)
         run: node scripts/plan_tasks.js
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PPLX_API_KEY: ${{ secrets.PPLX_API_KEY }}
 
       - name: Code apply (scaffolds + PRs)
         run: node scripts/code_apply.js

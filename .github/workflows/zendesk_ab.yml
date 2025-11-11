@@ -8,9 +8,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 20 }
+        with:
+          node-version: 20
+          cache: 'npm'
       - name: Install deps
         shell: bash
+        timeout-minutes: 5
         run: |
           set -e
           if [ -f package-lock.json ]; then
@@ -20,6 +23,7 @@ jobs:
             npm i --no-audit --progress=false
           fi
       - name: Run AB script (Gemini → fallback Perplexity)
+        timeout-minutes: 10
         run: node scripts/zendesk_ab_test.js
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

@@ -1,8 +1,18 @@
 {
+  "_comment": "Night Factory Budget Configuration (v2.1)",
+  "_info": "All prices in SEK. Adjust based on actual API pricing and usage patterns.",
+  
   "night_total_SEK_max": 1250,
   "per_task_SEK_max": 150,
+  
   "prices": {
     "gemini_call_SEK": 0.15,
     "perplexity_call_SEK": 0.25
+  },
+  
+  "_thresholds": {
+    "_comment": "Warnings triggered at 75% and 90% of night_total_SEK_max",
+    "warning_75_percent": 937.5,
+    "warning_90_percent": 1125
   }
 }

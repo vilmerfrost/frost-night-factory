@@ -1,5 +1,6 @@
 import fs from "fs/promises";
 import { Client as Notion } from "@notionhq/client";
+import { getBudgetSummary } from "./budget.js";
 
 const notion = new Notion({ auth: process.env.NOTION_API_KEY });
 const db = process.env.NOTION_DB_MORNING;
@@ -8,16 +9,20 @@ if (!db) throw new Error("Missing NOTION_DB_MORNING");
 await fs.mkdir("reports", { recursive: true });
 const today = new Date().toISOString().slice(0,10);
 
-// Läs budget
+// Läs budget med enhanced summary
 let cost = 0;
 let budgetDetails = "Ingen kostnadsmätning";
 try {
-  const meter = JSON.parse(await fs.readFile("reports/budget_meter.json","utf8"));
-  cost = Math.round(meter.total * 100) / 100;
-  const breakdown = Object.entries(meter.by||{})
-    .map(([k,v])=>`${k}: ${Math.round(v*100)/100} SEK`)
+  const budgetSummary = await getBudgetSummary();
+  cost = Math.round(budgetSummary.total * 100) / 100;
+  const breakdown = Object.entries(budgetSummary.by || {})
+    .map(([k, v]) => `${k}: ${Math.round(v * 100) / 100} SEK`)
     .join(", ");
-  budgetDetails = `Total: ${cost} SEK (${breakdown})`;
+  
+  budgetDetails = (
+    `${budgetSummary.summary}\n\n` +
+    `Warnings: ${budgetSummary.warnings.length > 0 ? budgetSummary.warnings.join(', ') : 'none'}`
+  );
 } catch {}
 
 // Läs Drive upload metadata

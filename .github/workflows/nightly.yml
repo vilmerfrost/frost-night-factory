@@ -101,6 +101,11 @@ jobs:
           NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
           NOTION_DB_MORNING: ${{ secrets.NOTION_DB_MORNING }}
 
+      - name: Budget Report
+        if: always()
+        continue-on-error: true
+        run: node scripts/budget_report.js
+
       - name: Show files created
         run: |
           echo "PWD = $(pwd)"

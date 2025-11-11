@@ -5,9 +5,9 @@ import { canSpend } from "./budget.js";
 const { GEMINI_API_KEY, PPLX_API_KEY } = process.env;
 
 // Budget check
-const budgetCheck = await canSpend("gemini_call", 1);
+const budgetCheck = await canSpend("gemini_call", 1, "planning");
 if (!budgetCheck.ok) {
-  console.log("Budget cap hit – skipping planning");
+  console.log(budgetCheck.message || "Budget cap hit – skipping planning");
   process.exit(0);
 }
 

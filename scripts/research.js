@@ -16,9 +16,9 @@ const TOPICS = [
 ];
 
 // Budget check
-const budgetCheck = await canSpend("perplexity_call", TOPICS.length);
+const budgetCheck = await canSpend("perplexity_call", TOPICS.length, "research");
 if (!budgetCheck.ok) {
-  console.log("Budget cap hit – skipping research");
+  console.log(budgetCheck.message || "Budget cap hit – skipping research");
   process.exit(0);
 }
 

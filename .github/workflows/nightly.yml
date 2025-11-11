@@ -1,0 +1,4 @@
+name: Nightly Deep Cycle
+on:
+  workflow_dispatch: {}   # ⬅️ kör manuellt tills allt är klart
+  # schedule: [{ cron: "0 22 * * *" }]

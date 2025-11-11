@@ -1,0 +1,4 @@
+name: Hourly Health
+on:
+  workflow_dispatch: {}   # ⬅️ kör manuellt först
+  # schedule: [{ cron: "15 * * * *" }]

@@ -1,0 +1,14 @@
+{
+  "name": "frost-night-factory",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "night": "node scripts/research.js && node scripts/plan_tasks.js && node scripts/code_apply.js && node scripts/morning_brief.js"
+  },
+  "dependencies": {
+    "@notionhq/client": "^2.2.15",
+    "@supabase/supabase-js": "^2.46.1",
+    "js-yaml": "^4.1.0",
+    "node-fetch": "^3.3.2"
+  }
+}

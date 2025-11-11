@@ -1,7 +1,15 @@
 import fs from "fs/promises";
 import fetch from "node-fetch";
+import { canSpend } from "./budget.js";
 
 const { GEMINI_API_KEY, PPLX_API_KEY } = process.env;
+
+// Budget check
+const budgetCheck = await canSpend("gemini_call", 1);
+if (!budgetCheck.ok) {
+  console.log("Budget cap hit – skipping planning");
+  process.exit(0);
+}
 
 await fs.mkdir("plans", { recursive: true });
 const notes = await fs.readFile("research/notes.md", "utf8").catch(()=> "");

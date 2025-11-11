@@ -8,10 +8,21 @@ if (!db) throw new Error("Missing NOTION_DB_MORNING");
 await fs.mkdir("reports", { recursive: true });
 const today = new Date().toISOString().slice(0,10);
 
+// Läs budget
+let cost = 0;
+let budgetDetails = "Ingen kostnadsmätning";
+try {
+  const meter = JSON.parse(await fs.readFile("reports/budget_meter.json","utf8"));
+  cost = Math.round(meter.total * 100) / 100;
+  const breakdown = Object.entries(meter.by||{})
+    .map(([k,v])=>`${k}: ${Math.round(v*100)/100} SEK`)
+    .join(", ");
+  budgetDetails = `Total: ${cost} SEK (${breakdown})`;
+} catch {}
+
 const summary = `- Nattens plan körd\n- Se artifacts + PR-länkar`;
 const prs = `Kolla GitHub → Pull Requests (label: nightly)`;
 const podcast = `Ladda NotebookLM med podcast/briefs (om skapade)`;
-const cost = 0;
 
 await fs.writeFile("reports/morning.md", `# Morning Brief ${today}
 
@@ -24,7 +35,7 @@ ${prs}
 ${podcast}
 
 ## Kostnad
-${cost} SEK
+${budgetDetails}
 `);
 
 await notion.pages.create({

@@ -1,7 +1,7 @@
 name: Hourly Health
 on:
   workflow_dispatch: {}
-  # schedule: [{ cron: "15 * * * *" }]
+  schedule: [{ cron: "15 * * * *" }]  # varje hel timme + 15 min
 
 jobs:
   ping:

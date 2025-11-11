@@ -1,7 +1,7 @@
 name: Nightly Deep Cycle
 on:
   workflow_dispatch: {}
-  # schedule: [{ cron: "0 22 * * *" }]  # slå på när första manuella körningen funkar
+  schedule: [{ cron: "0 22 * * *" }]  # 23:00 svensk tid
 
 jobs:
   guardrails:
@@ -60,6 +60,13 @@ jobs:
       - name: Code apply (scaffolds + PRs)
         run: node scripts/code_apply.js
         continue-on-error: true
+
+      - name: Create PR (fallback)
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: nightly/auto-pr
+          title: "Nightly: auto changes"
+          commit-message: "chore(nightly): auto changes"
 
       - name: Morning brief → Notion
         if: always()

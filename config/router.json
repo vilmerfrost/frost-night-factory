@@ -1,0 +1,8 @@
+{
+  "night_total_SEK_max": 1250,
+  "per_task_SEK_max": 150,
+  "prices": {
+    "gemini_call_SEK": 0.15,
+    "perplexity_call_SEK": 0.25
+  }
+}

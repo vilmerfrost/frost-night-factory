@@ -1,6 +1,7 @@
 import fs from "fs/promises";
 import fetch from "node-fetch";
 import { Client as Notion } from "@notionhq/client";
+import { canSpend } from "./budget.js";
 
 const { PPLX_API_KEY, NOTION_API_KEY, NOTION_DB_RESEARCH } = process.env;
 
@@ -13,6 +14,13 @@ const TOPICS = [
   "LangGraph vs CrewAI vs AutoGen for nightly orchestration",
   "Supabase pgvector best practices EU + audit logging"
 ];
+
+// Budget check
+const budgetCheck = await canSpend("perplexity_call", TOPICS.length);
+if (!budgetCheck.ok) {
+  console.log("Budget cap hit – skipping research");
+  process.exit(0);
+}
 
 async function askPerplexity(q) {
   const res = await fetch("https://api.perplexity.ai/chat/completions", {

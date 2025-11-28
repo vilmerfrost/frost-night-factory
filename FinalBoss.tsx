@@ -1,1 +1,0 @@
-export default function Final(){ return <h1>I defeated the bug!</h1> }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Task } from "../page";
+import type { Task } from "../types";
 import TaskMessages from "./TaskMessages";
 import PipelineTimelineV3 from "./pipeline/PipelineTimelineV3";
 import { ExportButtons } from "./ExportButtons";

@@ -1,0 +1,24 @@
+{
+  "name": "frost-agent-runner",
+  "version": "1.0.0",
+  "description": "Frost Night Factory Agent Runner - Runs on your local machine",
+  "main": "index.ts",
+  "scripts": {
+    "start": "tsx index.ts",
+    "dev": "tsx watch index.ts",
+    "build": "tsc",
+    "run": "node dist/index.js"
+  },
+  "dependencies": {
+    "@supabase/auth-helpers-nextjs": "^0.15.0",
+    "@supabase/supabase-js": "^2.86.0",
+    "dotenv": "^16.4.5",
+    "openai": "^6.9.1",
+    "postgres": "^3.4.7"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.25",
+    "tsx": "^4.20.6",
+    "typescript": "^5"
+  }
+}

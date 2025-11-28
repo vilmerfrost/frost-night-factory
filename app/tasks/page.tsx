@@ -1,6 +1,6 @@
 "use client";
 
-import type { Task, TaskStatus } from "../page";
+import type { Task, TaskStatus } from "../types";
 
 interface TaskListProps {
   selectedTask: Task | null;

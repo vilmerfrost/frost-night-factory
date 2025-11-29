@@ -26,6 +26,10 @@ export interface ResearchOutput {
     db_notes: string[];
   };
   key_insights?: string[];
+  key_findings?: string[]; // For bug reports
+  file_candidates?: string[]; // For bug reports
+  api_considerations?: string[]; // For bug reports
+  recommended_solution_shape?: string; // For bug reports
   references?: Array<{ title: string; url: string }>;
   risks?: string[];
   recommended_scope_for_mvp?: string[];

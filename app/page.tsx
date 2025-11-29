@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import Link from "next/link";
 import {
@@ -30,6 +31,7 @@ interface Pipeline {
 }
 
 export default function Home() {
+  const router = useRouter();
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [stats, setStats] = useState({
     total: 0,
@@ -97,6 +99,16 @@ export default function Home() {
   useEffect(() => {
     loadPipelines();
   }, []);
+
+  // Auto-refresh every 5 seconds
+  useEffect(() => {
+    // Uppdatera var 5:e sekund (30s är lite segt när man väntar på agenter!)
+    const interval = setInterval(() => {
+      router.refresh();
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [router]);
 
   // Real-time updates
   useEffect(() => {

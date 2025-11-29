@@ -49,10 +49,10 @@ export default function TaskMessages({ taskId }: TaskMessagesProps) {
           if (payload.new) {
             setMessages((prev) => {
               // Check if message already exists
-              const exists = prev.find((m) => m.id === payload.new.id);
+              const exists = prev.find((m) => m.id === (payload.new as any).id);
               if (exists) {
                 return prev.map((m) =>
-                  m.id === payload.new.id ? (payload.new as Message) : m
+                  m.id === (payload.new as any).id ? (payload.new as Message) : m
                 );
               }
               return [...prev, payload.new as Message];

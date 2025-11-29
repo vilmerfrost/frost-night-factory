@@ -67,11 +67,13 @@ export async function POST(req: Request) {
     }
 
     // 2. Determine next stage
-    const nextStage = {
+    // Vi lägger till : Record<string, string | null> för att göra TypeScript nöjd
+    const nextStageMap: Record<string, string | null> = {
       planner: "coder",
       coder: "reviewer",
       reviewer: null,
-    }[stage];
+    };
+    const nextStage = nextStageMap[stage];
 
     // Get previous stage output for diff viewer
     let previousOutput = null;
@@ -93,7 +95,7 @@ export async function POST(req: Request) {
 
     // Clean the output (remove prompts, metadata, etc.)
     // Inline clean function to avoid import issues
-    function cleanModelOutput(output: string): string {
+    const cleanModelOutput = (output: string): string => {
       if (!output) return "";
       let cleaned = output;
       // Remove system echoes
@@ -124,7 +126,7 @@ export async function POST(req: Request) {
         cleaned = cleaned.replace(phrase, "");
       });
       return cleaned.trim();
-    }
+    };
 
     const cleanedOutput = cleanModelOutput(content);
 
@@ -196,7 +198,7 @@ export async function POST(req: Request) {
     }
 
     // Get the prompt for the next stage
-    const rolePrompts = {
+    const rolePrompts: Record<string, string> = {
       planner:
         "You are a senior planner. Convert this user task into clear, numbered steps.\n\nDo NOT produce code. Only produce a structured plan.",
       coder:

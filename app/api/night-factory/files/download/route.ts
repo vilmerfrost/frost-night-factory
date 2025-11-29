@@ -22,8 +22,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: error.message }, { status: 404 });
     }
 
-    const blob = await data.blob();
-    const arrayBuffer = await blob.arrayBuffer();
+    // Eftersom 'data' redan är en Blob, anropa arrayBuffer() direkt på den:
+    const arrayBuffer = await data.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
     return new NextResponse(buffer, {

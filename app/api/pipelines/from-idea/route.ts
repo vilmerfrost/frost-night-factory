@@ -28,8 +28,7 @@ export async function POST(req: NextRequest) {
         initial_prompt: ideaPrompt,
         status: "pending",
         current_phase: "research",
-        created_by: user?.id ?? null,
-      })
+        created_by: (user as any)?.id ?? null,      })
       .select("*")
       .single();
 

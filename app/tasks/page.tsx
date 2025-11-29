@@ -1,11 +1,7 @@
 "use client";
 
+import { useState } from "react";
 import type { Task, TaskStatus } from "../types";
-
-interface TaskListProps {
-  selectedTask: Task | null;
-  onSelectTask: (task: Task) => void;
-}
 
 const mockTasks: Task[] = [
   { 
@@ -89,7 +85,14 @@ const StatusBadge = ({ status }: { status: TaskStatus }) => {
   );
 };
 
-export default function TaskList({ selectedTask, onSelectTask }: TaskListProps) {
+export default function TaskPage() {
+  // Manage selectedTask as state instead of props
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  
+  const onSelectTask = (task: Task) => {
+    setSelectedTask(task);
+  };
+
   return (
     <div className="h-full flex flex-col frost-panel rounded-xl overflow-hidden">
       <div className="p-4 border-b border-white/5 bg-slate-900/50 flex justify-between items-center">

@@ -1,100 +1,90 @@
-"use client"
+"use client";
 
-import { useTheme } from 'next-themes'
-import { useEffect, useState } from 'react'
-import { useSupabaseClient } from '@supabase/auth-helpers-react'
-import { useSessionContext } from '@supabase/auth-helpers-react'
+import { useTheme } from "next-themes";
+import { useEffect, useState } from "react";
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"; // ✅ Rätt import
+import { useRouter } from "next/navigation";
 
 const SettingsPage = () => {
-  const { theme, setTheme } = useTheme()
-  const [currentTheme, setCurrentTheme] = useState(theme)
-  const [userId, setUserId] = useState<string | null>(null);
-  const supabase = useSupabaseClient();
-  const { session } = useSessionContext();
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const supabase = createClientComponentClient(); // ✅ Skapa klienten här
+  const router = useRouter();
 
   useEffect(() => {
-    setCurrentTheme(theme)
-  }, [theme])
+    setMounted(true);
+    checkUser();
+  }, []);
 
-  useEffect(() => {
-    if (session?.user?.id) {
-      setUserId(session.user.id);
-      fetchUserPreferences(session.user.id);
-    }
-  }, [session]);
-
-  const fetchUserPreferences = async (userId: string) => {
+  const checkUser = async () => {
     try {
-      const { data, error } = await supabase
-        .from('user_preferences')
-        .select('*')
-        .eq('user_id', userId)
-        .single();
-
-      if (error) {
-        console.error('Error fetching user preferences:', error);
-        return;
-      }
-
-      if (data) {
-        setTheme(data.theme as 'light' | 'dark' | 'system');
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        router.push("/login"); // Skicka till login om inte inloggad
       }
     } catch (error) {
-      console.error('Unexpected error fetching user preferences:', error);
+      console.error("Auth check failed", error);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleThemeChange = async (newTheme: string) => {
-    setTheme(newTheme as 'light' | 'dark' | 'system')
-    setCurrentTheme(newTheme)
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    router.push("/");
+    router.refresh();
+  };
 
-    if (!userId) {
-      console.warn('User ID not available.  Cannot save preference.');
-      return;
-    }
-
-    try {
-      const { data, error } = await supabase
-        .from('user_preferences')
-        .upsert(
-          {
-            user_id: userId,
-            theme: newTheme,
-          },
-          { onConflict: 'user_id' }
-        )
-        .select();
-
-      if (error) {
-        console.error('Error updating user preferences:', error);
-      }
-
-      if(data) {
-        console.log('User preferences updated successfully:', data);
-      }
-    } catch (error) {
-      console.error('Unexpected error updating user preferences:', error);
-    }
-  }
+  if (!mounted) return null;
+  if (loading) return <div className="p-8 text-zinc-400">Loading settings...</div>;
 
   return (
-    <div className="container mx-auto py-10">
-      <h1 className="text-2xl font-bold mb-5">Settings</h1>
-      <div className="mb-5">
-        <label htmlFor="theme-select" className="block text-sm font-medium text-gray-700">Theme</label>
-        <select
-          id="theme-select"
-          className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-          value={currentTheme}
-          onChange={(e) => handleThemeChange(e.target.value)}
-        >
-          <option value="system">System</option>
-          <option value="light">Light</option>
-          <option value="dark">Dark</option>
-        </select>
+    <div className="max-w-4xl mx-auto p-8 space-y-8 text-white">
+      <div>
+        <h1 className="text-3xl font-bold mb-2">Settings</h1>
+        <p className="text-zinc-400">Manage your preferences and account</p>
+      </div>
+
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 space-y-6">
+        <div>
+          <h2 className="text-xl font-semibold mb-4">Appearance</h2>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setTheme("dark")}
+              className={`px-4 py-2 rounded-lg border ${
+                theme === "dark" 
+                  ? "bg-blue-600 border-blue-500 text-white" 
+                  : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-white"
+              }`}
+            >
+              Dark Mode
+            </button>
+            <button
+              onClick={() => setTheme("light")}
+              className={`px-4 py-2 rounded-lg border ${
+                theme === "light" 
+                  ? "bg-blue-600 border-blue-500 text-white" 
+                  : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-white"
+              }`}
+            >
+              Light Mode
+            </button>
+          </div>
+        </div>
+
+        <div className="pt-6 border-t border-zinc-800">
+          <h2 className="text-xl font-semibold mb-4">Account</h2>
+          <button
+            onClick={handleSignOut}
+            className="px-4 py-2 bg-red-900/50 border border-red-800 text-red-200 rounded-lg hover:bg-red-900 transition"
+          >
+            Sign Out
+          </button>
+        </div>
       </div>
     </div>
-  )
-}
+  );
+};
 
 export default SettingsPage;

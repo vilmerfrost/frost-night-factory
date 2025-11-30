@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import Link from "next/link";
+import PipelineCreator from "@/components/pipeline/PipelineCreator";
 import {
   Activity,
   CheckCircle2,
@@ -290,6 +291,11 @@ export default function Home() {
             <div className="text-3xl font-bold text-red-400 mb-1">{stats.failed}</div>
             <div className="text-xs text-zinc-400 uppercase tracking-wide">Failed</div>
           </div>
+        </div>
+
+        {/* Pipeline Creator */}
+        <div className="mb-8">
+          <PipelineCreator />
         </div>
 
         {/* Active Pipelines */}

@@ -39,3 +39,5 @@ agent-runner/.env
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+agent-runner/workspace/sandbox/

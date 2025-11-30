@@ -10,12 +10,14 @@
     "runner": "cd agent-runner && npm start"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.0",
     "@google/generative-ai": "^0.21.0",
     "@supabase/auth-helpers-nextjs": "^0.9.0",
     "@supabase/auth-helpers-react": "^0.15.0",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.39.7",
     "clsx": "^2.1.1",
+    "dotenv": "^17.2.3",
     "lucide-react": "^0.344.0",
     "next": "14.1.0",
     "next-themes": "^0.4.6",

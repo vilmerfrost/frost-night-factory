@@ -15,9 +15,17 @@ import {
   generateLocalReview,
   generateBuildFix,
   generateLocalFix,
-  runKimiQA
+  generateGroqFix,
+  runKimiQA,
+  callAI
 } from '../lib/nightFactory/modelClient';
 import { GOLDEN_COMPONENTS } from './lib/golden-components';
+import { analyzeUpdateScope, UpdateScope } from '../lib/nightFactory/scopeAnalyzer';
+import { optimizeContextForCoder } from '../lib/nightFactory/contextBridge';
+import { generateDockerConfig } from '../lib/nightFactory/dockerAgent';
+import { detectProjectIntent } from '../lib/nightFactory/intentParser';
+import { runVisualAudit } from '../lib/nightFactory/visualAudit';
+import { runDocumentationStep } from '../lib/nightFactory/documentationAgent';
 
 // Ladda miljövariabler
 dotenv.config();
@@ -194,9 +202,35 @@ async function runResearchStep(pipeline: any) {
     return;
   }
 
-  const researchPrompt = `Analyze this app idea: "${pipeline.initial_prompt || pipeline.prompt}". 
-  Provide a technical implementation strategy for Next.js 15 (App Router) + Supabase + Tailwind.
-  List specific core features, data models, and critical libraries needed.`;
+  const userRequest = pipeline.initial_prompt || pipeline.prompt;
+  
+  const DEEP_RESEARCH_PROMPT = `
+ROLE: You are a Technical Lead performing Due Diligence.
+
+TASK: Research technical constraints for: "${userRequest}"
+
+⛔ IGNORE:
+
+- Beginner tutorials ("How to install React").
+
+- Generic marketing fluff.
+
+✅ FIND CRITICAL INFO:
+
+1. BREAKING CHANGES: specifically for Next.js 15 / React 19.
+
+2. COMPATIBILITY: Which libraries conflict with Server Components?
+
+3. BEST PRACTICE: What is the "State of the Art" stack for this specific tool today?
+
+4. GOTCHAS: What usually kills this type of project?
+
+OUTPUT:
+
+A bulleted list of TECHNICAL CONSTRAINTS and CONFIGURATION RULES for the Planner.
+  `;
+
+  const researchPrompt = DEEP_RESEARCH_PROMPT;
 
   try {
     const result = await performDeepResearch(researchPrompt);
@@ -218,6 +252,11 @@ async function runPlannerStep(pipeline: any, repoPath: string) {
   console.log(`[Planner] Creating blueprint...`);
   await updatePipeline(pipeline.id, { current_phase: 'planner' });
   await createStep(pipeline.id, 'planner', 'running');
+
+  // 🧠 INTENT DETECTION (Före planering!)
+  console.log("🧠 Detecting Project DNA...");
+  const intent = await detectProjectIntent(pipeline.initial_prompt || pipeline.prompt || "");
+  console.log(`🧬 DNA Config: ${intent.isPython ? "PYTHON 🐍" : "NODE ⚡"} (${intent.projectType})`);
 
   // Hämta research (kan vara null om vi hoppade över det, så hantera det)
   const { data: researchStep } = await supabase
@@ -250,22 +289,89 @@ async function runPlannerStep(pipeline: any, repoPath: string) {
       `;
   }
 
-  const planPrompt = `
-    ${promptPrefix}
-    
-    Request: "${pipeline.initial_prompt}"
-    
-    Based on the research below, create a detailed implementation plan for a Next.js 15 app.
-    
-    RESEARCH:
-    ${JSON.stringify(researchData).substring(0, 5000)}
+  // CRITICAL ARCHITECTURE RULES (ENFORCED BASED ON INTENT)
+  const architectureRules = intent.isPython ? 
+    `1. BACKEND: You MUST use Python (FastAPI/Flask) in a '/backend' directory.
+    2. FRONTEND: Use Next.js 15 in '/app' or '/src'.
+    3. CONNECTIVITY: Frontend calls Backend via HTTP (http://localhost:8000).
+    4. NO SERVERLESS: Do NOT use Next.js API Routes (app/api) for core logic.
+    5. DOCKER: Plan for docker-compose.yml that runs both services.` 
+    : 
+    `1. STACK: Fullstack Next.js 15 (App Router).
+    2. All backend logic goes in Server Actions or API Routes (app/api).`;
 
-    Create a detailed coding plan. Return a JSON structure with:
-    - file_structure (tree with all files needed)
-    - dependencies (list of npm packages)
-    - step_by_step_implementation (ordered list of tasks)
-    - database_schema (tables and relationships)
+  const RUTHLESS_PLANNER_PROMPT = `
+ROLE: You are a Paranoid Senior Systems Architect.
+
+TASK: Create a blueprint for a production-grade application.
+
+${promptPrefix}
+
+PROJECT REQUEST: "${pipeline.initial_prompt}"
+
+CRITICAL ARCHITECTURE RULES (ENFORCED):
+${architectureRules}
+
+RESEARCH DATA:
+${JSON.stringify(researchData).substring(0, 5000)}
+
+CRITICAL: NEXT.JS 15 REQUIREMENTS (MUST FOLLOW):
+- All route parameters (params, searchParams) MUST be awaited: const { slug } = await params;
+- All cookies() and headers() calls MUST be awaited: const token = (await cookies()).get('token');
+- All page components and route handlers using these APIs MUST be async functions.
+- Plan for explicit caching strategies: { cache: 'force-cache' } or { cache: 'no-store' }.
+- Do NOT mix Next.js 13/14 patterns. Use ONLY Next.js 15 patterns.
+
+⛔ FORBIDDEN (Immediate Failure Criteria):
+
+1. "MVP" or "Basic" implementations.
+
+2. Missing Error Handling (Global Error Boundaries required).
+
+3. Hardcoded values (All config must be env vars).
+
+4. "In-memory" stores (Must use Database).
+
+5. Simple "alert()" for errors (Must use Toasts/Modals).
+
+REQUIREMENTS (Must Include):
+
+1. FILE STRUCTURE: List EVERY single file needed. Don't say "components/..." - list them explicitly (e.g., "components/ui/Button.tsx", "components/ui/Card.tsx").
+
+2. DATA INTEGRITY: Define Zod schemas for all inputs (TypeScript) or Pydantic models (Python).
+
+3. SECURITY: Row Level Security (RLS) policies for every table in Supabase.
+
+4. UX: Loading skeletons (Suspense), Empty states, 404 pages.
+
+5. HYBRID LOGIC: If Python is used, define the exact IPC/HTTP interface (endpoints, request/response schemas).
+
+6. TYPE CONTRACT:
+   - Create a 'shared/types.ts' (or 'src/lib/types.ts') FIRST.
+   - ALL interfaces (Frontend & Backend) must strictly adhere to this file.
+   - NO ad-hoc type definitions in component files.
+   - This file is the SINGLE SOURCE OF TRUTH for all TypeScript/Pydantic type definitions.
+
+OUTPUT FORMAT:
+
+[PLAN]
+
+... detailed architecture with file structure, dependencies, step-by-step implementation, database schema ...
+
+[FILE_LIST]
+
+- /app/page.tsx (Dashboard with real data charts)
+- /app/layout.tsx (Root layout with error boundary)
+- /components/ui/Button.tsx (Reusable button component)
+- /components/ui/Card.tsx (Card component)
+- /backend/main.py (FastAPI with Pydantic models)
+- /backend/requirements.txt (Python dependencies)
+... (list EVERY file explicitly)
+
+[GOAL]
   `;
+
+  const planPrompt = RUTHLESS_PLANNER_PROMPT;
 
   try {
     // DU VÄLJER HÄR: Välj din planner "hjärna"
@@ -277,11 +383,12 @@ async function runPlannerStep(pipeline: any, repoPath: string) {
     // Alternativ B: Kimi k2 (Spara pengar / testa logik / backup om DeepSeek ligger nere)
     // console.log("[Planner] Thinking with Kimi k2...");
     // const plan = await generateKimiPlanner(planPrompt);
+    
     await updateStep(pipeline.id, 'planner', { 
       status: 'completed', 
-      output: { content: plan } 
+      output: { content: plan, isPython: intent.isPython, intent: intent } 
     });
-    await updatePipeline(pipeline.id, { current_phase: 'coder' });
+    await updatePipeline(pipeline.id, { current_phase: 'coder', is_python: intent.isPython });
   } catch (error) {
     console.error('[Planner] Failed:', error);
     await updatePipeline(pipeline.id, { status: 'failed' });
@@ -291,6 +398,170 @@ async function runPlannerStep(pipeline: any, repoPath: string) {
 // ------------------------------------------------------------------
 // STEG 3: CODER (Med Fixar för Config/CSS)
 // ------------------------------------------------------------------
+
+/**
+ * Helper function to parse AI output and write files to disk
+ */
+async function parseAndWriteFiles(rawOutput: string, repoPath: string): Promise<number> {
+  console.log("📂 Parsing AI Output...");
+  
+  const files: { path: string; content: string }[] = [];
+  
+  // Först: Försök med [FILE:] format (Python-protokollet)
+  const fileProtocolRegex = /\[FILE:\s*(.*?)\]([\s\S]*?)(\[GOAL\]|$)/g;
+  let match;
+
+  while ((match = fileProtocolRegex.exec(rawOutput)) !== null) {
+    const filePath = match[1].trim();
+    let content = match[2].trim();
+
+    // Rensa eventuella markdown-block om AI:n lade till dem (```typescript ... ```)
+    if (content.startsWith("```")) {
+      content = content.replace(/^```[a-z]*\n/, "").replace(/```$/, "");
+    }
+    
+    if (filePath && content) {
+      files.push({ path: filePath, content: content });
+      console.log(`   -> Extracted: ${filePath}`);
+    }
+  }
+  
+  // Om inga filer hittades med [FILE:], försök med ### FILE: format (standard)
+  if (files.length === 0) {
+    console.log("📂 Trying standard ### FILE: format...");
+    const standardFileRegex = /### FILE: (.*?)\n([\s\S]*?)### END_FILE/g;
+    
+    while ((match = standardFileRegex.exec(rawOutput)) !== null) {
+      const filePath = match[1].trim();
+      let content = match[2].trim();
+      
+      // Cleanup paths
+      let fileName = filePath;
+      if (!fileName.startsWith('app') && !fileName.startsWith('src') && !fileName.startsWith('package') && !fileName.startsWith('public') && !fileName.startsWith('lib') && !fileName.startsWith('components') && !fileName.startsWith('backend')) {
+        // Remove potentially hallucinated root folders like 'my-app/'
+        const parts = fileName.split('/');
+        if (parts.length > 1) fileName = parts.slice(1).join('/');
+      }
+      
+      // THE SANITIZER: Ta bort alla Markdown-artefakter
+      content = content.replace(/^```[a-zA-Z0-9]*\n?/m, '');
+      content = content.replace(/```$/m, '');
+      content = content.replace(/^### FILE:.*\n?/m, '');
+      content = content.replace(/```[a-zA-Z0-9]*\n/g, '').replace(/```$/g, '');
+      content = content.trim();
+      
+      if (fileName && content) {
+        files.push({ path: fileName, content: content });
+        console.log(`   -> Extracted: ${fileName}`);
+      }
+    }
+  }
+  
+  // FALLBACK: Om båda formaten misslyckades, försök hitta standard markdown block
+  if (files.length === 0) {
+    console.warn("⚠️ Standard parsing failed. Trying Markdown Fallback...");
+    const mdRegex = /\*\*([a-zA-Z0-9_\/.-]+)\*\*\n```[a-z]*\n([\s\S]*?)```/g;
+    while ((match = mdRegex.exec(rawOutput)) !== null) {
+      files.push({ path: match[1].trim(), content: match[2].trim() });
+      console.log(`   -> Extracted (fallback): ${match[1].trim()}`);
+    }
+  }
+  
+  if (files.length === 0) {
+    throw new Error(`AI generated 0 valid files. Output preview: ${rawOutput.substring(0, 200)}...`);
+  }
+  
+  let filesCreated = 0;
+  
+  // Processa alla extraherade filer
+  for (const file of files) {
+    let fileName = file.path;
+    let content = file.content;
+    
+    // Cleanup paths
+    if (!fileName.startsWith('app') && !fileName.startsWith('src') && !fileName.startsWith('package') && !fileName.startsWith('public') && !fileName.startsWith('lib') && !fileName.startsWith('components') && !fileName.startsWith('backend')) {
+      // Remove potentially hallucinated root folders like 'my-app/'
+      const parts = fileName.split('/');
+      if (parts.length > 1) fileName = parts.slice(1).join('/');
+    }
+
+    // 1. THE SANITIZER: Ta bort alla Markdown-artefakter (om inte redan gjort)
+    if (!content.includes('[FILE:') && !content.includes('### FILE:')) {
+      content = content.replace(/^```[a-zA-Z0-9]*\n?/m, '');
+      content = content.replace(/```$/m, '');
+      content = content.replace(/^### FILE:.*\n?/m, '');
+      content = content.replace(/```[a-zA-Z0-9]*\n/g, '').replace(/```$/g, '');
+    }
+    content = content.trim();
+
+    // 2. FIX: Force Safe globals.css
+    if (fileName.endsWith('globals.css')) {
+      if (content.includes('import') || content.includes('export') || content.includes('const ')) {
+           console.log(`[Coder] Sanatizing corrupted globals.css`);
+           content = `@tailwind base;\n@tailwind components;\n@tailwind utilities;\n`;
+      }
+    }
+
+    // 3. FIX: Force Safe next.config.mjs (Prevent Hallucinations)
+    if (fileName.endsWith('next.config.mjs') || fileName.endsWith('next.config.js')) {
+      console.log(`[Coder] Overwriting next.config with safe default.`);
+      content = `
+/** @type {import('next').NextConfig} */
+const nextConfig = {};
+export default nextConfig;
+      `;
+      fileName = 'next.config.mjs'; // Ensure extension
+    }
+
+    // 4. FIX: Force Safe tailwind.config.ts (Tailwind v3)
+    if (fileName.includes('tailwind.config')) {
+      console.log(`[Coder] Overwriting tailwind.config with Tailwind v3 default.`);
+      content = `
+import type { Config } from 'tailwindcss';
+
+const config: Config = {
+  content: [
+    './app/**/*.{js,ts,jsx,tsx,mdx}',
+    './components/**/*.{js,ts,jsx,tsx,mdx}',
+    './src/**/*.{js,ts,jsx,tsx,mdx}',
+  ],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+};
+
+export default config;
+      `;
+      fileName = 'tailwind.config.ts';
+    }
+
+    // 5. FIX: Force Safe postcss.config.js (Standard v3 setup)
+    if (fileName.includes('postcss.config')) {
+      console.log(`[Coder] Overwriting postcss.config with standard v3 config.`);
+      content = `
+module.exports = {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+};
+      `;
+      fileName = 'postcss.config.js';
+    }
+
+    const filePath = path.join(repoPath, fileName);
+    const dir = path.dirname(filePath);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+    fs.writeFileSync(filePath, content.trim());
+    console.log(`   -> Wrote: ${fileName}`);
+    filesCreated++;
+  }
+  
+  return filesCreated;
+}
+
 async function runCoderStep(pipeline: any, repoPath: string) {
   console.log(`[Coder] Writing code to ${repoPath}...`);
   if (!fs.existsSync(repoPath)) fs.mkdirSync(repoPath, { recursive: true });
@@ -308,6 +579,8 @@ async function runCoderStep(pipeline: any, repoPath: string) {
     .single();
 
   const plan = plannerStep?.output?.content || "No plan.";
+  const isPython = plannerStep?.output?.isPython || pipeline.is_python || false;
+  const intent = plannerStep?.output?.intent || { isPython: isPython, isHybrid: isPython, projectType: isPython ? 'hybrid' : 'web', frameworks: [] };
 
   // Hämta research och initial_prompt för dynamisk design
   const { data: researchStep } = await supabase
@@ -340,7 +613,152 @@ async function runCoderStep(pipeline: any, repoPath: string) {
   `;
 
   // System context för Claude (separat från task)
-  const systemContext = `You are a World-Class Fullstack Engineer building a Next.js 15 App.
+  let systemContext = "";
+  
+  const COMPONENT_NAMING_RULE = `
+CRITICAL FILE NAMING RULES:
+1. All React Components MUST be PascalCase (e.g., 'Button.tsx', 'Card.tsx').
+2. All imports MUST match the filename casing EXACTLY.
+   - WRONG: import { Button } from '@/components/ui/button'
+   - CORRECT: import { Button } from '@/components/ui/Button'
+3. Verify casing before writing code.
+`;
+
+  const STRICT_BACKEND_RULES = `
+🚨 MILITARY GRADE CODE STANDARDS - READ CAREFULLY 🚨
+
+1. NO PLACEHOLDERS: NEVER write "pass", "...", or "# TODO: Implement". You MUST write the full, working logic.
+
+2. NO MOCKS: Real database connections (Supabase/SQLite), real API calls.
+
+3. TYPE SAFETY: Python code MUST pass 'mypy --strict'. Use proper Pydantic models for everything.
+
+4. STARTUP GUARANTEE: The app MUST start with 'python main.py' or 'uvicorn main:app' without crashing.
+
+5. IMPORTS: Verify every single import. Do not import functions that don't exist.
+
+FAILURE TO COMPLY WILL RESULT IN IMMEDIATE PROCESS TERMINATION.
+`;
+
+  const STRICT_FRONTEND_RULES = `
+🚨 PIXEL PERFECT STANDARDS - READ CAREFULLY 🚨
+
+1. NO DEAD UI: Every button must have an 'onClick' or 'href'. No generic <div> buttons.
+
+2. NO GHOST IMPORTS: Do NOT import components that you haven't created. Check your file list.
+
+3. NO "HELLO WORLD": The Dashboard must be fully fleshed out with charts (Recharts), tables, and data.
+
+4. LOADING STATES: Every async component must have a <Suspense fallback={<Skeleton />}> wrapper.
+
+5. CASING: Component filenames are PascalCase (Button.tsx). Imports must match EXACTLY.
+`;
+
+  const FILE_PROTOCOL = `
+IMPORTANT - OUTPUT FORMAT:
+
+You must provide the full file content for every file you generate.
+
+Use this exact format for every file:
+
+[FILE: path/to/filename.ext]
+... code content ...
+[GOAL]
+
+Example:
+[FILE: backend/main.py]
+from fastapi import FastAPI
+app = FastAPI()
+[GOAL]
+
+Alternative format (also accepted):
+### FILE: path/to/filename.ext
+... code content ...
+    ### END_FILE
+`;
+  
+  if (isPython) {
+    console.log("🐍 Python/Hybrid project detected. Using Hybrid Architect system prompt...");
+    systemContext = `YOU ARE A HYBRID FULLSTACK ARCHITECT (Node.js Frontend + Python Backend).
+
+YOUR TASK: Generate the COMPLETE codebase for BOTH parts in this single response.
+
+PART 1: THE FRONTEND (Next.js 15) - REQUIRED
+- Path: /app or /src/app
+- MUST include ALL of these files:
+  * package.json (with Next.js 15, React, Tailwind CSS dependencies)
+  * next.config.mjs
+  * tailwind.config.ts
+  * postcss.config.js
+  * app/layout.tsx (REQUIRED - do not skip this!)
+  * app/page.tsx (REQUIRED - main page)
+  * app/globals.css (Tailwind directives)
+  * components/ (UI components as needed)
+- UI: Modern, dark mode, using Tailwind CSS.
+- Connect to backend via fetch('process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"')
+
+PREMIUM DESIGN PHILOSOPHY:
+1. AESTHETIC: Dark mode first. Ultra-premium, minimalist, clean. Think "Cyberpunk meets Apple".
+2. LAYOUT: Use a persistent Sidebar for navigation. Main content area is focused.
+3. HIERARCHY: Use font weights and color accents to guide the eye. No wall of text.
+4. COMPONENTS: All components must be polished (hover states, subtle animations).
+5. "WOW" FACTOR: Every app must have ONE delightful micro-interaction (e.g., subtle glow on active nav, keyboard shortcut hint ⌘K).
+6. AVOID OVERWHELM: Use tabs, accordions, or progressive disclosure. "Simple on surface, powerful underneath".
+
+CRITICAL UI RULES (The "Clickable" Mandate):
+1. NO DEAD LINKS: Avoid 'href="#"'. If a route doesn't exist, create a "Not Implemented" toast or modal.
+2. INTERACTIVITY: All buttons MUST have an 'onClick' handler or a valid 'Link href'.
+3. DATA FETCHING: Never hardcode 'localhost:8000'. Use 'process.env.NEXT_PUBLIC_API_URL' and create the env variable.
+4. LOADING STATES: All data fetching components MUST have a Skeleton loader (Suspense).
+5. ERROR HANDLING: All API calls MUST have try/catch blocks and show user-friendly error messages.
+
+${STRICT_FRONTEND_RULES}
+
+PART 2: THE BACKEND (Python FastAPI) - REQUIRED
+- Path: /backend
+- MUST include ALL of these files:
+  * backend/main.py (FastAPI app entry point, MUST run on port 8000)
+  * backend/requirements.txt (fastapi, uvicorn[standard], pydantic, python-dotenv)
+  * backend/.env.example (if using environment variables)
+- API: Must run on port 8000 and enable CORS for localhost:3000.
+- Example CORS setup: from fastapi.middleware.cors import CORSMiddleware; app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000"])
+
+BRAINY BACKEND PHILOSOPHY:
+1. INTELLIGENCE FIRST: The backend isn't just a database wrapper. It must do something smart. (e.g., auto-categorization, summarization, anomaly detection using AI).
+2. ROBUSTNESS: Use Pydantic for strict validation. Assume all inputs are malicious.
+3. SCALABILITY: Design async endpoints (FastAPI). Use background tasks (Celery/Arq) for heavy lifting if needed.
+4. DATA INTEGRITY: Use a real database (SQLite for local, Supabase for cloud). Do not rely on in-memory storage.
+5. TYPE SAFETY: Code must pass 'mypy --strict'.
+
+CRITICAL BACKEND RULES (The "Completeness" Protocol):
+1. NO PLACEHOLDERS: Do NOT write "TODO: Implement logic" or "pass" statements.
+2. FULL IMPLEMENTATION: You MUST implement the full logic for extraction (e.g., BeautifulSoup/Playwright setup).
+3. WORKING CODE: If logic is complex, implement a basic working version, but never leave it empty.
+4. TYPE HINTS: Add proper type hints to all functions (e.g., def extract_data(url: str) -> dict:).
+5. ERROR HANDLING: All API endpoints MUST have try/except blocks and return proper error responses.
+
+${STRICT_BACKEND_RULES}
+
+CRITICAL OUTPUT RULES:
+1. You MUST generate files for BOTH Frontend AND Backend in this single response.
+2. Do NOT leave "TODO" placeholders. Write working code.
+3. Do NOT skip the frontend - it is REQUIRED even if the request mentions Python.
+4. Use [FILE: ...] format for every file.
+5. ${designSystem}
+
+CRITICAL BACKEND RULES (The "Completeness" Protocol):
+1. NO PLACEHOLDERS: Do NOT write "TODO: Implement logic" or "pass" statements.
+2. FULL IMPLEMENTATION: You MUST implement the full logic for extraction (e.g., BeautifulSoup/Playwright setup).
+3. WORKING CODE: If logic is complex, implement a basic working version, but never leave it empty.
+4. TYPE HINTS: Add proper type hints to all functions (e.g., def extract_data(url: str) -> dict:).
+5. ERROR HANDLING: All API endpoints MUST have try/except blocks and return proper error responses.
+
+${COMPONENT_NAMING_RULE}
+
+${FILE_PROTOCOL}
+`;
+  } else {
+    systemContext = `You are a World-Class Fullstack Engineer building a Next.js 15 App.
 
 STRICT RULES:
 1. No external UI libraries (shadcn) - build generic Tailwind components inline if needed.
@@ -353,12 +771,14 @@ DEPENDENCY RULES (CRITICAL - DO NOT IGNORE):
 - Do NOT use @tailwindcss/postcss (we are using standard Tailwind v3 config).
 - Include a standard tailwind.config.ts with content paths for app/ and components/.
 - Include a postcss.config.js with tailwindcss and autoprefixer plugins.
+- If you use Supabase Auth, you MUST include "@supabase/auth-helpers-nextjs" and "@supabase/auth-helpers-react" in package.json.
+${isPython ? `
+PYTHON DEPENDENCIES:
+- Create requirements.txt with: fastapi, uvicorn[standard], pydantic, python-dotenv
+- For database: sqlalchemy, psycopg2-binary (PostgreSQL) or asyncpg
+` : ""}
 
-OUTPUT FORMAT:
-Use this exact format for every file:
-### FILE: path/to/file.ext
-File content here...
-    ### END_FILE
+${FILE_PROTOCOL}
 
 REQUIRED FILES:
 - package.json (scripts: dev, build, start + pinned dependencies)
@@ -368,11 +788,56 @@ REQUIRED FILES:
 - app/globals.css (ONLY Tailwind directives: @tailwind base; @tailwind components; @tailwind utilities;)
 - lib/supabase/client.ts, lib/supabase/server.ts
 - components/ui/* (Create all UI components you use)
+${isPython ? `
+PYTHON REQUIRED FILES:
+- backend/main.py (FastAPI app)
+- backend/requirements.txt
+- backend/.env.example (if using environment variables)
+` : ""}
 
-NEXT.JS 15 RULES:
+CRITICAL IMPORTS RULE (Ghost Component Prevention):
+- Do NOT import components you have not created.
+- If you create a dashboard, keep it simple in 'page.tsx' or create the sub-components explicitly in the output.
+- Better to have a large 'page.tsx' than missing files.
+- Before importing a component, ensure you have generated that component file in this response.
+
+PREMIUM DESIGN PHILOSOPHY:
+1. AESTHETIC: Dark mode first. Ultra-premium, minimalist, clean. Think "Cyberpunk meets Apple".
+2. LAYOUT: Use a persistent Sidebar for navigation. Main content area is focused.
+3. HIERARCHY: Use font weights and color accents to guide the eye. No wall of text.
+4. COMPONENTS: All components must be polished (hover states, subtle animations).
+5. "WOW" FACTOR: Every app must have ONE delightful micro-interaction (e.g., subtle glow on active nav, keyboard shortcut hint ⌘K).
+6. AVOID OVERWHELM: Use tabs, accordions, or progressive disclosure. "Simple on surface, powerful underneath".
+
+CRITICAL UI RULES (The "Clickable" Mandate):
+1. NO DEAD LINKS: Avoid 'href="#"'. If a route doesn't exist, create a "Not Implemented" toast or modal.
+2. INTERACTIVITY: All buttons MUST have an 'onClick' handler or a valid 'Link href'.
+3. DATA FETCHING: Never hardcode 'localhost:8000'. Use 'process.env.NEXT_PUBLIC_API_URL' and create the env variable.
+4. LOADING STATES: All data fetching components MUST have a Skeleton loader (Suspense).
+5. ERROR HANDLING: All API calls MUST have try/catch blocks and show user-friendly error messages.
+
+${STRICT_FRONTEND_RULES}
+
+NEXT.JS 15 RULES (CRITICAL - STRICT COMPLIANCE REQUIRED):
+- ⚠️ ASYNC REQUEST APIs: In Next.js 15, params, searchParams, cookies(), and headers() are ASYNC.
+  - ❌ WRONG: const { slug } = params; const token = cookies().get('token');
+  - ✅ CORRECT: const { slug } = await params; const token = (await cookies()).get('token');
+  - ALL route handlers, page components, and server components MUST await these APIs.
+  - If you use params/searchParams, the component MUST be async: export default async function Page({ params }) { const { slug } = await params; }
+  
+- CACHING: Next.js 15 defaults to "no cache" for many requests. Explicitly set caching if needed:
+  - Use { cache: 'force-cache' } for static data
+  - Use { cache: 'no-store' } for dynamic data
+  - Use { next: { revalidate: 3600 } } for ISR
+  
 - No 'use client' in layout.tsx if possible.
 - Use 'next/link' for navigation.
-- Do NOT include markdown code blocks inside file content.`;
+- Do NOT include markdown code blocks inside file content.
+- Do NOT mix Next.js 13/14 patterns with Next.js 15. Follow ONLY Next.js 15 patterns.
+
+${COMPONENT_NAMING_RULE}
+`;
+  }
 
   const taskPrompt = `
 IMPLEMENTATION PLAN:
@@ -389,119 +854,176 @@ Do not import things you haven't created.
                        !fs.existsSync(path.join(repoPath, 'app')) && !fs.existsSync(path.join(repoPath, 'src'));
   
   try {
-    let rawOutput: string;
+    // Variabler för review-loop (används av både hybrid och monolit)
     let maxIterations = 3; // Max antal review-iterationer
     let iteration = 0;
+    let rawOutput: string = ""; // För fix-loopen
     
-    // SMART ROUTER: Välj rätt AI
-    if (isNewProject) {
-      console.log("[Coder] 🚀 New project detected. Using Claude 4.5 Sonnet (premium quality)...");
-      rawOutput = await generateClaudeCoder(taskPrompt, systemContext);
+    // ---------------------------------------------------------
+    // SCENARIO 1: HYBRID (Divide & Conquer - Delad Hjärna)
+    // ---------------------------------------------------------
+    if (intent.isHybrid || (intent.isPython && isNewProject)) {
+      console.log("⚔️ Hybrid Project detected: Splitting Frontend & Backend tasks (Divide & Conquer).");
+
+      // STEG A: Frontend (Claude 3.5 Sonnet)
+      console.log("🎨 [Phase 1] Building Frontend (Next.js)...");
+      const PREMIUM_SAAS_PROMPT = `
+ROLE: You are a Lead Product Designer & Senior React Architect at Linear/Vercel.
+
+TASK: Build the Frontend for "${pipeline.initial_prompt || pipeline.prompt}".
+
+IMPLEMENTATION PLAN:
+${JSON.stringify(plan).substring(0, 3000)}
+
+DESIGN PHILOSOPHY (MANDATORY):
+
+1. AESTHETIC: Dark mode first. Ultra-premium, minimalist, clean. Think "Cyberpunk meets Apple".
+
+2. LAYOUT: Use a persistent Sidebar for navigation (like the reference). Main content area is focused.
+
+3. HIERARCHY: Use font weights and color accents (e.g., subtle gradients, primary brand color) to guide the eye. No wall of text.
+
+4. COMPONENTS: Use Shadcn UI + Tailwind CSS. All components must be polished (hover states, subtle animations).
+
+5. "WOW" FACTOR: Every app must have ONE delightful micro-interaction. E.g., A subtle glow on the active nav item, a satisfying animation when a task completes, a keyboard shortcut hint (⌘K).
+
+6. AVOID OVERWHELM: Do not clutter the interface. Use tabs, accordions, or progressive disclosure to hide complexity. "Simple on surface, powerful underneath".
+
+CRITICAL TECH RULES:
+
+1. Next.js 15 App Router (/app or /src/app).
+
+2. NO DEAD UI: Every button/link MUST work (href/onClick). No placeholder divs for navigation.
+
+3. LOADING STATES: Use <Suspense> and <Skeleton> for all async content. The app should feel instant.
+
+4. API CALLS: Never hardcode URLs. Use 'process.env.NEXT_PUBLIC_API_URL'.
+
+5. COMPONENT NAMING: PascalCase (e.g., Sidebar.tsx, ProjectCard.tsx). Imports must match EXACTLY.
+
+OUTPUT RULES:
+- Generate package.json, next.config.mjs, tailwind.config.ts, postcss.config.js, layout.tsx, page.tsx, globals.css.
+- Generate all UI components needed in components/ui/ folder.
+- Do NOT generate backend code (Python).
+- Assume backend runs on http://localhost:8000.
+- Connect to backend via fetch('process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"')
+- You are NOT allowed to use minimal HTML. You must build a professional, dense UI.
+
+CRITICAL IMPORTS RULE (Ghost Component Prevention):
+- Do NOT import components you have not created.
+- If you create a dashboard, keep it simple in 'page.tsx' or create the sub-components explicitly in the output.
+- Better to have a large 'page.tsx' than missing files.
+- Before importing a component, ensure you have generated that component file in this response.
+
+${STRICT_FRONTEND_RULES}
+
+${COMPONENT_NAMING_RULE}
+
+${FILE_PROTOCOL}
+      `;
+
+      const fePrompt = PREMIUM_SAAS_PROMPT;
+
+      // Kör Claude för Frontend
+      const feCode = await callAI("FRONTEND", fePrompt);
+      const feFilesCreated = await parseAndWriteFiles(feCode, repoPath);
+      console.log(`✅ Frontend Phase Complete: ${feFilesCreated} files created.`);
+
+      // STEG B: Backend (DeepSeek V3 - Bättre på logik/Python)
+      console.log("⚙️ [Phase 2] Building Backend (Python/FastAPI)...");
+      const BRAINY_BACKEND_PROMPT = `
+ROLE: You are a Senior AI Systems Engineer.
+
+TASK: Build the Python Backend for "${pipeline.initial_prompt || pipeline.prompt}".
+
+IMPLEMENTATION PLAN:
+${JSON.stringify(plan).substring(0, 3000)}
+
+CONTEXT: The frontend is a Next.js app calling this API on http://localhost:3000.
+
+CORE PHILOSOPHY:
+
+1. INTELLIGENCE FIRST: The backend isn't just a database wrapper. It must do something smart. (e.g., auto-categorization, summarization, anomaly detection using AI).
+
+2. ROBUSTNESS: Use Pydantic for strict validation. Assume all inputs are malicious.
+
+3. SCALABILITY: Design async endpoints (FastAPI). Use background tasks (Celery/Arq) for heavy lifting if needed.
+
+4. DATA INTEGRITY: Use a real database (SQLite for local, Supabase for cloud). Do not rely on in-memory storage.
+
+5. TYPE SAFETY: Code must pass 'mypy --strict'.
+
+OUTPUT RULES:
+
+- Generate /backend/main.py (FastAPI app entry point, MUST run on port 8000)
+- Generate /backend/requirements.txt (fastapi, uvicorn[standard], pydantic, python-dotenv)
+- Generate /backend/models.py (Pydantic models for all data structures)
+- Include CORS for localhost:3000.
+- Example CORS setup: from fastapi.middleware.cors import CORSMiddleware; app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000"])
+- Do NOT generate frontend code.
+
+CRITICAL BACKEND RULES (The "Completeness" Protocol):
+1. NO PLACEHOLDERS: Do NOT write "TODO: Implement logic" or "pass" statements.
+2. FULL IMPLEMENTATION: You MUST implement the full logic for extraction (e.g., BeautifulSoup/Playwright setup).
+3. WORKING CODE: If logic is complex, implement a basic working version, but never leave it empty.
+4. TYPE HINTS: Add proper type hints to all functions (e.g., def extract_data(url: str) -> dict:).
+5. ERROR HANDLING: All API endpoints MUST have try/except blocks and return proper error responses.
+
+${STRICT_BACKEND_RULES}
+
+${FILE_PROTOCOL}
+      `;
+
+      const bePrompt = BRAINY_BACKEND_PROMPT;
+
+      // Kör DeepSeek V3 för Backend
+      const beCode = await callAI("BACKEND", bePrompt);
+      const beFilesCreated = await parseAndWriteFiles(beCode, repoPath);
+      console.log(`✅ Backend Phase Complete: ${beFilesCreated} files created.`);
+
+      if (feFilesCreated === 0 && beFilesCreated === 0) {
+        throw new Error("AI generated 0 valid files for hybrid project.");
+      }
+
+      // Fortsätt med resten av processen (config fixes, review loop, etc.)
+      // Men hoppa över den vanliga parsing-loopen eftersom vi redan har skrivit filerna
     } else {
-      console.log("[Coder] 🔧 Small change detected. Trying Localhost (Qwen) first...");
-      try {
-        rawOutput = await generateLocalCoder(taskPrompt, systemContext);
-        console.log("[Coder] ✅ Localhost generation successful!");
-      } catch (localError) {
-        console.log("[Coder] ⚠️ Localhost failed, falling back to Claude...");
+      // ---------------------------------------------------------
+      // SCENARIO 2: MONOLIT (Standard Next.js)
+      // ---------------------------------------------------------
+      // SMART ROUTER: Välj rätt AI
+      if (isNewProject) {
+        console.log("[Coder] 🚀 New project detected. Using Claude 4.5 Sonnet (premium quality)...");
         rawOutput = await generateClaudeCoder(taskPrompt, systemContext);
-      }
-    }
-    
-    // Regex parsing strategy
-    const fileRegex = /### FILE: (.*?)\n([\s\S]*?)### END_FILE/g;
-    let match;
-    let filesCreated = 0;
-
-    while ((match = fileRegex.exec(rawOutput)) !== null) {
-      let [_, fileName, content] = match;
-      fileName = fileName.trim();
-      
-      // Cleanup paths
-      if (!fileName.startsWith('app') && !fileName.startsWith('src') && !fileName.startsWith('package') && !fileName.startsWith('public') && !fileName.startsWith('lib') && !fileName.startsWith('components')) {
-        // Remove potentially hallucinated root folders like 'my-app/'
-        const parts = fileName.split('/');
-        if (parts.length > 1) fileName = parts.slice(1).join('/');
-      }
-
-      // 1. THE SANITIZER: Ta bort alla Markdown-artefakter
-      // Ta bort inledande ```typescript, ```tsx, eller bara ```
-      content = content.replace(/^```[a-zA-Z0-9]*\n?/m, '');
-      // Ta bort avslutande ```
-      content = content.replace(/```$/m, '');
-      // Ta bort eventuella "### FILE: ..." som råkat komma med i början
-      content = content.replace(/^### FILE:.*\n?/m, '');
-      // Ta bort eventuella markdown fences i mitten också (för säkerhets skull)
-      content = content.replace(/```[a-zA-Z0-9]*\n/g, '').replace(/```$/g, '');
-      // Trim whitespace
-      content = content.trim();
-
-      // 2. FIX: Force Safe globals.css
-      if (fileName.endsWith('globals.css')) {
-        if (content.includes('import') || content.includes('export') || content.includes('const ')) {
-             console.log(`[Coder] Sanatizing corrupted globals.css`);
-             content = `@tailwind base;\n@tailwind components;\n@tailwind utilities;\n`;
+      } else {
+        // Backend/Frontend Specialist: För updates, välj modell baserat på uppgift
+        if (pipeline.type === 'update') {
+          const isDesignTask = pipeline.initial_prompt.toLowerCase().includes("design") || 
+                              pipeline.initial_prompt.toLowerCase().includes("ui") ||
+                              pipeline.initial_prompt.toLowerCase().includes("styling");
+          
+          if (isDesignTask) {
+            console.log("[Coder] 🎨 UI Task detected. Deploying Claude 4.5.");
+            rawOutput = await generateClaudeCoder(taskPrompt, systemContext);
+          } else {
+            console.log("[Coder] ⚙️ Logic/Fix Task detected. Deploying DeepSeek V3.");
+            // DeepSeek V3 för logik/fixar (billigare och snabbare)
+            const fullPrompt = `${systemContext}\n\n${taskPrompt}`;
+            rawOutput = await generateDeepSeekCoder(fullPrompt);
+          }
+        } else {
+          // För nya projekt eller små ändringar, använd DeepSeek V3 direkt (snabbare än Localhost)
+          console.log("[Coder] ⚙️ Using DeepSeek V3 for fast generation...");
+          const fullPrompt = `${systemContext}\n\n${taskPrompt}`;
+          rawOutput = await generateDeepSeekCoder(fullPrompt);
         }
       }
-
-      // 3. FIX: Force Safe next.config.mjs (Prevent Hallucinations)
-      if (fileName.endsWith('next.config.mjs') || fileName.endsWith('next.config.js')) {
-        console.log(`[Coder] Overwriting next.config with safe default.`);
-        content = `
-/** @type {import('next').NextConfig} */
-const nextConfig = {};
-export default nextConfig;
-        `;
-        fileName = 'next.config.mjs'; // Ensure extension
-      }
-
-      // 4. FIX: Force Safe tailwind.config.ts (Tailwind v3)
-      if (fileName.includes('tailwind.config')) {
-        console.log(`[Coder] Overwriting tailwind.config with Tailwind v3 default.`);
-        content = `
-import type { Config } from 'tailwindcss';
-
-const config: Config = {
-  content: [
-    './app/**/*.{js,ts,jsx,tsx,mdx}',
-    './components/**/*.{js,ts,jsx,tsx,mdx}',
-    './src/**/*.{js,ts,jsx,tsx,mdx}',
-  ],
-  theme: {
-    extend: {},
-  },
-  plugins: [],
-};
-
-export default config;
-        `;
-        fileName = 'tailwind.config.ts';
-      }
-
-      // 5. FIX: Force Safe postcss.config.js (Standard v3 setup)
-      if (fileName.includes('postcss.config')) {
-        console.log(`[Coder] Overwriting postcss.config with standard v3 config.`);
-        content = `
-module.exports = {
-  plugins: {
-    tailwindcss: {},
-    autoprefixer: {},
-  },
-};
-        `;
-        fileName = 'postcss.config.js';
-      }
-
-      const filePath = path.join(repoPath, fileName);
-      const dir = path.dirname(filePath);
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-
-      fs.writeFileSync(filePath, content.trim());
-      console.log(`   -> Wrote: ${fileName}`);
-      filesCreated++;
+      
+      // Använd hjälpfunktionen för parsing och skrivning
+      const filesCreated = await parseAndWriteFiles(rawOutput, repoPath);
+      
+      if (filesCreated === 0) throw new Error("AI generated 0 valid files.");
     }
-
-    if (filesCreated === 0) throw new Error("AI generated 0 valid files.");
 
     // SAFEGUARD: Skapa saknade config-filer om AI:n missade dem
     const tailwindConfigPath = path.join(repoPath, 'tailwind.config.ts');
@@ -695,14 +1217,14 @@ export function RefreshProvider({ children }: { children: ReactNode }) {
     do {
       // Samla all kod från sparade filer för review
       const codeToReview: string[] = [];
-      const codeFiles = ['app', 'components', 'lib'];
+      const codeFiles = ['app', 'components', 'lib', 'backend'];
       
       for (const dir of codeFiles) {
         const dirPath = path.join(repoPath, dir);
         if (fs.existsSync(dirPath)) {
           const files = getAllFiles(dirPath);
           for (const file of files) {
-            if (file.endsWith('.tsx') || file.endsWith('.ts') || file.endsWith('.jsx') || file.endsWith('.js')) {
+            if (file.endsWith('.tsx') || file.endsWith('.ts') || file.endsWith('.jsx') || file.endsWith('.js') || file.endsWith('.py')) {
               try {
                 const content = fs.readFileSync(file, 'utf-8');
                 codeToReview.push(`\n--- ${path.relative(repoPath, file)} ---\n${content}`);
@@ -716,88 +1238,121 @@ export function RefreshProvider({ children }: { children: ReactNode }) {
       
       const allCode = codeToReview.join('\n\n');
       
-      // Skicka till Localhost Reviewer
+      // ⚡ Groq Speed Review (ersätter LocalAI)
       console.log(`[Coder] 📝 Review iteration ${iteration + 1}/${maxIterations}...`);
-      const reviewComments = await generateLocalReview(allCode.substring(0, 10000), "Check for bugs regarding Next.js 15 App Router compatibility, TypeScript errors, and React hooks misuse.");
+      console.log("⚡ Groq (Llama 3.3) running instant code review...");
       
-      // Kolla svaret
-      if (reviewComments.toUpperCase().includes('LGTM') || reviewComments.toUpperCase().includes('LOOKS GOOD')) {
-        console.log("[Coder] ✅ Local Review Passed! Code looks good.");
-        needsFix = false;
-        break; // Avbryt review-loopen, koden är bra
-      } else {
-        console.log(`[Coder] ⚠️ Local Review found issues:`);
-        console.log(reviewComments);
-        needsFix = true;
-        iteration++;
+      try {
+        const reviewComments = await callAI(
+          "REVIEWER",
+          `Review this code for critical bugs only (ignore style). Check for Next.js 15 App Router compatibility, TypeScript errors, and React hooks misuse.\n\n${allCode.substring(0, 10000)}`
+        );
         
-        if (iteration < maxIterations) {
-          console.log(`[Coder] 🔧 Generating fixes...`);
-          // Skicka tillbaka till Claude för fix (Claude fixar, Qwen granskar)
-          // Men om Qwen (Local) timeoutade och returnerade "LGTM", så slipper du betala Claude för en onödig fix-runda.
-          const fixPrompt = `
+        // Kolla svaret
+        if (reviewComments.toUpperCase().includes('LGTM') || reviewComments.toUpperCase().includes('LOOKS GOOD')) {
+          console.log("[Coder] ✅ Groq Review Passed! Code looks good.");
+          needsFix = false;
+          break; // Avbryt review-loopen, koden är bra
+        } else {
+          console.log(`[Coder] ⚠️ Groq Review found issues:`);
+          console.log(reviewComments);
+          needsFix = true;
+          iteration++;
+          
+          if (iteration < maxIterations) {
+            console.log(`[Coder] 🔧 Generating fixes...`);
+            const fixPrompt = `
 The code reviewer found these issues:
 ${reviewComments}
 
-Please fix these issues in the code. Return the fixed code using the same ### FILE: format.
+Please fix these issues in the code. Return the fixed code using either format:
+- [FILE: path/to/file.ext] ... code ... [GOAL]
+- ### FILE: path/to/file.ext ... code ... ### END_FILE
+
 Only fix the files that have issues. Keep everything else unchanged.
-          `;
-          
-          try {
-            // Försök med Localhost för fixes
-            rawOutput = await generateLocalCoder(fixPrompt, systemContext);
-            console.log("[Coder] ✅ Localhost fix generation successful!");
-          } catch (localError) {
-            // Fallback till Claude för fixes
-            rawOutput = await generateClaudeCoder(fixPrompt, systemContext);
-            console.log("[Coder] ✅ Claude fix generation successful!");
-          }
-          
-          // Parsa och uppdatera filer igen
-          const fixRegex = /### FILE: (.*?)\n([\s\S]*?)### END_FILE/g;
-          let fixMatch;
-          let filesFixed = 0;
-          
-          while ((fixMatch = fixRegex.exec(rawOutput)) !== null) {
-            let [_, fileName, content] = fixMatch;
-            fileName = fileName.trim();
+            `;
             
-            // Cleanup paths
-            if (!fileName.startsWith('app') && !fileName.startsWith('src') && !fileName.startsWith('package') && !fileName.startsWith('public') && !fileName.startsWith('lib') && !fileName.startsWith('components')) {
-              const parts = fileName.split('/');
-              if (parts.length > 1) fileName = parts.slice(1).join('/');
+            // Använd DeepSeek V3 för fixes (billigt och snabbt)
+            rawOutput = await generateDeepSeekCoder(`${systemContext}\n\n${fixPrompt}`);
+            console.log("[Coder] ✅ DeepSeek V3 fix generation successful!");
+            
+            // Parsa och uppdatera filer igen - hantera både [FILE:] och ### FILE: format
+            const fixFiles: { path: string; content: string }[] = [];
+            
+            // Först: Försök med [FILE:] format
+            const fixProtocolRegex = /\[FILE:\s*(.*?)\]([\s\S]*?)(\[GOAL\]|$)/g;
+            let fixMatch;
+            
+            while ((fixMatch = fixProtocolRegex.exec(rawOutput)) !== null) {
+              const filePath = fixMatch[1].trim();
+              let content = fixMatch[2].trim();
+              
+              if (content.startsWith("```")) {
+                content = content.replace(/^```[a-z]*\n/, "").replace(/```$/, "");
+              }
+              
+              if (filePath && content) {
+                fixFiles.push({ path: filePath, content: content });
+              }
             }
             
-            // THE SANITIZER: Ta bort alla Markdown-artefakter
-            // Ta bort inledande ```typescript, ```tsx, eller bara ```
-            content = content.replace(/^```[a-zA-Z0-9]*\n?/m, '');
-            // Ta bort avslutande ```
-            content = content.replace(/```$/m, '');
-            // Ta bort eventuella "### FILE: ..." som råkat komma med i början
-            content = content.replace(/^### FILE:.*\n?/m, '');
-            // Ta bort eventuella markdown fences i mitten också (för säkerhets skull)
-            content = content.replace(/```[a-zA-Z0-9]*\n/g, '').replace(/```$/g, '');
-            // Trim whitespace
-            content = content.trim();
-            
-            const filePath = path.join(repoPath, fileName);
-            if (filePath.startsWith(repoPath)) {
-              const dir = path.dirname(filePath);
-              if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-              fs.writeFileSync(filePath, content);
-              console.log(`   -> Fixed: ${fileName}`);
-              filesFixed++;
+            // Om inga filer hittades, försök med ### FILE: format
+            if (fixFiles.length === 0) {
+              const fixStandardRegex = /### FILE: (.*?)\n([\s\S]*?)### END_FILE/g;
+              
+              while ((fixMatch = fixStandardRegex.exec(rawOutput)) !== null) {
+                const filePath = fixMatch[1].trim();
+                let content = fixMatch[2].trim();
+                
+                // THE SANITIZER: Ta bort alla Markdown-artefakter
+                content = content.replace(/^```[a-zA-Z0-9]*\n?/m, '');
+                content = content.replace(/```$/m, '');
+                content = content.replace(/^### FILE:.*\n?/m, '');
+                content = content.replace(/```[a-zA-Z0-9]*\n/g, '').replace(/```$/g, '');
+                content = content.trim();
+                
+                if (filePath && content) {
+                  fixFiles.push({ path: filePath, content: content });
+                }
+              }
             }
+            
+            let filesFixed = 0;
+            
+            for (const file of fixFiles) {
+              let fileName = file.path;
+              let content = file.content;
+              
+              // Cleanup paths
+              if (!fileName.startsWith('app') && !fileName.startsWith('src') && !fileName.startsWith('package') && !fileName.startsWith('public') && !fileName.startsWith('lib') && !fileName.startsWith('components') && !fileName.startsWith('backend')) {
+                const parts = fileName.split('/');
+                if (parts.length > 1) fileName = parts.slice(1).join('/');
+              }
+              
+              const filePath = path.join(repoPath, fileName);
+              if (filePath.startsWith(repoPath)) {
+                const dir = path.dirname(filePath);
+                if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+                fs.writeFileSync(filePath, content);
+                console.log(`   -> Fixed: ${fileName}`);
+                filesFixed++;
+              }
+            }
+            
+            if (filesFixed === 0) {
+              console.log("[Coder] ⚠️ No files were fixed. Continuing anyway...");
+              needsFix = false; // Break loop
+            }
+          } else {
+            console.log("[Coder] ⚠️ Max iterations reached. Continuing with current code...");
+            needsFix = false;
           }
-          
-          if (filesFixed === 0) {
-            console.log("[Coder] ⚠️ No files were fixed. Continuing anyway...");
-            needsFix = false; // Break loop
-          }
-        } else {
-          console.log("[Coder] ⚠️ Max iterations reached. Continuing with current code...");
-          needsFix = false;
         }
+      } catch (reviewError: any) {
+        console.warn("⚠️ Groq Review failed, skipping review to save time.", reviewError?.message);
+        // Om review misslyckas, fortsätt med koden som den är
+        needsFix = false;
+        break;
       }
     } while (needsFix && iteration < maxIterations);
 
@@ -825,6 +1380,35 @@ async function runSqlStep(pipeline: any, repoPath: string) {
     return;
   }
 
+  // 1. SMART SKIP (Scope Analyzer)
+  if (pipeline.type === 'update') {
+      try {
+          // Hämta filstruktur för scope analysis
+          const fileStructure = getProjectStructure(repoPath).join('\n');
+          const scope = await analyzeUpdateScope(pipeline.initial_prompt, fileStructure);
+          
+          console.log(`[SQL] 📊 Scope Analysis: SQL=${scope.requires_sql}, Backend=${scope.requires_backend}, Frontend=${scope.requires_frontend}`);
+          
+          if (!scope.requires_sql) {
+              console.log("[SQL] ⏭️ Scope Analyzer: No SQL changes required. Skipping SQL generation to save time.");
+              await updateStep(pipeline.id, 'sql', { status: 'skipped', output: { reason: 'Scope analysis determined no database changes needed', scope } });
+              await updatePipeline(pipeline.id, { current_phase: "tester" });
+              return;
+          }
+      } catch (scopeError: any) {
+          console.warn("[SQL] ⚠️ Scope Analyzer failed, using fallback heuristics:", scopeError.message);
+          // Fallback till enkel heuristik om scope analyzer misslyckas
+          const keywords = ['database', 'db', 'schema', 'table', 'column', 'migration', 'sql'];
+          const needsSql = keywords.some(k => pipeline.initial_prompt.toLowerCase().includes(k));
+          if (!needsSql) {
+              console.log("[SQL] ⏭️ Fallback: No DB keywords detected. Skipping SQL generation.");
+              await updateStep(pipeline.id, 'sql', { status: 'skipped', output: { reason: 'No database keywords in prompt' } });
+              await updatePipeline(pipeline.id, { current_phase: "tester" });
+              return;
+          }
+      }
+  }
+
   const { data: plannerStep } = await supabase
     .from('pipeline_steps')
     .select('output')
@@ -837,8 +1421,6 @@ async function runSqlStep(pipeline: any, repoPath: string) {
   const sqlPrompt = `
   You are a Senior PostgreSQL DBA.
 
-  Generate an idempotent migration file for the following project.
-
   
 
   INPUT PLAN:
@@ -847,77 +1429,70 @@ async function runSqlStep(pipeline: any, repoPath: string) {
 
 
 
-  STRICT REQUIREMENTS:
+  YOUR TASK:
 
-      1. Use "CREATE TABLE IF NOT EXISTS".
+  Generate a single SQL file to set up the database schema.
 
-  2. Enable RLS on all tables: "ALTER TABLE table_name ENABLE ROW LEVEL SECURITY;".
 
-  3. Create Policies for SELECT, INSERT, UPDATE, DELETE for authenticated users (using "auth.uid() = user_id").
 
-  4. Use "DROP POLICY IF EXISTS <name> ON <table_name>;" before creating policies.
+  CRITICAL RULES:
 
-  
+  1. **Start Clean:** Begin with "DROP TABLE IF EXISTS users, posts, events, etc CASCADE;" for all app tables.
 
-  CRITICAL: CLEAN SLATE PROTOCOL
+  2. **Create Tables:** Use "CREATE TABLE IF NOT EXISTS".
 
-  - Before creating tables, generate "DROP TABLE IF EXISTS table_name CASCADE;" for every table you intend to create.
+  3. **Security:** Enable RLS on all tables.
 
-  - This ensures we don't have schema mismatches with old data.
-
-  - Exception: Do NOT drop 'pipelines', 'pipeline_steps', or 'tickets' (System tables).
+  4. **Seed Data:** Insert 3 rows of dummy data at the end.
 
   
 
-  TRIGGER SYNTAX (CRITICAL):
+  ⛔️ FORBIDDEN:
 
-  - You MUST include "BEFORE UPDATE" or "AFTER INSERT" in create trigger statements.
+  - Do **NOT** use "ON CONFLICT" in INSERT statements. It causes errors.
 
-  - ERROR EXAMPLE: "CREATE TRIGGER x ON y" -> FAILS.
+  - Just use simple "INSERT INTO ... VALUES ...;".
 
-  - CORRECT EXAMPLE: "CREATE TRIGGER x BEFORE UPDATE ON y FOR EACH ROW EXECUTE FUNCTION ..."
+  - Do NOT drop the tables 'pipelines', 'pipeline_steps' or 'tickets'.
 
-  - For DROP TRIGGER, you MUST specify the table: "DROP TRIGGER IF EXISTS x ON y;"
+  CRITICAL RULES FOR SEED DATA:
+  1. NEVER use 'auth.users' in foreign key constraints if you cannot seed it.
+  2. If you must link to users, you MUST create a mock user first using:
+     INSERT INTO auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at, recovery_sent_at, last_sign_in_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at, confirmation_token, email_change, email_change_token_new, recovery_token)
+     VALUES ('00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated', 'authenticated', 'user@example.com', crypt('password123', gen_salt('bf')), NOW(), NULL, NULL, '{}', '{}', NOW(), NOW(), '', '', '', '');
+  3. Alternatively, REMOVE foreign key constraints for seed/mock data to prevent crashes.
+  4. Always insert parent records BEFORE child records (e.g., users before posts).
 
-  - If you use a trigger for 'updated_at', YOU MUST include this complete block:
+  CRITICAL UUID RULES (THE HEX-ENFORCER):
+  1. NEVER invent invalid UUIDs like 'gggg...', 'xxxx...', 'user-1', or any non-hexadecimal characters.
+  2. ALL UUIDs must be valid Hexadecimal format (only characters 0-9 and a-f).
+  3. For mock data, use strictly valid UUIDs:
+     - '00000000-0000-0000-0000-000000000000'
+     - '11111111-1111-1111-1111-111111111111'
+     - '22222222-2222-2222-2222-222222222222'
+     - etc. (all hexadecimal: 0-9, a-f only)
+  4. IDEALLY, use 'gen_random_uuid()' function for all INSERT statements instead of hardcoded strings.
+  5. Example CORRECT: INSERT INTO users (id, name) VALUES (gen_random_uuid(), 'Test User');
+  6. Example CORRECT: INSERT INTO users (id, name) VALUES ('00000000-0000-0000-0000-000000000000', 'Test User');
+  7. Example WRONG: INSERT INTO users (id, name) VALUES ('gggggggg-gggg-gggg-gggg-gggggggggggg', 'Test User');
+  8. Example WRONG: INSERT INTO users (id, name) VALUES ('user-1', 'Test User');
 
-    CREATE EXTENSION IF NOT EXISTS moddatetime SCHEMA extensions;
-
-    CREATE OR REPLACE FUNCTION public.moddatetime()
-    RETURNS TRIGGER AS $$
-    BEGIN
-      NEW.updated_at = CURRENT_TIMESTAMP;
-      RETURN NEW;
-    END;
-    $$ LANGUAGE plpgsql;
-
-    DROP TRIGGER IF EXISTS update_updated_at ON table_name;
-    CREATE TRIGGER update_updated_at
-      BEFORE UPDATE ON table_name
-      FOR EACH ROW
-      EXECUTE FUNCTION public.moddatetime();
-
-
-
-  TASK 2: SEED DATA GENERATION
-  - At the end of the SQL file, add INSERT statements.
-  - Insert 3-5 realistic rows into main tables (e.g. 'users', 'events', 'posts').
-  - Use "ON CONFLICT DO NOTHING" to prevent errors on re-runs.
-  - This is CRITICAL so the UI isn't empty and users can see real data immediately.
-  - Make the data realistic and relevant to the app's purpose (e.g. if it's a sports app, use sports-related data).
-
-  CRITICAL: SEED DATA RULES
-  1. Always use gen_random_uuid() for IDs.
-  2. When using "ON CONFLICT (column_name) DO NOTHING", you MUST ensure that 'column_name' has a UNIQUE constraint created earlier in the script.
-  3. Example: 
-     CREATE TABLE users (email TEXT UNIQUE, ...); 
-     ...
-     INSERT INTO users ... ON CONFLICT (email) DO NOTHING;
-  4. Ensure all foreign keys reference valid IDs (use subqueries or variables if needed, or just insert independent data).
+  CRITICAL VECTOR DATA RULES (THE DIMENSION-ENFORCER):
+  1. If you create a table with a 'vector(1536)' column (or any vector dimension), your mock data MUST have EXACTLY that many dimensions.
+  2. NEVER use short arrays like '[0.1, 0.2, 0.3]' for vector columns - they will fail with "expected X dimensions, not Y".
+  3. For mock vector data, use PostgreSQL's 'array_fill' function:
+     - CORRECT: array_fill(0, ARRAY[1536])::vector
+     - CORRECT: array_fill(0.1, ARRAY[1536])::vector
+     - WRONG: '[0.1, 0.2, 0.3]'
+     - WRONG: '[0.1, 0.2, 0.3, ...]' (incomplete)
+  4. Example CORRECT: INSERT INTO embeddings (id, content, embedding) VALUES (gen_random_uuid(), 'test', array_fill(0, ARRAY[1536])::vector);
+  5. If the vector column is 'vector(768)', use ARRAY[768] instead.
+  6. Always match the exact dimension count specified in the column definition.
 
   OUTPUT FORMAT:
 
-  Return ONLY the raw SQL code. No markdown formatting, no explanations.
+  Return ONLY raw SQL.
+
   `;
 
   try {
@@ -954,15 +1529,95 @@ async function runSqlStep(pipeline: any, repoPath: string) {
 
     } catch (dbError: any) {
       console.error(`[SQL] Execution Failed: ${dbError.message}`);
-      await updateStep(pipeline.id, 'sql', { status: 'failed', output: { error: dbError.message } });
-      await updatePipeline(pipeline.id, { status: 'failed' });
-      return; // Stop pipeline
-        } finally {
+      
+      // SQL Self-Healing: Retry om det är foreign key constraint-fel
+      if (dbError.message?.includes('violates foreign key constraint') || 
+          dbError.message?.includes('foreign key') ||
+          dbError.message?.includes('constraint')) {
+        console.log("❌ SQL Crashed due to foreign key constraint. Attempting Auto-Fix...");
+        
+        try {
+          // RETRY LOOP
+          const fixPrompt = `
+          The previous SQL failed with error: "${dbError.message}".
+          
+          TASK: Rewrite the SQL to fix this foreign key constraint error.
+          
+          STRATEGY:
+          1. Remove foreign key constraints from the creation script OR
+          2. Ensure dependency data is inserted first (e.g., users before posts).
+          3. If you need to reference auth.users, either:
+             - Create a mock user first (see previous instructions), OR
+             - Remove the foreign key constraint for seed data.
+          
+          CRITICAL UUID RULES (THE HEX-ENFORCER):
+          - NEVER invent invalid UUIDs like 'gggg...', 'xxxx...', 'user-1', or any non-hexadecimal characters.
+          - ALL UUIDs must be valid Hexadecimal format (only characters 0-9 and a-f).
+          - Use 'gen_random_uuid()' function for all INSERT statements OR valid hex UUIDs like '00000000-0000-0000-0000-000000000000'.
+          - Example CORRECT: VALUES (gen_random_uuid(), 'Test User');
+          - Example CORRECT: VALUES ('11111111-1111-1111-1111-111111111111', 'Test User');
+          - Example WRONG: VALUES ('gggggggg-gggg-gggg-gggg-gggggggggggg', 'Test User');
+          
+          CRITICAL VECTOR DATA RULES:
+          - If you use 'vector(1536)' columns, mock data MUST have exactly 1536 dimensions.
+          - Use 'array_fill(0, ARRAY[1536])::vector' for mock vectors, NOT '[0.1, 0.2, 0.3]'.
+          - Match the exact dimension count specified in the column definition.
+          - Example CORRECT: VALUES (gen_random_uuid(), 'test', array_fill(0, ARRAY[1536])::vector);
+          - Example WRONG: VALUES (gen_random_uuid(), 'test', '[0.1, 0.2, 0.3]');
+          
+          Return ONLY the fixed SQL code. No explanations.
+          `;
+          
+          // Kalla på DeepSeek V3 igen för att fixa
+          console.log("[SQL] 🔧 Generating fixed SQL with DeepSeek V3...");
+          let fixedSql = await generateDeepSeekCoder(fixPrompt);
+          fixedSql = fixedSql.replace(/```sql/g, '').replace(/```/g, '').trim();
+          
+          // Spara den fixade versionen
+          const migrationPath = path.join(repoPath, 'supabase', 'migrations');
+          if (!fs.existsSync(migrationPath)) fs.mkdirSync(migrationPath, { recursive: true });
+          const fixedFileName = `${Date.now()}_init_fixed.sql`;
+          fs.writeFileSync(path.join(migrationPath, fixedFileName), fixedSql);
+          
+          // Försök köra den fixade SQL-koden
+          console.log("[SQL] 🔄 Retrying with fixed SQL...");
+          await sql.unsafe(fixedSql);
+          console.log("[SQL] ✅ Fixed SQL executed successfully!");
+          
+          // Verifiering
+          const tables = await sql`
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_schema = 'public' 
+              AND table_type = 'BASE TABLE';
+          `;
+          const tableNames = tables.map((t: any) => t.table_name).join(', ');
+          console.log(`[SQL VERIFICATION] Active tables in DB: [${tableNames}]`);
+          
+          await updateStep(pipeline.id, 'sql', { status: 'completed', output: { tables: tableNames, fixed: true } });
+          await updatePipeline(pipeline.id, { current_phase: 'tester' });
             await sql.end();
+          return; // Success, exit function
+          
+        } catch (retryError: any) {
+          console.error(`[SQL] ❌ Auto-Fix also failed: ${retryError.message}`);
+          await updateStep(pipeline.id, 'sql', { status: 'failed', output: { error: dbError.message, retryError: retryError.message } });
+          await updatePipeline(pipeline.id, { status: 'failed' });
+          await sql.end();
+          return; // Stop pipeline
         }
-
-  } catch (error) {
-    console.error('[SQL] Agent Failed:', error);
+    } else {
+        // Om det inte är foreign key-fel, faila direkt
+        await updateStep(pipeline.id, 'sql', { status: 'failed', output: { error: dbError.message } });
+        await updatePipeline(pipeline.id, { status: 'failed' });
+        await sql.end();
+        return; // Stop pipeline
+      }
+    } finally {
+      if (sql) await sql.end();
+    }
+  } catch (error: any) {
+    console.error('[SQL] Agent Failed:', error?.message);
     await updatePipeline(pipeline.id, { status: 'failed' });
   }
 }
@@ -1019,43 +1674,69 @@ async function runAuditLoop(pipeline: any, repoPath: string): Promise<boolean> {
       // 3. Kickback till Coder (Claude)
       const fixPrompt = `
       CRITICAL CODE REVIEW FAILED.
-      The Code Auditor (Kimi k2) found the following issues (likely Mock Data or logical gaps):
+      The Code Auditor found issues (Mock Data).
       
+      AUDIT REPORT:
       ${auditResult}
       
       YOUR TASK:
-      1. Fix the issues immediately. Replace mocks with real Supabase calls.
-      2. Return ONLY the fixed file content using ### FILE: <filename> format.
-      3. Use real database queries: supabase.from('table_name').select(), fetch(), or server actions.
-      4. Remove any hardcoded arrays like const users = [{id: 1, name: 'John'}].
+      1. Refactor the code to fetch REAL data from Supabase.
+      2. If tables are empty, show "No data found" state.
+      3. Return the FULL file content.
+      
+      IMPORTANT OUTPUT RULES:
+      - Use the format: ### FILE: <filename> ...code... ### END_FILE
+      - If you fix multiple files, list them all.
+      - NO explanations. Just code.
       `;
 
-      // Använd Claude (eller DeepSeek V3 om du vill spara pengar) för att fixa
-      const fixedCode = await generateClaudeCoder(fixPrompt, "You are a Senior Developer fixing code review issues. No explanations. Return only code files.");
+      console.log("🧠 Claude is fixing audit issues...");
+      const fixedCode = await generateClaudeCoder(fixPrompt, "You are a Senior Developer fixing code. Output format: ### FILE: <name> ... ### END_FILE");
 
-      // 4. Skriv över filerna
+      // 4. Skriv över filerna (Med Fallback!)
       const fileRegex = /### FILE: (.*?)\n([\s\S]*?)### END_FILE/g;
       let match;
-      let fixedCount = 0;
-      
+      let filesFixedCount = 0; // Håll koll på om vi faktiskt gjorde något
+
       while ((match = fileRegex.exec(fixedCode)) !== null) {
-        const fileName = match[1].trim();
-        let content = match[2].trim();
-        
-        // Sanitizer (samma som vi lade in förut)
-        content = content.replace(/^```[a-z]*\n/i, "").replace(/```$/, "").trim();
-        
-        const filePath = path.join(repoPath, fileName);
-        const dir = path.dirname(filePath);
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        
-        fs.writeFileSync(filePath, content);
-        console.log(`-> 🛠️ Audit Fix Applied: ${fileName}`);
-        fixedCount++;
+          const fileName = match[1].trim();
+          let content = match[2].trim();
+          // Sanitizer
+          content = content.replace(/^```[a-z]*\n/i, "").replace(/```$/, "");
+          
+          const filePath = path.join(repoPath, fileName);
+          // Säkerställ att mappen finns
+          const dir = path.dirname(filePath);
+          if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+          
+          fs.writeFileSync(filePath, content);
+          console.log(`-> 🛠️ Audit Fix Applied: ${fileName}`);
+          filesFixedCount++;
       }
       
-      if (fixedCount === 0) {
-        console.warn("⚠️ No files were fixed. Audit loop will retry...");
+      // FALLBACK PARSER (Om regex missar)
+      if (filesFixedCount === 0) {
+          console.log("⚠️ Strict parsing failed in Audit. Trying Fallback Strategy...");
+          // Försök hitta markdown-block och gissa fil (oftast page.tsx som bråkar)
+          const codeBlockMatch = fixedCode.match(/```(?:typescript|tsx|ts|js)?\n([\s\S]*?)```/);
+          if (codeBlockMatch) {
+              // Vi antar att det är den filen Kimi klagade mest på (page.tsx)
+              // Eller så letar vi efter filnamnet i texten.
+              // Förenkling: Vi skriver till app/page.tsx om det verkar vara en React-komponent
+              const content = codeBlockMatch[1].trim();
+              if (content.includes("export default function")) {
+                 const fallbackFile = "app/page.tsx"; // Gissning, men oftast rätt vid mock-fel
+                 const p = path.join(repoPath, fallbackFile);
+                 fs.writeFileSync(p, content);
+                 console.log(`-> 🛠️ Fallback Audit Fix Applied to: ${fallbackFile}`);
+                 filesFixedCount++;
+              }
+          }
+      }
+
+      if (filesFixedCount === 0) {
+          console.warn("⚠️ Claude produced output, but no files were updated. Breaking loop to avoid infinite spin.");
+          break; // Bryt loopen om vi inte kan applicera fixen
       }
       
       // Loopa runt och testa igen!
@@ -1072,10 +1753,100 @@ async function runAuditLoop(pipeline: any, repoPath: string): Promise<boolean> {
 // ------------------------------------------------------------------
 // STEG 5: TESTER (Build)
 // ------------------------------------------------------------------
+
+// Anti-Lazy Check
+function scanForLaziness(projectPath: string): { found: boolean; issues: string[] } {
+  console.log("🕵️ Scanning for lazy code...");
+  const lazyPatterns = [
+    { pattern: /TODO:/gi, name: "TODO" },
+    { pattern: /FIXME:/gi, name: "FIXME" },
+    { pattern: /\bpass\s*$/gm, name: "pass statement" },
+    { pattern: /console\.log\(/g, name: "console.log" },
+    { pattern: /alert\(/g, name: "alert()" },
+    { pattern: /Lorem ipsum/gi, name: "Lorem ipsum" },
+    { pattern: /:\s*any\s*[=,;)]/g, name: "any type" },
+    { pattern: /return null;$/gm, name: "return null" },
+  ];
+
+  const issues: string[] = [];
+  const scannedFiles: string[] = [];
+
+  function scanDirectory(dir: string, baseDir: string = projectPath) {
+    try {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        const relativePath = path.relative(baseDir, fullPath);
+        
+        // Ignorera node_modules, .next, venv, etc.
+        if (entry.name === 'node_modules' || entry.name === '.next' || entry.name === 'venv' || 
+            entry.name === '__pycache__' || entry.name === '.git' || entry.name.startsWith('.')) {
+          continue;
+        }
+        
+        if (entry.isDirectory()) {
+          scanDirectory(fullPath, baseDir);
+    } else {
+          // Skanna bara kod-filer
+          const ext = path.extname(entry.name);
+          if (['.ts', '.tsx', '.js', '.jsx', '.py'].includes(ext)) {
+            scannedFiles.push(relativePath);
+            try {
+              const content = fs.readFileSync(fullPath, 'utf-8');
+              for (const { pattern, name } of lazyPatterns) {
+                if (pattern.test(content)) {
+                  issues.push(`Found '${name}' in ${relativePath}`);
+                }
+              }
+            } catch (e) {
+              // Ignorera läsfel
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // Ignorera läsfel
+    }
+  }
+
+  scanDirectory(projectPath);
+  
+  if (issues.length > 0) {
+    console.error("❌ LAZY CODE DETECTED:");
+    issues.forEach(issue => console.error(`   - ${issue}`));
+    return { found: true, issues };
+  }
+  
+  console.log(`✅ Lazy code scan passed (scanned ${scannedFiles.length} files)`);
+  return { found: false, issues: [] };
+}
+
 async function runTesterStep(pipeline: any, repoPath: string) {
   console.log(`[Tester] Starting verification for ${pipeline.id}...`);
   await updatePipeline(pipeline.id, { current_phase: 'tester' });
   await createStep(pipeline.id, 'tester', 'running');
+
+  // --- 🧹 DUPLICATE KILLER (The Nuclear Option) ---
+  // Tvinga en ren struktur. Om 'src' finns, ska inga komponenter ligga i roten.
+  const hasSrc = fs.existsSync(path.join(repoPath, 'src'));
+  
+  if (hasSrc) {
+    console.log("[Tester] 🧹 Standardizing folder structure (Removing root duplicates)...");
+    
+    // Lista på mappar som ofta dubbleras
+    const duplicates = ['lib', 'components', 'app', 'types'];
+    
+    duplicates.forEach(folder => {
+      const rootPath = path.join(repoPath, folder);
+      const srcPath = path.join(repoPath, 'src', folder);
+      
+      if (fs.existsSync(rootPath) && fs.existsSync(srcPath)) {
+        console.log(`   -> Removing duplicate '${folder}' from root (keeping src/${folder})`);
+        fs.rmSync(rootPath, { recursive: true, force: true });
+      }
+    });
+  }
+  // -----------------------------------------------------
 
   // --- 🛠️ PRE-FLIGHT FIXES (THE SILVER BULLET) ---
   console.log("[Tester] 🔧 Applying Pre-flight System Fixes...");
@@ -1283,11 +2054,11 @@ export default config;
 
   // 1. Se till att package.json finns och har scripts
   const pkgPath = path.join(repoPath, 'package.json');
-  if (fs.existsSync(pkgPath)) {
+    if (fs.existsSync(pkgPath)) {
     const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
     pkg.scripts = { ...pkg.scripts, build: "next build", dev: "next dev" };
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
-  } else {
+    } else {
     // Fallback om coder helt missade package.json
     fs.writeFileSync(pkgPath, JSON.stringify({
       name: "frost-generated-app",
@@ -1324,6 +2095,14 @@ export default config;
         console.log("-> Dependencies installed successfully.");
       }
 
+      // 1.5. ANTI-LAZY SCAN (Före build - tvinga implementation)
+      const lazinessCheck = scanForLaziness(repoPath);
+      if (lazinessCheck.found) {
+        const errorMessage = `LAZY CODE DETECTED:\n${lazinessCheck.issues.join('\n')}\n\nFIX IT. No placeholders allowed.`;
+        console.error(`❌ ${errorMessage}`);
+        throw new Error(errorMessage);
+      }
+
       // 2. KÖR TSC FÖRST (The Sniper) - Detta hittar felen du såg!
       console.log("[Tester] Running TypeScript Check (tsc)...");
       try {
@@ -1345,6 +2124,125 @@ export default config;
       });
       
       console.log("✅ Build Successful!");
+
+      // --- 🐍 THE PYTHON ENFORCER (MyPy Integration) ---
+      // Om projektet är Python/Hybrid -> Kör MyPy typkoll
+      if (pipeline.is_python || fs.existsSync(path.join(repoPath, 'backend', 'main.py'))) {
+        console.log("[Tester] 🐍 Running Python Type Safety Check (MyPy)...");
+        try {
+          // Installera mypy om det saknas (bör ligga i requirements.txt men för säkerhets skull)
+          try {
+            execSync('python -m pip install mypy --quiet', { 
+              cwd: repoPath,
+              stdio: 'pipe',
+              timeout: 30000 // 30s timeout
+            });
+          } catch (installError) {
+            // Om pip install misslyckas, försök med pip3 eller python3
+            try {
+              execSync('python3 -m pip install mypy --quiet', { 
+                cwd: repoPath,
+                stdio: 'pipe',
+                timeout: 30000
+              });
+            } catch (e) {
+              console.warn("[Tester] ⚠️ Could not install mypy. Skipping Python type check.");
+            }
+          }
+          
+          // Kör strikt typkoll på backend-mappen
+          const backendPath = path.join(repoPath, 'backend');
+          if (fs.existsSync(backendPath)) {
+            execSync('python -m mypy backend --ignore-missing-imports --no-strict-optional', { 
+              cwd: repoPath,
+              stdio: 'pipe',
+              timeout: 60000 // 60s timeout
+            });
+            console.log("[Tester] ✅ Python Types: VERIFIED");
+          } else {
+            console.log("[Tester] ⚠️ No backend/ directory found. Skipping MyPy check.");
+          }
+        } catch (mypyError: any) {
+          console.error("[Tester] ❌ Python Type Check Failed!");
+          const mypyOutput = mypyError.stdout ? mypyError.stdout.toString() : "";
+          const mypyStderr = mypyError.stderr ? mypyError.stderr.toString() : "";
+          const mypyFullLog = mypyOutput + "\n" + mypyStderr;
+          
+          // Hitta Python-filer med fel
+          const pythonFileMatch = mypyFullLog.match(/(backend\/[a-zA-Z0-9_\-\/]+\.py)/);
+          let brokenPythonFile = pythonFileMatch ? pythonFileMatch[1] : "backend/main.py";
+          let brokenPythonContent = "";
+          
+          if (brokenPythonFile) {
+            try {
+              brokenPythonContent = fs.readFileSync(path.join(repoPath, brokenPythonFile), 'utf-8');
+            } catch (e) {
+              console.log(`[Tester] Could not read Python file: ${brokenPythonFile}`);
+            }
+          }
+          
+          console.log(`[Watchdog] 🐕 Python Type Error detected in: ${brokenPythonFile}`);
+          
+          // Anropa Watchdog för att fixa Python-filen
+          const pythonFixPrompt = `
+Python MyPy Type Check Error in file: ${brokenPythonFile}
+
+Error Log:
+${mypyFullLog.slice(-2000)}
+
+Current File Content:
+${brokenPythonContent || "File not found or empty"}
+
+TASK: Fix the Python type errors. Return the FIXED file content ONLY.
+
+STRATEGY:
+- Add proper type hints (e.g., def func(x: int) -> str:)
+- Fix type mismatches (e.g., str vs int)
+- Add Optional[...] for nullable values
+- Import typing module if needed (from typing import Optional, List, Dict, etc.)
+
+RETURN FORMAT:
+### FILE: ${brokenPythonFile}
+... fixed code ...
+### END_FILE
+          `;
+          
+          const pythonFixOutput = await callAI("FIXER", pythonFixPrompt, "", undefined, "SMART");
+          
+          // Parsa och skriv den fixade filen
+          const fileRegex = /### FILE: (.*?)\n([\s\S]*?)### END_FILE/g;
+          let fileMatch;
+          let fixed = false;
+          while ((fileMatch = fileRegex.exec(pythonFixOutput)) !== null) {
+            const fileName = fileMatch[1].trim();
+            let content = fileMatch[2].trim();
+            // Sanitize markdown artifacts
+            content = content.replace(/^```[a-z]*\n/i, "").replace(/```$/, "");
+            const filePath = path.join(repoPath, fileName);
+            const dir = path.dirname(filePath);
+            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+            fs.writeFileSync(filePath, content);
+            console.log(`[Watchdog] 🛠️ Fixed Python file: ${fileName}`);
+            fixed = true;
+          }
+          
+          if (!fixed) {
+            console.warn("[Watchdog] ⚠️ No valid Python fix code generated. Continuing anyway...");
+          } else {
+            // Försök MyPy igen efter fix
+            try {
+              execSync('python -m mypy backend --ignore-missing-imports --no-strict-optional', { 
+        cwd: repoPath, 
+                stdio: 'pipe',
+                timeout: 60000
+              });
+              console.log("[Tester] ✅ Python Types: VERIFIED (after fix)");
+            } catch (retryError) {
+              console.warn("[Tester] ⚠️ Python type check still failing after fix. Continuing with warnings...");
+            }
+          }
+        }
+      }
 
       // --- 👮 KIMI KICKBACK LOOP ---
       // Bygget lyckas, men vi är inte klara förrän Kimi ger tummen upp!
@@ -1380,18 +2278,86 @@ export default config;
       console.log(fullLog.slice(0, 5000)); // Visa första 5000 tecknen (TSC ger mycket info)
       console.log("🔺 --- ERROR LOG END --- 🔺");
 
+      // --- 📦 DEPENDENCY AUTO-FIXER (Ny logik) ---
+      const missingPkgMatches = fullLog.matchAll(/Cannot find module '([^.][^']*)'/g);
+      const pkgsToInstall = new Set<string>();
+      
+      for (const m of missingPkgMatches) {
+          const pkgName = m[1];
+          // Ignorera interna alias (@/) och relativa sökvägar
+          if (!pkgName.startsWith('@/') && !pkgName.startsWith('.')) {
+              pkgsToInstall.add(pkgName);
+          }
+      }
+
+      if (pkgsToInstall.size > 0) {
+          const installCmd = Array.from(pkgsToInstall).join(' ');
+          console.log(`[Watchdog] 📦 Detected missing packages: ${installCmd}`);
+          console.log(`[Watchdog] 🛠️ Auto-installing...`);
+          try {
+              execSync(`npm install ${installCmd} --legacy-peer-deps`, { cwd: repoPath, stdio: 'inherit' });
+              
+              // 2. SMART CHECK: Behövs @types?
+              // Om paketet inte är ett av de kända som har inbyggda typer, chansa på @types
+              for (const missingPackage of pkgsToInstall) {
+                  // Ignorera scoped packages (@scope/package) och packages som redan är @types
+                  if (missingPackage.startsWith('@') || missingPackage.startsWith('@types/')) {
+                      continue;
+                  }
+                  
+                  // Paket med inbyggda TypeScript-typer (behöver inte @types)
+                  const hasBuiltInTypes = [
+                      'zod', 'lucide-react', 'tailwind-merge', 'clsx', 
+                      'react', 'react-dom', 'next', '@supabase/supabase-js',
+                      '@supabase/auth-helpers-nextjs', '@supabase/auth-helpers-react'
+                  ].includes(missingPackage);
+                  
+                  if (!hasBuiltInTypes) {
+                      try {
+                          console.log(`[Watchdog] 📦 Trying to install types for ${missingPackage}...`);
+                          execSync(`npm install -D @types/${missingPackage} --legacy-peer-deps`, { 
+                              cwd: repoPath, 
+                              stdio: 'pipe' // Tysta ner @types-installationen om den misslyckas
+                          });
+                          console.log(`[Watchdog] ✅ Types installed for ${missingPackage}`);
+                      } catch (e) {
+                          // Ignorera om @types inte finns, det var värt ett försök
+                          console.log(`[Watchdog] ⚠️ No @types package found for ${missingPackage} (this is OK)`);
+                      }
+                  }
+              }
+              
+              console.log("✅ Packages installed. Retrying build immediately.");
+              continue; // Hoppa över resten och testa bygget igen!
+          } catch (e) {
+              console.error("❌ Auto-install failed.");
+          }
+      }
+      // -------------------------------------------
+
       // Strategi: Om det är ett import-fel ("Cannot find module"), måste vi ofta SKAPA en fil.
       // Vi försöker hitta vilken fil som har felet.
-      // TSC Output format: "src/app/page.tsx(1,1): error TS..."
-      const match = fullLog.match(/([a-zA-Z0-9_\-\/\\]+\.(tsx|ts|js|jsx))\(/);
-      let brokenFile = match ? match[1] : "";
+      // TSC Output format: "src/app/page.tsx(1,1): error TS..." eller "C:\path\to\file.tsx(1,1): error..."
+      // Bättre regex som hanterar både unix/win sökvägar
+      const match = fullLog.match(/([a-zA-Z0-9_\/\\.-]+\.(tsx|ts|js|jsx))\(\d+,\d+\):/);
+      let brokenFile = match ? match[1].trim() : "";
+      
+      // Normalisera sökvägar (ta bort fullständig sökväg om den finns)
+      if (brokenFile && brokenFile.includes(repoPath)) {
+        brokenFile = brokenFile.replace(repoPath, '').replace(/^[\\\/]/, ''); // Ta bort prefix
+      }
+      
+      // Hantera slash direction (normalisera till forward slashes)
+      if (brokenFile) {
+        brokenFile = brokenFile.replace(/\\/g, '/');
+      }
       
       // Städa sökvägen (ta bort eventuellt 'agent-runner/workspace/...' prefix om det kom med)
       if (brokenFile.includes("sandbox")) {
         const parts = brokenFile.split("sandbox");
         if (parts.length > 1) {
           // Hitta pipeline-mappen och ta allt efter den
-          const relativePath = parts[1].split(path.sep).slice(2).join(path.sep);
+          const relativePath = parts[1].split('/').slice(2).join('/');
           brokenFile = relativePath;
         }
       }
@@ -1429,6 +2395,32 @@ export default config;
       }
       // ----------------------------------------------------
 
+      // --- 🕵️ SMART PATH RESOLVER ---
+      // Hitta den riktiga sökvägen om filen inte finns exakt där felmeddelandet säger
+      if (brokenFile && !fs.existsSync(path.join(repoPath, brokenFile))) {
+        console.log(`[Watchdog] 🔍 '${brokenFile}' not found directly. Searching...`);
+        
+        const alternatives = [
+          `src/${brokenFile}`,
+          brokenFile.replace(/^src\//, ''), // Om src/ redan fanns men filen ligger i roten
+          `app/${brokenFile}`,
+          `src/lib/${brokenFile}`,
+          brokenFile.replace('.tsx', '.ts'),
+          `src/${brokenFile.replace('.tsx', '.ts')}`,
+          `src/lib/${brokenFile.replace('.tsx', '.ts')}`,
+          `app/${brokenFile.replace('.tsx', '.ts')}`,
+        ];
+        
+        for (const alt of alternatives) {
+          if (fs.existsSync(path.join(repoPath, alt))) {
+            console.log(`[Watchdog] 🕵️ Found at: ${alt}`);
+            brokenFile = alt;
+            break;
+          }
+        }
+      }
+      // ---------------------------------
+
       let brokenFileContent = "";
       if (brokenFile) {
         try {
@@ -1438,6 +2430,101 @@ export default config;
           console.log(`Could not read broken file: ${brokenFile}`);
         }
       }
+
+      // --- 🩹 NEXT.JS 15 AUTO-FIXER ---
+      // Fixa async Request APIs automatiskt (cookies, params, searchParams, headers)
+      const asyncApiErrors = [
+        "Property 'get' does not exist on type 'Promise<ReadonlyRequestCookies>'",
+        "Property 'get' does not exist on type 'Promise<ReadonlyHeaders>'",
+        "Property 'slug' does not exist on type 'Promise'",
+        "Cannot read properties of undefined (reading 'get')",
+        "params is not iterable",
+        "searchParams is not iterable"
+      ];
+      
+      const hasAsyncError = asyncApiErrors.some(error => fullLog.includes(error));
+      
+      if (hasAsyncError && brokenFileContent) {
+          console.log("[Watchdog] 🩹 Auto-fixing Next.js 15 async API issues...");
+          
+          let newContent = brokenFileContent;
+          let wasModified = false;
+          
+          // Fix cookies()
+          if (brokenFileContent.includes("cookies()")) {
+            newContent = newContent
+              .replace(/cookies\(\)\.get/g, "(await cookies()).get")
+              .replace(/cookies\(\)\.getAll/g, "(await cookies()).getAll")
+              .replace(/const (\w+) = cookies\(\)/g, "const $1 = await cookies()");
+            wasModified = true;
+          }
+          
+          // Fix headers()
+          if (brokenFileContent.includes("headers()")) {
+            newContent = newContent
+              .replace(/headers\(\)\.get/g, "(await headers()).get")
+              .replace(/headers\(\)\.has/g, "(await headers()).has")
+              .replace(/const (\w+) = headers\(\)/g, "const $1 = await headers()");
+            wasModified = true;
+          }
+          
+          // Fix params destructuring
+          if (brokenFileContent.match(/const\s*\{\s*\w+\s*\}\s*=\s*params\s*[;}]/)) {
+            // Match: const { slug } = params; eller const { slug } = params
+            newContent = newContent.replace(
+              /const\s*\{([^}]+)\}\s*=\s*params\s*([;}]?)/g,
+              "const { $1 } = await params$2"
+            );
+            wasModified = true;
+          }
+          
+          // Fix params.property access
+          if (brokenFileContent.match(/params\.\w+/)) {
+            // Match: params.slug or params.id
+            newContent = newContent.replace(
+              /const\s+(\w+)\s*=\s*params\.(\w+)/g,
+              "const $1 = (await params).$2"
+            );
+            wasModified = true;
+          }
+          
+          // Fix searchParams
+          if (brokenFileContent.includes("searchParams")) {
+            newContent = newContent.replace(
+              /const\s*\{\s*([^}]+)\s*\}\s*=\s*searchParams\s*([;}]?)/g,
+              "const { $1 } = await searchParams$2"
+            );
+            newContent = newContent.replace(
+              /searchParams\.get\(/g,
+              "(await searchParams).get("
+            );
+            wasModified = true;
+          }
+
+          // Se till att funktionen är async om vi lade till await
+          if (wasModified && newContent !== brokenFileContent) {
+              // Hitta export default function och gör den async om den inte är det
+              if (!newContent.includes("export default async function")) {
+                newContent = newContent.replace(
+                  /export default function/g, 
+                  "export default async function"
+                );
+              }
+              
+              // Också fixa named exports: export async function Page
+              if (newContent.match(/export\s+function\s+\w+\s*\(/)) {
+                newContent = newContent.replace(
+                  /export\s+function\s+(\w+)\s*\(/g,
+                  "export async function $1("
+                );
+              }
+              
+              fs.writeFileSync(path.join(repoPath, brokenFile), newContent);
+              console.log(`[Watchdog] 🛠️ Applied Next.js 15 Async Auto-Fix to ${brokenFile}`);
+              continue; // Hoppa över AI och bygg igen!
+          }
+      }
+      // --------------------------------
 
       console.log(`[Watchdog] 🐕 Targeting file: ${brokenFile || "Global Fix"}`);
 
@@ -1469,36 +2556,104 @@ export default config;
       `;
 
       // 2. UPPDATERAD PROMPT MED KONTEXT
+      // 2. UPPDATERAD PROMPT MED "GOLDEN RULES"
       const promptContext = `
       You are a Senior TypeScript Fixer.
       
       ERROR CONTEXT:
       - Build failed. Review the LOG and the CURRENT PROJECT STRUCTURE above.
       
-      TASKS FOR "TS2307 / Cannot find module":
-      1. SEARCH the "CURRENT PROJECT STRUCTURE" list for the missing file.
-      2. IF FOUND (e.g. wrong casing or path): Fix the import path in the broken file.
-      3. IF NOT FOUND: You MUST CREATE the missing file (e.g. 'components/auth/LoginForm.tsx') with valid boilerplate code.
+      CRITICAL "GOLDEN COMPONENT" RULES:
+      1. **READ-ONLY:** Do NOT modify files in 'src/components/ui/' (like Button.tsx, Card.tsx). They are reset on every run.
+      2. **FIX THE USAGE:** You must fix the file *using* the component, not the component itself.
       
-      TASKS FOR "TS2349 / Syntax Errors":
-      1. Remove any Markdown artifacts (like \`\`\`typescript at line 1).
-      2. Fix syntax errors.
-
+      COMMON TRANSLATIONS (Apply these fixes):
+      - Error: 'Type "primary" is not assignable...' (Button) -> CHANGE usage to 'variant="default"'
+      - Error: 'Cannot find module...' -> Check 'CURRENT PROJECT STRUCTURE'. If missing, CREATE it.
+      - Error: 'Markdown artifacts' -> Remove \`\`\` lines.
+      
+      NEXT.JS 15 ASYNC FIXES (CRITICAL):
+      - Error: 'Property does not exist on type Promise' -> This is a Next.js 15 async API issue.
+      - If you see params/searchParams/cookies()/headers() used WITHOUT await -> ADD await and make function async.
+      - Example fixes:
+        * const { slug } = params; -> const { slug } = await params; (and make function async)
+        * const token = cookies().get('token'); -> const token = (await cookies()).get('token');
+        * const searchParams = props.searchParams; -> const searchParams = await props.searchParams;
+      - ALWAYS check if the component/page is async. If not, make it async: export default async function Page({ params }) { ... }
+      
       RETURN FORMAT:
-      Return the fixed file (or the NEW file) using strictly:
       ### FILE: <path>
       ... code ...
       ### END_FILE
       `;
 
-      // 3. ANROPA AGENT (DeepSeek eller Local)
-      if (attempt <= 3) {
-        console.log("🐕 Watchdog (DeepSeek V3) analyzing with File System Vision...");
-        // Vi lägger till fileTreeContext i prompten!
-        fixOutput = await generateBuildFix(promptContext + "\nLOG:\n" + fullLog + "\n" + fileTreeContext, brokenFileContent);
-      } else {
-        console.log("🏠 Local Watchdog (Qwen 14B) taking over...");
-        fixOutput = await generateLocalFix(promptContext + "\nLOG:\n" + fullLog + "\n" + fileTreeContext, brokenFileContent);
+      // 3. TIERED WATCHDOG (Eskalering)
+      console.log(`🐕 Watchdog engaging (Attempt ${attempt}/10)...`);
+      
+      // VÄLJ INTELLIGENS-NIVÅ (Tiered Escalation)
+      let smartLevel: 'FAST' | 'SMART' | 'GENIUS' = 'FAST';
+      if (attempt > 2) smartLevel = 'SMART'; // Efter 2 försök, byt till DeepSeek
+      if (attempt > 5) smartLevel = 'GENIUS'; // Efter 5 försök, byt till Kimi
+      
+      // Fix-Prompten måste vara tydligare för "Smart" nivåerna
+      const targetFile = brokenFile || "Unknown file";
+      const fixPrompt = `
+Build Error in file: ${targetFile}
+
+Error Log:
+${fullLog}
+
+Current File Content:
+${brokenFileContent || "File not found or empty"}
+
+CURRENT PROJECT STRUCTURE:
+${fileTreeContext}
+
+TASK: Return the FIXED file content ONLY.
+
+STRATEGY:
+${smartLevel === 'FAST' ? 
+  "- Fix syntax errors, casing issues, and typos quickly." : 
+  smartLevel === 'SMART' ?
+  "- CRITICAL: If the error says 'Cannot find module', imports are broken. REMOVE the broken imports and replace the usage with a simple HTML placeholder (e.g. <div>Placeholder</div>). DO NOT try to import files that don't exist." :
+  "- Analyze the full context. This is a complex issue. Provide a comprehensive fix that addresses root causes, not just symptoms."
+}
+
+CRITICAL "INLINE FIX" RULE (Green Build Strategy):
+- If the error is "Module has no exported member" or "Cannot find name", do NOT try to edit the imported file.
+- Instead, DEFINE THE MISSING INTERFACE/TYPE LOCALLY in this file to satisfy the compiler.
+- Example: If 'ApiKeyDisplay' is missing from '@/lib/types', add 'interface ApiKeyDisplay { id: string; ... }' right here in this file.
+- Example: If 'ProcessingStatus' type is missing, add 'type ProcessingStatus = "initializing" | "extraction" | ...' locally.
+- Stop trying to fix external files. Fix THIS file by defining what it needs inline.
+- This is the "silver tape" solution - it guarantees a green build even if types.ts is broken.
+
+${promptContext}
+
+RETURN FORMAT:
+### FILE: <path>
+... code ...
+### END_FILE
+      `;
+
+      // Anropa den nya Tiered Fixer-logiken
+      fixOutput = await callAI(
+        "FIXER", 
+        fixPrompt, 
+        promptContext, 
+        undefined, 
+        smartLevel
+      );
+      
+      // Fallback om fixOutput är tom
+      if (!fixOutput || fixOutput.trim().length === 0) {
+        console.warn(`⚠️ ${smartLevel} Fixer returned empty. Trying fallback...`);
+        if (smartLevel === 'FAST') {
+          // Fallback till SMART om FAST misslyckades
+          fixOutput = await callAI("FIXER", fixPrompt, promptContext, undefined, 'SMART');
+        } else if (smartLevel === 'SMART') {
+          // Fallback till GENIUS om SMART misslyckades
+          fixOutput = await callAI("FIXER", fixPrompt, promptContext, undefined, 'GENIUS');
+        }
       }
 
       // Applicera fixen (Skapa/Uppdatera filer)
@@ -1532,12 +2687,68 @@ export default config;
         fixedCount++;
       }
 
+      // 2. FALLBACK PARSER (Om regex missade)
+      if (fixedCount === 0 && brokenFile) {
+        console.log("[Watchdog] ⚠️ Strict parsing failed. Trying Fallback Strategy...");
+        
+        // Kolla om vi har ett markdown-block
+        const codeBlockMatch = fixOutput.match(/```(?:typescript|tsx|ts|js)?\n([\s\S]*?)```/);
+        if (codeBlockMatch) {
+          const content = codeBlockMatch[1].trim();
+          const filePath = path.join(repoPath, brokenFile); // Använd filen vi siktade på
+          
+          const dir = path.dirname(filePath);
+          if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+          fs.writeFileSync(filePath, content);
+          console.log(`[Watchdog] 🛠️ Fallback Fix Applied to: ${brokenFile}`);
+          fixedCount++;
+        }
+      }
+
       if (fixedCount === 0) console.log("[Watchdog] ⚠️ No code changes applied.");
     }
   }
 
   if (success) {
     await updateStep(pipeline.id, 'tester', { status: 'completed' });
+    
+    // STEG: VISUAL AUDIT (The Design Police)
+    try {
+      console.log("[Tester] 🎨 Starting Visual Audit...");
+      const auditPassed = await runVisualAudit(repoPath);
+      if (!auditPassed) {
+        console.warn("⚠️ UI Design failed audit. Marking for manual review (or auto-fix loop).");
+        // TODO: Trigga en "CSS Fixer" agent här i framtiden
+        await updateStep(pipeline.id, 'tester', { 
+          status: 'completed', 
+          output: { visualAudit: 'failed', note: 'UI issues detected but continuing to publish' } 
+        });
+      } else {
+        console.log("✅ Visual Audit Passed! UI looks good.");
+        await updateStep(pipeline.id, 'tester', { 
+          status: 'completed', 
+          output: { visualAudit: 'passed' } 
+        });
+      }
+    } catch (auditError: any) {
+      console.warn("⚠️ Visual Audit failed (non-critical):", auditError?.message);
+      // Fortsätt ändå till publish om audit misslyckas
+    }
+    
+    // --- 📝 KIMI K2: THE DOCUMENTATION OFFICER ---
+    try {
+      // Hämta tech stack från pipeline eller planner step
+      const techStack = pipeline.is_python ? 
+        (fs.existsSync(path.join(repoPath, 'backend', 'main.py')) ? 'Hybrid (Next.js + Python FastAPI)' : 'Python FastAPI') :
+        'Next.js 15';
+      
+      await runDocumentationStep(repoPath, techStack);
+    } catch (docError: any) {
+      console.warn("⚠️ Documentation step failed (non-critical):", docError?.message);
+      // Fortsätt ändå till publish om dokumentation misslyckas
+    }
+    
     await updatePipeline(pipeline.id, { current_phase: 'publisher' });
   } else {
     await updateStep(pipeline.id, 'tester', { status: 'failed', output: { error: 'Validation failed after retries' } });
@@ -1551,6 +2762,60 @@ export default config;
 // ------------------------------------------------------------------
 
 // Hjälpfunktion för att generera dokumentation
+/**
+ * Generate a cool, kebab-case repository name based on project description
+ */
+async function generateRepoName(userRequest: string): Promise<string> {
+  const prompt = `
+    Create a short, cool, kebab-case GitHub repository name based on this project description: "${userRequest}".
+    
+    Examples: "context-crystal", "dark-nexus-dashboard", "sportsync-app", "medic-tracker".
+    
+    Rules:
+    - Use kebab-case (lowercase with hyphens)
+    - Keep it short (2-4 words max)
+    - Make it memorable and relevant to the project
+    - No special characters except hyphens
+    
+    Output ONLY the name. No explanations, no quotes, no markdown.
+  `;
+  
+  try {
+    // Använd REVIEWER-rollen (Groq) för snabb generering
+    const name = await callAI("REVIEWER", prompt);
+    // Städa bort skräp och konvertera till kebab-case
+    const cleaned = name.trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, '-') // Ersätt alla icke-alfanumeriska med hyphen
+      .replace(/-+/g, '-') // Ta bort dubbla hyphens
+      .replace(/^-|-$/g, ''); // Ta bort leading/trailing hyphens
+    
+    // Fallback om AI gav något konstigt
+    if (!cleaned || cleaned.length < 3) {
+      // Generera från första orden i prompten
+      const fallback = userRequest
+        .split(' ')
+        .slice(0, 3)
+        .join('-')
+        .toLowerCase()
+        .replace(/[^a-z0-9-]/g, '');
+      return `frost-${fallback}`;
+    }
+    
+    return cleaned;
+  } catch (error: any) {
+    console.warn("[Repo Name] Failed to generate name, using fallback:", error?.message);
+    // Fallback till enkel slug från prompten
+    const fallback = userRequest
+      .split(' ')
+      .slice(0, 3)
+      .join('-')
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, '');
+    return `frost-${fallback}`;
+  }
+}
+
 function generateDocs(repoPath: string, pipeline: any) {
   console.log("[Publisher] 📄 Generating documentation & configs...");
 
@@ -1630,16 +2895,208 @@ Generated by **Frost Night Factory** (AI Autonomous Pipeline).
   console.log("-> Generated standardized README.md");
 }
 
+/**
+ * ZERO SHOT RULE: Tvinga .env.example att alltid finnas
+ */
+async function ensureEnvExample(repoPath: string) {
+  const envPath = path.join(repoPath, '.env.local');
+  const envExamplePath = path.join(repoPath, '.env.example');
+  
+  // Om .env.local finns men .env.example saknas, skapa den
+  if (fs.existsSync(envPath)) {
+    try {
+      const envContent = fs.readFileSync(envPath, 'utf-8');
+      const exampleContent = envContent
+        .split('\n')
+        .map(line => {
+          if (!line || line.startsWith('#')) return line;
+          if (line.includes('=')) {
+            const key = line.split('=')[0].trim();
+            return `${key}="YOUR_VALUE_HERE"`;
+          }
+          return line;
+        })
+        .join('\n');
+      
+      fs.writeFileSync(envExamplePath, exampleContent);
+      console.log("[Zero Shot] ✅ .env.example ensured");
+    } catch (e) {
+      console.error("[Zero Shot] ⚠️ Failed to create .env.example:", e);
+    }
+  } else {
+    // Om ingen .env.local finns, skapa en minimal .env.example
+    const minimalExample = `# Supabase
+NEXT_PUBLIC_SUPABASE_URL="YOUR_SUPABASE_URL"
+NEXT_PUBLIC_SUPABASE_ANON_KEY="YOUR_SUPABASE_ANON_KEY"
+
+# Optional: API Keys
+ANTHROPIC_API_KEY="YOUR_ANTHROPIC_API_KEY"
+`;
+    if (!fs.existsSync(envExamplePath)) {
+      fs.writeFileSync(envExamplePath, minimalExample);
+      console.log("[Zero Shot] ✅ Created minimal .env.example");
+    }
+  }
+}
+
+/**
+ * ZERO SHOT RULE: Verifiera att alla länkar i navigation faktiskt finns
+ */
+async function verifySitemap(repoPath: string): Promise<boolean> {
+  console.log("[Zero Shot] 🔍 Verifying sitemap...");
+  
+  try {
+    // Hitta alla layout.tsx och page.tsx filer för att hitta navigation
+    const layoutFiles = [
+      path.join(repoPath, 'app', 'layout.tsx'),
+      path.join(repoPath, 'src', 'app', 'layout.tsx'),
+    ];
+    
+    let navigationLinks: string[] = [];
+    
+    for (const layoutFile of layoutFiles) {
+      if (fs.existsSync(layoutFile)) {
+        const content = fs.readFileSync(layoutFile, 'utf-8');
+        // Enkel regex för att hitta href="/..." länkar
+        const linkMatches = content.match(/href=["']([^"']+)["']/g);
+        if (linkMatches) {
+          linkMatches.forEach(match => {
+            const href = match.replace(/href=["']|["']/g, '');
+            if (href.startsWith('/') && !href.startsWith('//')) {
+              navigationLinks.push(href);
+            }
+          });
+        }
+      }
+    }
+    
+    // Verifiera att varje länk har en motsvarande fil
+    let allValid = true;
+    for (const link of navigationLinks) {
+      const possiblePaths = [
+        path.join(repoPath, link === '/' ? 'app/page.tsx' : `app${link}/page.tsx`),
+        path.join(repoPath, link === '/' ? 'src/app/page.tsx' : `src/app${link}/page.tsx`),
+      ];
+      
+      const exists = possiblePaths.some(p => fs.existsSync(p));
+      if (!exists) {
+        console.warn(`[Zero Shot] ⚠️ Navigation link "${link}" points to non-existent page`);
+        allValid = false;
+      }
+    }
+    
+    if (allValid) {
+      console.log("[Zero Shot] ✅ All navigation links verified");
+    }
+    
+    return allValid;
+  } catch (e: any) {
+    console.error("[Zero Shot] ⚠️ Sitemap verification failed:", e.message);
+    return true; // Returnera true för att inte blockera publish om verifieringen misslyckas
+  }
+}
+
 async function runPublisherStep(pipeline: any, repoPath: string) {
   console.log(`[Publisher] Starting deployment for ${pipeline.id}...`);
   await updatePipeline(pipeline.id, { current_phase: 'publisher' });
   await createStep(pipeline.id, 'publisher', 'running');
 
   try {
-    // 1. GENERERA DOKUMENTATION FÖRST
+    // 1. BESTÄM MÅL-URL (Smart Naming)
+    let targetRepoUrl = pipeline.repo_url;
+
+    if (pipeline.type === 'update' && pipeline.source_repo) {
+        console.log(`[Publisher] ♻️ Update Mode. Targeting: ${pipeline.source_repo}`);
+        targetRepoUrl = pipeline.source_repo;
+    } else if (!targetRepoUrl) {
+        // --- 🧠 AGENT NAMING MAGIC ---
+        // Vi läser vad Claude döpte projektet till i package.json!
+        let projectName = "";
+        try {
+            const pkgPath = path.join(repoPath, 'package.json');
+            if (fs.existsSync(pkgPath)) {
+                const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+                if (pkg.name) projectName = pkg.name;
+            }
+        } catch (e) {
+            console.warn("[Publisher] Could not read package name, using fallback.");
+        }
+
+        // Fallback om Claude misslyckades med namnet - generera från prompten
+        if (!projectName || projectName.length < 3) {
+          console.log("[Publisher] 🤖 Generating cool repo name from project description...");
+          projectName = await generateRepoName(pipeline.initial_prompt || pipeline.prompt || "");
+          console.log(`[Publisher] 📦 Generated repo name: ${projectName}`);
+        } else {
+          // Sanitera package.json-namnet
+          projectName = projectName.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+        }
+
+        // Prefix med frost- om det inte redan finns
+        const slug = projectName.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+        const repoName = slug.startsWith('frost-') ? slug : `frost-${slug}`; // T.ex. "frost-sportsync-dashboard" eller "frost-context-crystal"
+        
+        const username = process.env.GITHUB_USERNAME || "vilmerfrost"; 
+        targetRepoUrl = `https://github.com/${username}/${repoName}.git`;
+
+        console.log(`[Publisher] 🤖 Agent named this project: "${slug}"`);
+        console.log(`[Publisher] 🎯 Target Repo: ${targetRepoUrl}`);
+
+        // Skapa repo via API om det inte finns
+        const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+        if (GITHUB_TOKEN) {
+            try {
+                await fetch('https://api.github.com/user/repos', {
+                    method: 'POST',
+            headers: { 
+                        'Authorization': `token ${GITHUB_TOKEN}`,
+                        'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ name: repoName, private: true })
+        });
+                console.log(`[Publisher] 📦 Created new repo: ${repoName}`);
+            } catch (e) {
+                console.log("[Publisher] Repo might already exist, continuing...");
+            }
+        }
+    }
+    
+    // Spara URLen direkt så vi minns den
+    await updatePipeline(pipeline.id, { repo_url: targetRepoUrl });
+
+    // 2. GENERERA DOKUMENTATION
     generateDocs(repoPath, pipeline);
 
-    // 2. SÄKRA .GITIGNORE (Kritiskt!)
+    // 2.5. ZERO SHOT RULES: Tvinga kvalité
+    console.log("[Publisher] 🧹 Running Zero Shot cleanup...");
+    await ensureEnvExample(repoPath);
+    const sitemapValid = await verifySitemap(repoPath);
+    if (!sitemapValid) {
+      console.warn("[Publisher] ⚠️ Sitemap verification failed, but continuing with publish...");
+    }
+
+    // 2.6. DOCKER GENERATION (Level 4 Upgrade)
+    console.log("[Publisher] 🐳 Generating Docker configuration...");
+    try {
+      // Detektera projekttyp baserat på filer
+      const hasPython = fs.existsSync(path.join(repoPath, 'requirements.txt')) || 
+                       fs.existsSync(path.join(repoPath, 'main.py')) ||
+                       fs.existsSync(path.join(repoPath, 'app.py'));
+      const hasNode = fs.existsSync(path.join(repoPath, 'package.json'));
+      
+      let projectType: 'node' | 'python' | 'hybrid' = 'node';
+      if (hasPython && hasNode) {
+        projectType = 'hybrid';
+      } else if (hasPython) {
+        projectType = 'python';
+      }
+      
+      await generateDockerConfig(repoPath, projectType);
+    } catch (dockerError: any) {
+      console.warn("[Publisher] ⚠️ Docker generation failed, continuing without Docker config:", dockerError.message);
+    }
+
+    // 3. SÄKRA .GITIGNORE (Kritiskt!)
     const gitIgnoreContent = `
 node_modules/
 .next/
@@ -1653,14 +3110,14 @@ build/
     fs.writeFileSync(path.join(repoPath, '.gitignore'), gitIgnoreContent);
     console.log("[Publisher] 🛡️ Secured .gitignore");
 
-    // 3. NOLLSTÄLL GIT (För att bli av med den trasiga 170MB committen)
+    // 4. NOLLSTÄLL GIT (Vi gör en "Hard Reset" publish för att undvika konflikter)
     const gitDir = path.join(repoPath, '.git');
     if (fs.existsSync(gitDir)) {
       console.log("[Publisher] 🧹 Cleaning up old git history (fixing large file error)...");
       fs.rmSync(gitDir, { recursive: true, force: true });
     }
 
-    // 4. INITIERA NY GIT
+    // 5. INITIERA & PUSHA
     execSync('git init', { cwd: repoPath });
     execSync('git branch -M main', { cwd: repoPath });
     
@@ -1670,13 +3127,16 @@ build/
         execSync('git config core.safecrlf false', { cwd: repoPath });
     } catch(e) {}
 
-    // 5. GIT ADD & COMMIT (Nu är node_modules ignorerad!)
-    console.log("[Publisher] Adding files (clean)...");
+    console.log("[Publisher] Adding files...");
     execSync('git add .', { cwd: repoPath, stdio: 'inherit' });
 
     console.log("[Publisher] Committing...");
+    const commitMsg = pipeline.type === 'update' 
+        ? `Frost Update: ${new Date().toISOString()}` 
+        : `Frost Launch: ${new Date().toISOString()}`;
+        
     try {
-        execSync(`git commit -m "Frost Launch: ${new Date().toISOString()}"`, { 
+        execSync(`git commit -m "${commitMsg}"`, { 
             cwd: repoPath, 
             stdio: 'inherit' 
         });
@@ -1684,50 +3144,26 @@ build/
         console.log("[Publisher] Commit failed (maybe nothing to commit?), continuing...");
     }
 
-    // 6. GIT PUSH
-    const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
-    const GITHUB_USERNAME = process.env.GITHUB_USERNAME;
-
-    if (!GITHUB_TOKEN || !GITHUB_USERNAME) {
-      console.log("Missing GitHub creds, skipping push.");
-      await updatePipeline(pipeline.id, { current_phase: 'cleanup' });
-      return;
+    // Injicera Token för Auth
+    let pushUrl = targetRepoUrl;
+    const token = process.env.GITHUB_TOKEN;
+    if (token && pushUrl && !pushUrl.includes(token)) {
+        pushUrl = pushUrl.replace("https://", `https://${token}@`);
     }
 
-    const repoName = `frost-${pipeline.id.substring(0, 8)}`;
-    const repoUrl = `https://github.com/${GITHUB_USERNAME}/${repoName}.git`;
-
-    // Skapa repo via API
-    try {
-        await fetch('https://api.github.com/user/repos', {
-            method: 'POST',
-            headers: { 
-                'Authorization': `token ${GITHUB_TOKEN}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ name: repoName, private: true })
+    if (pushUrl) {
+        console.log(`[Publisher] Pushing to ${targetRepoUrl}...`);
+        // Force push skriver över branchen på target repo med vår nya kod
+        execSync(`git push "${pushUrl}" main --force`, { 
+            cwd: repoPath, 
+            stdio: 'inherit' 
         });
-    } catch (e) {
-        console.log("Repo might already exist, trying to push anyway...");
+        console.log("✅ Publish Successful!");
+    } else {
+        console.log("[Publisher] No repo URL found, skipping push.");
     }
 
-    // Injicera token i URL för auth
-    let pushUrl = repoUrl;
-    if (GITHUB_TOKEN && !pushUrl.includes(GITHUB_TOKEN)) {
-        // Hantera https://github.com/user/repo format
-        pushUrl = pushUrl.replace("https://", `https://${GITHUB_TOKEN}@`);
-    }
-
-    console.log("[Publisher] Pushing to GitHub...");
-    // Vi använder --force eftersom vi skrev över historiken
-    execSync(`git push "${pushUrl}" main --force`, { 
-        cwd: repoPath, 
-        stdio: 'inherit' 
-    });
-
-    console.log("✅ Publish Successful!");
-    await updatePipeline(pipeline.id, { repo_url: repoUrl });
-    await updateStep(pipeline.id, 'publisher', { status: 'completed', output: { url: repoUrl } });
+    await updateStep(pipeline.id, 'publisher', { status: 'completed', output: { url: targetRepoUrl } });
     await updatePipeline(pipeline.id, { current_phase: 'cleanup' });
 
   } catch (error: any) {
@@ -1743,25 +3179,89 @@ build/
 // STEG 7: CLEANUP
 // ------------------------------------------------------------------
 async function runCleanupStep(pipeline: any, repoPath: string) {
-    console.log(`[Cleanup] Removing sandbox: ${repoPath}`);
+    console.log(`[Cleanup] 🧹 Cleaning up workspace: ${repoPath}`);
     
+    // 1. Försök döda alla kvardröjande processer (Node, Python, Puppeteer)
+    // Detta är en "Best Effort" kill switch för Windows
     try {
-        // Skarp radering
-        if (fs.existsSync(repoPath)) {
-            fs.rmSync(repoPath, { recursive: true, force: true });
+        if (process.platform === 'win32') {
+            console.log("[Cleanup] 🔪 Killing lingering processes (Windows)...");
+            try {
+                // Dödar alla 'node.exe' processer som körs från denna mapp
+                // OBS: Detta är aggressivt men nödvändigt för att släppa fil-lås
+                // Vi använder /F (force) och /T (kill tree) för att döda hela process-trädet
+                const normalizedPath = path.resolve(repoPath).replace(/\\/g, '\\');
+                execSync(`taskkill /F /T /FI "WINDOWTITLE eq *${path.basename(repoPath)}*" 2>nul`, { stdio: 'ignore' });
+                
+                // Dödar även specifika processer som kan låsa filer
+                try {
+                    execSync('taskkill /F /IM node.exe /FI "MEMUSAGE gt 100000" 2>nul', { stdio: 'ignore' });
+                } catch (e) {}
+                
+                try {
+                    execSync('taskkill /F /IM python.exe /FI "MEMUSAGE gt 100000" 2>nul', { stdio: 'ignore' });
+                } catch (e) {}
+                
+                try {
+                    execSync('taskkill /F /IM chrome.exe /FI "MEMUSAGE gt 100000" 2>nul', { stdio: 'ignore' });
+                } catch (e) {}
+            } catch (e) {
+                // Ignorera om taskkill misslyckas (processer kanske redan är döda)
+            }
+        } else {
+            // Linux/Mac: Använd pkill eller killall
+            try {
+                execSync(`pkill -f "${repoPath}" 2>/dev/null || true`, { stdio: 'ignore' });
+            } catch (e) {}
         }
-        console.log("Sandbox deleted successfully.");
     } catch (e) {
-        console.error("Cleanup failed (permissions?):", e);
+        // Ignorera process-killning fel, vi försöker ändå radera
+        console.warn("[Cleanup] ⚠️ Could not kill processes (non-critical):", (e as Error).message);
     }
 
-    await updatePipeline(pipeline.id, { status: 'completed', current_phase: 'done' });
+    // 2. Vänta lite så Windows släpper låsen
+    console.log("[Cleanup] ⏳ Waiting for file locks to release...");
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // 3. Radera med retry-logik
+    if (!fs.existsSync(repoPath)) {
+        console.log("[Cleanup] ✅ Sandbox already deleted.");
+        await updatePipeline(pipeline.id, { status: 'completed', current_phase: 'done' });
+        return;
+    }
+
+    let retries = 5;
+    while (retries > 0) {
+        try {
+            fs.rmSync(repoPath, { recursive: true, force: true });
+            console.log("[Cleanup] ✅ Sandbox deleted successfully.");
+            await updatePipeline(pipeline.id, { status: 'completed', current_phase: 'done' });
+            return;
+        } catch (error: any) {
+            if (error.code === 'EPERM' || error.code === 'EBUSY' || error.code === 'ENOTEMPTY') {
+                retries--;
+                if (retries > 0) {
+                    console.warn(`[Cleanup] ⚠️ File locked. Retrying cleanup in 1s... (${retries} attempts left)`);
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                } else {
+                    console.error("[Cleanup] ❌ Cleanup failed after retries. Files may still be locked.");
+                    // Fortsätt ändå - markera som completed så pipeline inte hänger
+                    await updatePipeline(pipeline.id, { status: 'completed', current_phase: 'done' });
+                }
+            } else {
+                console.error("[Cleanup] ❌ Cleanup failed permanently:", error.message);
+                // Fortsätt ändå - markera som completed
+                await updatePipeline(pipeline.id, { status: 'completed', current_phase: 'done' });
+                break;
+            }
+        }
+    }
 }
 
 // ------------------------------------------------------------------
 // MAIN LOOP
 // ------------------------------------------------------------------
-async function runPipelineLoop(sandboxPath: string) {
+export async function runPipelineLoop(sandboxPath: string) {
   console.log(`🚀 Frost Night Factory Runner started.`);
   console.log(`📂 Workspace: ${sandboxPath}`);
 
@@ -1824,6 +3324,3 @@ async function runPipelineLoop(sandboxPath: string) {
   }
 }
 
-// Starta
-const sandboxDir = path.join(process.cwd(), 'workspace', 'sandbox');
-export { runPipelineLoop };

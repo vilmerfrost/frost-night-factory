@@ -58,6 +58,38 @@ if (moonshotApiKey) {
 }
 
 // ============================================================
+// 5. GROQ (The Speed Demon) - Ersätter LocalAI
+// ============================================================
+const groqApiKey = process.env.GROQ_API_KEY;
+const groq = groqApiKey ? new OpenAI({
+  apiKey: groqApiKey, 
+  baseURL: "https://api.groq.com/openai/v1",
+}) : null;
+
+if (groqApiKey) {
+  console.log("✅ Groq API Key found (starts with):", groqApiKey.substring(0, 4) + "...");
+}
+
+// ============================================================
+// 6. QWEN (Alibaba Cloud) - Backend Specialist
+// ============================================================
+const qwenApiKey = process.env.QWEN_API_KEY;
+const qwen = qwenApiKey ? new OpenAI({
+  apiKey: qwenApiKey,
+  baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", // Alibaba Cloud endpoint
+}) : null;
+
+if (qwenApiKey) {
+  console.log("✅ Qwen API Key found (starts with):", qwenApiKey.substring(0, 4) + "...");
+}
+
+// ============================================================
+// CIRCUIT BREAKER: Claude Overload Protection
+// ============================================================
+let claudeCircuitOpen = false;
+let claudeRetryTime = 0;
+
+// ============================================================
 // GENERIC GENERATORS (Bakåtkompatibilitet)
 // ============================================================
 
@@ -604,4 +636,439 @@ export async function generateLocalFix(errorLog: string, brokenFileContent: stri
     console.error("[Kimi] Failed too. Returning empty (will fallback to DeepSeek).", kimiErr?.message);
     return ""; // Returnera tom så Watchdog kan fallback till DeepSeek
   }
+}
+
+/**
+ * SPEED WATCHDOG: Groq (Llama 3.3 70B)
+ * Blixtsnabb kodfixare och reviewer.
+ */
+export async function generateGroqFix(errorLog: string, brokenFileContent: string): Promise<string> {
+  if (!groq) {
+    console.warn("[Groq] No API key found. Falling back to DeepSeek.");
+    return "";
+  }
+
+  try {
+    console.log("⚡ Groq (Llama 3.3) is analyzing the error at lightspeed...");
+    const completion = await groq.chat.completions.create({
+      model: "llama-3.3-70b-versatile", // Mycket kraftfull modell
+      messages: [
+        { 
+          role: "system", 
+          content: `You are a Senior CI/CD Fixer. 
+          Fix the code based on the error log. 
+          If packages are missing, simply output comments telling the user to install them, otherwise fix the imports.
+          Return ONLY the fixed code wrapped in ### FILE: <filename> ... ### END_FILE.` 
+        },
+        { 
+          role: "user", 
+          content: `ERROR:\n${errorLog}\n\nCODE:\n${brokenFileContent}` 
+        }
+      ],
+      temperature: 0.1, 
+    });
+    const result = completion.choices[0].message.content || "";
+    console.log("[Groq] ⚡ Fix received!");
+    return result;
+  } catch (error: any) {
+    console.error("Groq Error:", error?.message);
+    return ""; // Fallback till DeepSeek om Groq failar
+  }
+}
+
+/**
+ * THE MODEL BRAIN: Centraliserad modellväljare
+ * Väljer rätt modell för rätt uppgift baserat på roll
+ */
+export type AgentRole = "PLANNER" | "FRONTEND" | "BACKEND" | "RESEARCH" | "AUDIT" | "ROUTER" | "REVIEWER" | "FIXER";
+
+export async function callAI(
+  role: AgentRole,
+  prompt: string,
+  context?: string,
+  imageBase64?: string,
+  smartLevel: 'FAST' | 'SMART' | 'GENIUS' = 'FAST'
+): Promise<string> {
+  const fullPrompt = context ? `${context}\n\n${prompt}` : prompt;
+  let responseText = "";
+  
+  // Vision support: Om bild finns och roll är FRONTEND, använd Claude Vision
+  if (imageBase64 && role === "FRONTEND" && anthropic) {
+    try {
+      console.log("👁️ Claude Vision analyzing screenshot...");
+      const visionResponse = await anthropic.messages.create({
+        model: "claude-sonnet-4-5",
+        max_tokens: 1024,
+        messages: [{
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: "image/png",
+                data: imageBase64
+              }
+            },
+            {
+              type: "text",
+              text: fullPrompt
+            }
+          ]
+        }]
+      });
+      
+      const textBlock = visionResponse.content[0];
+      if (textBlock.type === 'text') {
+        return textBlock.text;
+      }
+      return "";
+    } catch (error: any) {
+      console.error("❌ Claude Vision Error:", error?.message);
+      // Fallback till vanlig text-baserad analys
+    }
+  }
+
+  switch (role) {
+    case "RESEARCH":
+      // Perplexity Pro för deep research
+      console.log("🔍 Perplexity researching...");
+      try {
+        responseText = await performDeepResearch(prompt);
+      } catch (e) {
+        console.warn("⚠️ Perplexity failed, falling back to Gemini...");
+        responseText = await generateContent(prompt, "You are a Senior Technical Researcher.");
+      }
+      break;
+
+    case "ROUTER":
+      // Gemini 2.0 Flash: Den perfekta mellanhanden
+      console.log("⚡ Gemini Flash optimizing context flow...");
+      responseText = await generateContent(fullPrompt, "You are a Technical Specification Writer. Be concise and precise.");
+      break;
+
+    case "PLANNER":
+      // DeepSeek R1 (Reasoning) eller V3 som fallback
+      console.log("🧠 DeepSeek R1 planning...");
+      try {
+        if (deepSeek) {
+          const r1 = await deepSeek.chat.completions.create({
+            model: "deepseek-reasoner", // Om tillgänglig, annars fallback till deepseek-chat
+            messages: [{ role: "user", content: fullPrompt }],
+            temperature: 0.3,
+          });
+          responseText = r1.choices[0].message.content || "";
+        } else {
+          responseText = await generateDeepSeekPlanner(fullPrompt);
+        }
+      } catch (e) {
+        console.warn("⚠️ DeepSeek R1 failed, using V3...");
+        responseText = await generateDeepSeekPlanner(fullPrompt);
+      }
+      break;
+
+    case "FRONTEND":
+      // 1. SÄKERHETS-LOOP FÖR CLAUDE (The Stubborn Retry)
+      const systemInstruction = context || "You are a Senior Frontend Developer specializing in React/Next.js UI.";
+      
+      // Circuit Breaker check
+      if (claudeCircuitOpen && Date.now() < claudeRetryTime) {
+        console.log("⚠️ Claude circuit open. Deploying DeepSeek V3 as Elite Backup...");
+        if (deepSeek) {
+          try {
+            const deepSeekBackup = await deepSeek.chat.completions.create({
+              model: "deepseek-chat",
+              messages: [
+                { role: "system", content: systemInstruction },
+                { role: "user", content: fullPrompt }
+              ],
+              temperature: 0.1
+            });
+            console.log("✅ DeepSeek V3 successfully saved the build!");
+            responseText = deepSeekBackup.choices[0].message.content || "";
+            break;
+          } catch (dsError: any) {
+            console.error("❌ DeepSeek Backup also failed!", dsError?.message);
+            responseText = await generateContent(fullPrompt, systemInstruction);
+            break;
+          }
+        } else {
+          responseText = await generateContent(fullPrompt, systemInstruction);
+          break;
+        }
+      }
+
+      if (!anthropic) {
+        console.warn("⚠️ Claude not available, deploying DeepSeek V3 as Elite Backup...");
+        if (deepSeek) {
+          try {
+            const deepSeekBackup = await deepSeek.chat.completions.create({
+              model: "deepseek-chat",
+              messages: [
+                { role: "system", content: systemInstruction },
+                { role: "user", content: fullPrompt }
+              ],
+              temperature: 0.1
+            });
+            console.log("✅ DeepSeek V3 successfully saved the build!");
+            responseText = deepSeekBackup.choices[0].message.content || "";
+            break;
+          } catch (dsError: any) {
+            console.error("❌ DeepSeek Backup failed!", dsError?.message);
+            responseText = await generateContent(fullPrompt, systemInstruction);
+            break;
+          }
+        } else {
+          responseText = await generateContent(fullPrompt, systemInstruction);
+          break;
+        }
+      }
+
+      const MAX_RETRIES = 5;
+      let attempts = 0;
+      let claudeSuccess = false;
+
+      while (attempts < MAX_RETRIES) {
+        try {
+          console.log(`🎨 Calling Claude 3.5 Sonnet (Attempt ${attempts + 1}/${MAX_RETRIES})...`);
+          
+          const claude = await anthropic.messages.create(
+            {
+              model: "claude-sonnet-4-5",
+              max_tokens: 8192,
+              system: [
+                {
+                  type: "text",
+                  text: systemInstruction,
+                  cache_control: { type: "ephemeral" }
+                }
+              ],
+              messages: [{ role: "user", content: fullPrompt }],
+            },
+            {
+              headers: {
+                "anthropic-beta": "prompt-caching-2024-07-31"
+              }
+            }
+          );
+
+          // Om vi kommer hit så lyckades det!
+          const block = claude.content[0];
+          responseText = block.type === 'text' ? block.text : "";
+          claudeSuccess = true;
+          console.log(`✅ Claude Success after ${attempts + 1} attempt(s)!`);
+          break;
+
+        } catch (error: any) {
+          attempts++;
+          
+          // Fånga specifikt "Overloaded" (529) eller "Rate Limit" (429)
+          if (error.type === 'overloaded_error' || error.status === 529 || error.status === 429 || error.message?.includes('529') || error.message?.includes('429')) {
+            const waitTime = 15000 * attempts; // Öka väntetiden: 15s, 30s, 45s...
+            console.warn(`⚠️ Claude is overloaded/busy. Waiting ${waitTime/1000}s before retry...`);
+            
+            if (attempts === MAX_RETRIES) {
+              console.error("❌ Claude is dead after 5 attempts. Opening circuit breaker.");
+              claudeCircuitOpen = true;
+              claudeRetryTime = Date.now() + (5 * 60 * 1000); // 5 minuter
+              break;
+            }
+            
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+          } else {
+            // Om det är ett annat fel (t.ex. Bad Request), logga och bryt loopen för att gå till backup
+            console.error("❌ Claude Error (Non-retryable):", error?.message);
+            break; 
+          }
+        }
+      }
+
+      // 2. PRIMARY BACKUP: DEEPSEEK V3 (The Architecture Savior)
+      // Om loopen är klar och vi fortfarande inte har svar -> DeepSeek tar över.
+      if (!claudeSuccess) {
+        console.log("🚨 Claude is unresponsive. Deploying DEEPSEEK V3 as Elite Backup...");
+        
+        if (!deepSeek) {
+          console.error("❌ CRITICAL: DeepSeek not available. Falling back to Gemini...");
+          responseText = await generateContent(fullPrompt, systemInstruction);
+          break;
+        }
+
+        try {
+          const deepSeekBackup = await deepSeek.chat.completions.create({
+            model: "deepseek-chat", // V3 identifieras ofta så här i deras API
+            messages: [
+              { role: "system", content: systemInstruction || "You are an expert Frontend Architect replacing Claude." },
+              { role: "user", content: fullPrompt }
+            ],
+            temperature: 0.1 // Låg temp för att undvika flum när den är backup
+          });
+          
+          console.log("✅ DeepSeek V3 successfully saved the build!");
+          responseText = deepSeekBackup.choices[0].message.content || "";
+
+        } catch (dsError: any) {
+          console.error("❌ CRITICAL: DeepSeek Backup also failed!", dsError?.message);
+          // Sista utväg: Gemini
+          responseText = await generateContent(fullPrompt, systemInstruction);
+        }
+      }
+      break;
+
+    case "BACKEND":
+      // Qwen 2.5 Coder 32B eller DeepSeek V3 som fallback
+      console.log("⚙️ Qwen handling Backend...");
+      if (qwen) {
+        try {
+          const qwenResponse = await qwen.chat.completions.create({
+            model: "qwen2.5-coder-32b-instruct", // Eller qwen-plus om 32b inte finns
+            messages: [
+              { role: "system", content: "You are a backend specialist." },
+              { role: "user", content: fullPrompt }
+            ],
+            temperature: 0.2,
+          });
+          responseText = qwenResponse.choices[0].message.content || "";
+        } catch (e) {
+          console.warn("⚠️ Qwen failed, falling back to DeepSeek V3...");
+          responseText = await generateDeepSeekCoder(fullPrompt);
+        }
+      } else {
+        responseText = await generateDeepSeekCoder(fullPrompt);
+      }
+      break;
+
+    case "REVIEWER":
+      // Groq (Llama 3.3 70B) - Snabb kodgranskning
+      console.log("⚡ Groq (Llama 3.3) running instant code review...");
+      if (groq) {
+        try {
+          const review = await groq.chat.completions.create({
+            model: "llama-3.3-70b-versatile",
+            messages: [
+              { 
+                role: "system", 
+                content: "You are a Senior Code Reviewer. Review code for critical bugs only (ignore style). If code looks good, reply with 'LGTM'. If there are critical issues, list them concisely." 
+              },
+              { role: "user", content: fullPrompt }
+            ],
+            temperature: 0.1,
+          });
+          responseText = review.choices[0].message.content || "";
+        } catch (e: any) {
+          console.warn("⚠️ Groq Review failed, skipping review to save time.", e?.message);
+          responseText = "LGTM"; // Fallback till "looks good" om Groq failar
+        }
+      } else {
+        console.warn("⚠️ Groq not available, skipping review...");
+        responseText = "LGTM";
+      }
+      break;
+
+    case "AUDIT":
+      // Kimi k2 (Moonshot) - QA Auditor
+      console.log("🕵️ Kimi K2 auditing...");
+      if (moonshot) {
+        try {
+          const kimi = await moonshot.chat.completions.create({
+            model: "moonshot-v1-128k", // Eller k2 om tillgänglig via API
+            messages: [
+              { role: "system", content: "You are the QA Auditor. Find inconsistencies, mock data, and logical errors." },
+              { role: "user", content: fullPrompt }
+            ],
+            temperature: 0.1,
+          });
+          responseText = kimi.choices[0].message.content || "";
+        } catch (e) {
+          console.warn("⚠️ Kimi failed, falling back to runKimiQA...");
+          responseText = await runKimiQA(fullPrompt);
+        }
+      } else {
+        responseText = await runKimiQA(fullPrompt);
+      }
+      break;
+
+    case "FIXER":
+      // Tiered Watchdog: Eskalerar baserat på smartLevel
+      if (smartLevel === 'FAST') {
+        // Försök 1-2: Groq (Snabb, för syntaxfel)
+        console.log("⚡ FIXER: Using Groq (Llama 3.3) for fast syntax fixes...");
+        if (groq) {
+          try {
+            const response = await groq.chat.completions.create({
+              model: "llama-3.3-70b-versatile",
+              messages: [
+                { role: "system", content: context || "You are a syntax fixer. Fix syntax errors, casing issues, and typos quickly." },
+                { role: "user", content: fullPrompt }
+              ],
+              temperature: 0.1,
+            });
+            responseText = response.choices[0].message.content || "";
+          } catch (e: any) {
+            console.warn("⚠️ Groq Fixer failed:", e?.message);
+            // Fallback till DeepSeek om Groq failar
+            smartLevel = 'SMART';
+          }
+        } else {
+          smartLevel = 'SMART'; // Fallback om Groq inte finns
+        }
+      }
+      
+      if (smartLevel === 'SMART') {
+        // Försök 3-5: DeepSeek V3 (Smart, för logiska fel)
+        console.log("🧠 FIXER: Escalating to DeepSeek V3 for intelligent fixes...");
+        if (deepSeek) {
+          try {
+            const response = await deepSeek.chat.completions.create({
+              model: "deepseek-chat",
+              messages: [
+                { 
+                  role: "system", 
+                  content: context || "You are a Senior Architect fixing build errors. CRITICAL: If the error says 'Cannot find module', imports are broken. REMOVE the broken imports and replace the usage with a simple HTML placeholder (e.g. <div>Placeholder</div>). DO NOT try to import files that don't exist." 
+                },
+                { role: "user", content: fullPrompt }
+              ],
+              temperature: 0.1,
+            });
+            responseText = response.choices[0].message.content || "";
+          } catch (e: any) {
+            console.warn("⚠️ DeepSeek Fixer failed:", e?.message);
+            smartLevel = 'GENIUS'; // Fallback till Kimi om DeepSeek failar
+          }
+        } else {
+          smartLevel = 'GENIUS'; // Fallback om DeepSeek inte finns
+        }
+      }
+      
+      if (smartLevel === 'GENIUS') {
+        // Försök 6+: Kimi k2 (Genius, för komplexa sammanhang)
+        console.log("🌙 FIXER: Escalating to Kimi k2 (Moonshot) for complex fixes...");
+        if (moonshot) {
+          try {
+            const response = await moonshot.chat.completions.create({
+              model: "moonshot-v1-128k",
+              messages: [
+                { 
+                  role: "system", 
+                  content: context || "You are the Lead Engineer. Solve this complex dependency issue. Analyze the full context and provide a comprehensive fix." 
+                },
+                { role: "user", content: fullPrompt }
+              ],
+              temperature: 0.1,
+            });
+            responseText = response.choices[0].message.content || "";
+          } catch (e: any) {
+            console.error("❌ Kimi Fixer failed:", e?.message);
+            // Sista utväg: Returnera tom sträng eller fallback
+            responseText = "";
+          }
+        } else {
+          console.warn("⚠️ Kimi not available, Fixer failed.");
+          responseText = "";
+        }
+      }
+      break;
+  }
+
+  return responseText;
 }

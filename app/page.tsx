@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import Link from "next/link";
 import PipelineCreator from "@/components/pipeline/PipelineCreator";
+import CreateTaskModal from "@/components/CreateTaskModal";
 import {
   Activity,
   CheckCircle2,
@@ -43,6 +44,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [systemStatus, setSystemStatus] = useState<"operational" | "degraded" | "down">("operational");
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   // Load pipelines
   const loadPipelines = async () => {
@@ -244,13 +246,15 @@ export default function Home() {
             </button>
 
             {/* New Task Button */}
-            <Link
-              href="/create"
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold transition-colors"
+            <button
+              className="bg-cyan-500 hover:bg-cyan-400 text-black font-bold text-sm px-6 py-2 rounded-md shadow-[0_0_20px_rgba(6,182,212,0.4)] hover:shadow-[0_0_25px_rgba(6,182,212,0.6)] transition-all duration-300 flex items-center gap-2"
+              onClick={() => setIsModalOpen(true)}
             >
-              <Plus className="w-5 h-5" />
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+              </svg>
               <span className="hidden sm:inline">New Task</span>
-            </Link>
+            </button>
           </div>
         </div>
 
@@ -363,6 +367,15 @@ export default function Home() {
           )}
         </div>
       </div>
+
+      {/* Mission Control Modal */}
+      <CreateTaskModal 
+        isOpen={isModalOpen} 
+        onClose={() => setIsModalOpen(false)} 
+        onCreated={() => {
+          loadPipelines(); // Ladda om listan
+        }} 
+      />
     </div>
   );
 }

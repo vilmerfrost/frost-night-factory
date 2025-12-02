@@ -1,15 +1,30 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { GitBranch, Sparkles, Play, Github } from 'lucide-react';
+import { GitBranch, Sparkles, Play, Github, Upload, X, Image as ImageIcon } from 'lucide-react';
 
 export default function PipelineCreator() {
   const supabase = createClientComponentClient();
   const [mode, setMode] = useState<'new' | 'update'>('new');
   const [prompt, setPrompt] = useState('');
   const [repoUrl, setRepoUrl] = useState('');
+  const [images, setImages] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    Array.from(files).forEach(file => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImages(prev => [...prev, reader.result as string]);
+      };
+      reader.readAsDataURL(file);
+    });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,6 +40,8 @@ export default function PipelineCreator() {
         // Om update -> starta med 'cloner', annars 'research'
         current_phase: mode === 'update' ? 'cloner' : 'research', 
         source_repo: mode === 'update' ? repoUrl : null,
+        attachment_url: images.length > 0 ? images[0] : null, // Första bilden som primary
+        reference_images: images, // Alla bilder som array
       };
 
       // 2. Skicka till Supabase
@@ -37,6 +54,7 @@ export default function PipelineCreator() {
       alert('🚀 Job started! The factory is running.');
       setPrompt('');
       setRepoUrl('');
+      setImages([]);
     } catch (err: any) {
       alert('Error: ' + err.message);
     } finally {
@@ -101,6 +119,53 @@ export default function PipelineCreator() {
             className="w-full h-32 bg-zinc-950 border border-zinc-800 rounded-lg p-4 text-zinc-100 focus:outline-none focus:border-emerald-500 transition-colors resize-none"
             required
           />
+        </div>
+
+        {/* Image Upload Section */}
+        <div className="space-y-2">
+          <label className="text-xs uppercase tracking-wider text-zinc-500 font-semibold flex items-center justify-between">
+            <span>Reference Images (Vision Cloning)</span>
+            <span className="text-cyan-500 text-[10px] font-normal">OPTIONAL</span>
+          </label>
+          
+          <div className="grid grid-cols-4 gap-3">
+            {/* Upload Button */}
+            <div 
+              onClick={() => fileInputRef.current?.click()}
+              className="aspect-square rounded-lg border-2 border-dashed border-zinc-800 hover:border-cyan-500/50 hover:bg-zinc-800/30 flex flex-col items-center justify-center cursor-pointer transition-all group"
+            >
+              <Upload className="w-5 h-5 text-zinc-500 group-hover:text-cyan-400 mb-1" />
+              <span className="text-[10px] text-zinc-500 group-hover:text-cyan-400 font-medium">UPLOAD</span>
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                className="hidden" 
+                accept="image/*" 
+                multiple 
+                onChange={handleImageUpload}
+              />
+            </div>
+
+            {/* Image Previews */}
+            {images.map((img, idx) => (
+              <div key={idx} className="relative aspect-square rounded-lg overflow-hidden border border-zinc-800 group">
+                <img src={img} alt="Preview" className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+                <button 
+                  type="button"
+                  onClick={() => setImages(prev => prev.filter((_, i) => i !== idx))}
+                  className="absolute top-1 right-1 bg-black/70 p-1 rounded text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+          
+          {images.length > 0 && (
+            <p className="text-xs text-zinc-500 mt-1">
+              {images.length} image{images.length > 1 ? 's' : ''} ready for Vision Cloning
+            </p>
+          )}
         </div>
 
         <button

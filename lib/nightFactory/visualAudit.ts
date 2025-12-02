@@ -42,16 +42,26 @@ RESPONSE FORMAT:
 
 const DESIGN_DICTATOR_PROMPT = DESIGN_DICTATOR_V2_PROMPT;
 
-export async function runVisualAudit(projectPath: string): Promise<boolean> {
+export interface VisualAuditResult {
+  success: boolean;
+  critique?: string;
+  screenshotBase64?: string; // Screenshot för Vision Loop
+}
+
+export async function runVisualAudit(projectPath: string): Promise<VisualAuditResult> {
   console.log("👮 DESIGN DICTATOR: Starting aesthetic audit...");
   const port = 3002; 
 
-  // 1. Starta Next.js
+  // 1. Starta Next.js med Offline Mode flagga
   const server = spawn('npm', ['run', 'dev', '--', '-p', port.toString()], {
     cwd: projectPath,
     stdio: 'ignore',
     detached: true,
-    shell: true
+    shell: true,
+    env: { 
+      ...process.env, 
+      NEXT_PUBLIC_IS_AUDIT_MODE: 'true' // Offline Mode: Tvinga mock-data
+    }
   });
 
   let browser;
@@ -65,7 +75,38 @@ export async function runVisualAudit(projectPath: string): Promise<boolean> {
     await page.setViewport({ width: 1440, height: 900 }); // Desktop standard
 
     // 2. Navigera och vänta på hydration
-    await page.goto(`http://localhost:${port}`, { waitUntil: 'networkidle0' });
+    // FIX #1: Wait Longer Before Screenshot
+    await page.goto(`http://localhost:${port}`, { 
+      waitUntil: 'networkidle0',
+      timeout: 60000 
+    });
+    
+    // FIX #1: Wait extra time for React to hydrate
+    console.log('⏳ Waiting extra 5s for React to hydrate...');
+    await new Promise(resolve => setTimeout(resolve, 5000)); // ✅ Standard Promise
+    
+    // FIX #1: Kontrollera att sidan inte är blank
+    const bodyText = await page.evaluate(() => document.body.innerText || '');
+    console.log(`📄 Page content length: ${bodyText.length} chars`);
+    
+    if (bodyText.length < 50) {
+      console.log('⚠️ Page body is nearly empty, waiting 10s more...');
+      await new Promise(resolve => setTimeout(resolve, 10000)); // ✅ Standard Promise
+      
+      // ✅ CHECK AGAIN EFTER WAIT (DETTA SAKNAS!)
+      const bodyTextAfterWait = await page.evaluate(() => document.body.innerText || '');
+      console.log(`📄 After extra wait: ${bodyTextAfterWait.length} chars`);
+      
+      if (bodyTextAfterWait.length < 50) {
+        console.log('🚨 Page STILL empty after 15s total wait.');
+        console.log('🚨 This likely means Next.js compiled /_not-found instead of /page');
+        
+        // Throw så fallback-logiken (bulletproof inject) triggas
+        throw new Error('Page failed to render after 15s - likely 404 state');
+      } else {
+        console.log('✅ Page loaded successfully after extra wait!');
+      }
+    }
     
     // 3. "Inject Life" - Tvinga fram lite mock-data om sidan ser tom ut
     // Detta är ett trick för att se hur designen ser ut MED innehåll
@@ -114,16 +155,19 @@ export async function runVisualAudit(projectPath: string): Promise<boolean> {
 
     if (critique.includes("VERDICT: FAIL")) {
       console.error("❌ DESIGN REJECTED! The product is not premium enough.");
-      // HÄR: I framtiden kan vi skicka 'critique' tillbaka till Coder-agenten för en "Design Fix Loop".
-      return false; 
+      // Extract critique text
+      const critiqueMatch = critique.match(/CRITIQUE:\s*([\s\S]*?)(?:\n\n|$)/i);
+      const critiqueText = critiqueMatch ? critiqueMatch[1].trim() : critique;
+      // Return screenshot så Coder kan se vad som är fel
+      return { success: false, critique: critiqueText, screenshotBase64: screenshot as string };
     }
     
     console.log("✅ DESIGN APPROVED: Product looks premium.");
-    return true;
+    return { success: true, screenshotBase64: screenshot as string };
 
   } catch (error: any) {
     console.error("❌ Visual Audit Error:", error?.message);
-    return false; 
+    return { success: false, critique: error?.message || "Visual audit failed" }; 
   } finally {
     if (browser) await browser.close();
     // Döda servern (Cross-platform kill) - Behåller den förbättrade kill-logiken

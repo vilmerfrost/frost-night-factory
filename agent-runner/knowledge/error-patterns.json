@@ -1,0 +1,156 @@
+[
+  {
+    "id": "tailwind-version-hallucination",
+    "pattern": "tailwindcss@^3.5",
+    "category": "dep_version",
+    "occurrences": 0,
+    "lastSeen": "2025-12-02T02:06:58.843Z",
+    "fix": "Replace with tailwindcss@^3.4.15",
+    "rootCause": "AI hallucinated non-existent version",
+    "preventionPrompt": "NEVER use tailwindcss version higher than 3.4.x",
+    "autoFixable": true
+  },
+  {
+    "id": "next-version-hallucination",
+    "pattern": "next@15|next@16",
+    "category": "dep_version",
+    "occurrences": 0,
+    "lastSeen": "2025-12-02T02:06:58.843Z",
+    "fix": "Replace with next@14.2.18",
+    "rootCause": "AI hallucinated unstable Next.js version",
+    "preventionPrompt": "Use Next.js 14.2.18 (stable Golden Stack)",
+    "autoFixable": true
+  },
+  {
+    "id": "default-export-error",
+    "pattern": "TS2613.*has no default export",
+    "category": "export",
+    "occurrences": 1,
+    "lastSeen": "2025-12-02T02:06:58.843Z",
+    "fix": "Change to named import: import { X } from instead of import X from",
+    "rootCause": "Component uses named export but import expects default",
+    "preventionPrompt": "Use named exports for all components except page.tsx/layout.tsx",
+    "autoFixable": true
+  },
+  {
+    "id": "react-version-hallucination",
+    "pattern": "react@19|react@^19",
+    "category": "dep_version",
+    "occurrences": 0,
+    "lastSeen": "2025-12-02T02:06:58.843Z",
+    "fix": "Replace with react@18.2.0",
+    "rootCause": "AI hallucinated React 19 which is not stable",
+    "preventionPrompt": "Use React 18.2.0 (stable)",
+    "autoFixable": true
+  },
+  {
+    "id": "missing-export-member",
+    "pattern": "TS2305.*has no exported member",
+    "category": "import",
+    "occurrences": 0,
+    "lastSeen": "2025-12-02T02:06:58.843Z",
+    "fix": "Add the missing export to the source file or remove the import",
+    "rootCause": "Importing a member that does not exist in the module",
+    "preventionPrompt": "Verify all exports exist before importing",
+    "autoFixable": true
+  },
+  {
+    "id": "implicit-any",
+    "pattern": "TS7006.*implicitly has an",
+    "category": "type",
+    "occurrences": 0,
+    "lastSeen": "2025-12-02T02:06:58.843Z",
+    "fix": "Add explicit type annotation",
+    "rootCause": "TypeScript strict mode requires explicit types",
+    "preventionPrompt": "Always add type annotations to function parameters",
+    "autoFixable": true
+  },
+  {
+    "id": "projectRoot-config",
+    "pattern": "Unrecognized key.*projectRoot",
+    "category": "config",
+    "occurrences": 0,
+    "lastSeen": "2025-12-02T02:06:58.843Z",
+    "fix": "Remove projectRoot from next.config.mjs",
+    "rootCause": "projectRoot is not a valid Next.js config option",
+    "preventionPrompt": "Do NOT use projectRoot in next.config.mjs",
+    "autoFixable": true
+  },
+  {
+    "id": "src-app-structure",
+    "pattern": "Cannot find module.*src/app",
+    "category": "config",
+    "occurrences": 0,
+    "lastSeen": "2025-12-02T02:06:58.843Z",
+    "fix": "Move files from src/app/ to app/ (Golden Stack uses root structure)",
+    "rootCause": "Golden Stack uses app/ in root, not src/app/",
+    "preventionPrompt": "Use app/ in root directory, NOT src/app/",
+    "autoFixable": true
+  },
+  {
+    "id": "auto-1764632059763",
+    "pattern": "MyPy.Type.Check.Failed..Quality.Check.Failed..cele",
+    "category": "unknown",
+    "occurrences": 3,
+    "lastSeen": "2025-12-01T23:34:19.769Z",
+    "fix": "Unknown",
+    "rootCause": "Auto-detected pattern",
+    "preventionPrompt": "Avoid this error pattern",
+    "autoFixable": false
+  },
+  {
+    "id": "auto-1764636122617",
+    "pattern": "app.page.tsx.1.10...error.TS2614..Module......comp",
+    "category": "unknown",
+    "occurrences": 2,
+    "lastSeen": "2025-12-02T00:42:02.622Z",
+    "fix": "Unknown",
+    "rootCause": "Auto-detected pattern",
+    "preventionPrompt": "Avoid this error pattern",
+    "autoFixable": false
+  },
+  {
+    "id": "auto-1764636607507",
+    "pattern": "Command.failed..npm.run.build.Failed.to.compile...",
+    "category": "unknown",
+    "occurrences": 1,
+    "lastSeen": "2025-12-02T00:50:07.507Z",
+    "fix": "Unknown",
+    "rootCause": "Auto-detected pattern",
+    "preventionPrompt": "Avoid this error pattern",
+    "autoFixable": false
+  },
+  {
+    "id": "auto-1764636607508",
+    "pattern": "Command.failed..npm.run.build.Failed.to.compile...",
+    "category": "unknown",
+    "occurrences": 1,
+    "lastSeen": "2025-12-02T00:50:07.508Z",
+    "fix": "Unknown",
+    "rootCause": "Auto-detected pattern",
+    "preventionPrompt": "Avoid this error pattern",
+    "autoFixable": false
+  },
+  {
+    "id": "auto-1764636607512",
+    "pattern": "Command.failed..npm.run.build.Failed.to.compile...",
+    "category": "unknown",
+    "occurrences": 1,
+    "lastSeen": "2025-12-02T00:50:07.512Z",
+    "fix": "Unknown",
+    "rootCause": "Auto-detected pattern",
+    "preventionPrompt": "Avoid this error pattern",
+    "autoFixable": false
+  },
+  {
+    "id": "auto-1764643099072",
+    "pattern": "Quality.Check.Failed..npx.tsc...noEmit...skipLibCh",
+    "category": "unknown",
+    "occurrences": 3,
+    "lastSeen": "2025-12-02T02:38:19.078Z",
+    "fix": "Unknown",
+    "rootCause": "Auto-detected pattern",
+    "preventionPrompt": "Avoid this error pattern",
+    "autoFixable": false
+  }
+]

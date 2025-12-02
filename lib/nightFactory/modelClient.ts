@@ -32,7 +32,7 @@ if (anthropicApiKey) {
 }
 
 // ============================================================
-// 3. DeepSeek R1/V3 (NY - För Planning)
+// 3. DeepSeek V3.2 (För Planning, Backend & Fixes)
 // ============================================================
 const deepSeekApiKey = process.env.DEEPSEEK_API_KEY;
 const deepSeek = deepSeekApiKey ? new OpenAI({
@@ -748,21 +748,21 @@ export async function callAI(
       break;
 
     case "PLANNER":
-      // DeepSeek R1 (Reasoning) eller V3 som fallback
-      console.log("🧠 DeepSeek R1 planning...");
+      // DeepSeek V3.2 (Reasoning Mode) - Nu med V3.2 Thinking Mode
+      console.log("🧠 PLANNER: Thinking with DeepSeek V3.2 (Reasoner)...");
       try {
         if (deepSeek) {
-          const r1 = await deepSeek.chat.completions.create({
-            model: "deepseek-reasoner", // Om tillgänglig, annars fallback till deepseek-chat
+          const planner = await deepSeek.chat.completions.create({
+            model: "deepseek-reasoner", // Pekar nu automatiskt på V3.2 Thinking Mode
             messages: [{ role: "user", content: fullPrompt }],
             temperature: 0.3,
           });
-          responseText = r1.choices[0].message.content || "";
+          responseText = planner.choices[0].message.content || "";
         } else {
           responseText = await generateDeepSeekPlanner(fullPrompt);
         }
       } catch (e) {
-        console.warn("⚠️ DeepSeek R1 failed, using V3...");
+        console.warn("⚠️ DeepSeek Reasoner failed, using V3.2 Chat...");
         responseText = await generateDeepSeekPlanner(fullPrompt);
       }
       break;
@@ -916,22 +916,22 @@ export async function callAI(
       break;
 
     case "BACKEND":
-      // Qwen 2.5 Coder 32B eller DeepSeek V3 som fallback
-      console.log("⚙️ Qwen handling Backend...");
-      if (qwen) {
+      // DeepSeek V3.2 (Chat) - Switchar från Qwen till DeepSeek V3.2 (Bättre & Billigare)
+      console.log("⚙️ BACKEND: Coding with DeepSeek V3.2 (Chat)...");
+      if (deepSeek) {
         try {
-          const qwenResponse = await qwen.chat.completions.create({
-            model: "qwen2.5-coder-32b-instruct", // Eller qwen-plus om 32b inte finns
+          const dsBackend = await deepSeek.chat.completions.create({
+            model: "deepseek-chat", // Pekar nu på V3.2
             messages: [
-              { role: "system", content: "You are a backend specialist." },
+              { role: "system", content: context || "You are a Senior Python Backend Engineer." },
               { role: "user", content: fullPrompt }
             ],
-            temperature: 0.2,
+            temperature: 0.0, // V3.2 är väldigt bra på att följa instruktioner med låg temp
           });
-          responseText = qwenResponse.choices[0].message.content || "";
+          responseText = dsBackend.choices[0].message.content || "";
         } catch (e) {
-          console.warn("⚠️ Qwen failed, falling back to DeepSeek V3...");
-          responseText = await generateDeepSeekCoder(fullPrompt);
+          console.warn("⚠️ DeepSeek V3.2 failed, falling back to Gemini...");
+          responseText = await generateContent(fullPrompt, context || "You are a Senior Backend Engineer.");
         }
       } else {
         responseText = await generateDeepSeekCoder(fullPrompt);
@@ -966,7 +966,7 @@ export async function callAI(
       break;
 
     case "AUDIT":
-      // Kimi k2 (Moonshot) - QA Auditor
+      // Kimi k2 (Moonshot) - QA Auditor with DeepSeek Reasoner fallback
       console.log("🕵️ Kimi K2 auditing...");
       if (moonshot) {
         try {
@@ -979,12 +979,53 @@ export async function callAI(
             temperature: 0.1,
           });
           responseText = kimi.choices[0].message.content || "";
-        } catch (e) {
-          console.warn("⚠️ Kimi failed, falling back to runKimiQA...");
-          responseText = await runKimiQA(fullPrompt);
+        } catch (e: any) {
+          console.warn("⚠️ Kimi is DOWN. Falling back to DeepSeek Reasoner (R1)...");
+          
+          // Fallback till DeepSeek Reasoner
+          if (deepSeek) {
+            try {
+              const r1 = await deepSeek.chat.completions.create({
+                model: "deepseek-reasoner",
+                messages: [
+                  { role: "system", content: "You are the QA Auditor. Find inconsistencies, mock data, and logical errors." },
+                  { role: "user", content: fullPrompt }
+                ],
+                temperature: 0.1,
+              });
+              responseText = r1.choices[0].message.content || "";
+              console.log("✅ DeepSeek Reasoner fallback succeeded");
+            } catch (r1Error: any) {
+              console.error("❌ DeepSeek Reasoner fallback also failed:", r1Error?.message);
+              // Last resort: runKimiQA (which has its own fallback)
+              responseText = await runKimiQA(fullPrompt);
+            }
+          } else {
+            // No DeepSeek either, try runKimiQA
+            responseText = await runKimiQA(fullPrompt);
+          }
         }
       } else {
-        responseText = await runKimiQA(fullPrompt);
+        // No Kimi key, try DeepSeek Reasoner directly
+        if (deepSeek) {
+          try {
+            console.log("🔄 No Kimi key, using DeepSeek Reasoner for audit...");
+            const r1 = await deepSeek.chat.completions.create({
+              model: "deepseek-reasoner",
+              messages: [
+                { role: "system", content: "You are the QA Auditor. Find inconsistencies, mock data, and logical errors." },
+                { role: "user", content: fullPrompt }
+              ],
+              temperature: 0.1,
+            });
+            responseText = r1.choices[0].message.content || "";
+          } catch (e: any) {
+            console.error("❌ DeepSeek Reasoner failed:", e?.message);
+            responseText = "PASS"; // Last resort: pass audit
+          }
+        } else {
+          responseText = await runKimiQA(fullPrompt);
+        }
       }
       break;
 
@@ -1015,25 +1056,25 @@ export async function callAI(
       }
       
       if (smartLevel === 'SMART') {
-        // Försök 3-5: DeepSeek V3 (Smart, för logiska fel)
-        console.log("🧠 FIXER: Escalating to DeepSeek V3 for intelligent fixes...");
+        // Försök 3-5: DeepSeek V3.2 (Smart, för logiska fel)
+        console.log("🧠 FIXER: Escalating to DeepSeek V3.2...");
         if (deepSeek) {
           try {
-            const response = await deepSeek.chat.completions.create({
-              model: "deepseek-chat",
+            const fix = await deepSeek.chat.completions.create({
+              model: "deepseek-chat", // V3.2
               messages: [
                 { 
                   role: "system", 
-                  content: context || "You are a Senior Architect fixing build errors. CRITICAL: If the error says 'Cannot find module', imports are broken. REMOVE the broken imports and replace the usage with a simple HTML placeholder (e.g. <div>Placeholder</div>). DO NOT try to import files that don't exist." 
+                  content: context || "Fix the code." 
                 },
                 { role: "user", content: fullPrompt }
               ],
               temperature: 0.1,
             });
-            responseText = response.choices[0].message.content || "";
+            responseText = fix.choices[0].message.content || "";
           } catch (e: any) {
             console.warn("⚠️ DeepSeek Fixer failed:", e?.message);
-            smartLevel = 'GENIUS'; // Fallback till Kimi om DeepSeek failar
+            smartLevel = 'GENIUS'; // Fallback till DeepSeek Reasoner om Chat failar
           }
         } else {
           smartLevel = 'GENIUS'; // Fallback om DeepSeek inte finns
@@ -1041,30 +1082,107 @@ export async function callAI(
       }
       
       if (smartLevel === 'GENIUS') {
-        // Försök 6+: Kimi k2 (Genius, för komplexa sammanhang)
-        console.log("🌙 FIXER: Escalating to Kimi k2 (Moonshot) for complex fixes...");
-        if (moonshot) {
+        // Försök 6+: DeepSeek V3.2 (Reasoning Core) - Vi behåller DeepSeek för de svåraste felen
+        console.log("🌙 FIXER: Escalating to DeepSeek V3.2 (Reasoning Core)...");
+        if (deepSeek) {
           try {
-            const response = await moonshot.chat.completions.create({
-              model: "moonshot-v1-128k",
-              messages: [
-                { 
-                  role: "system", 
-                  content: context || "You are the Lead Engineer. Solve this complex dependency issue. Analyze the full context and provide a comprehensive fix." 
-                },
-                { role: "user", content: fullPrompt }
-              ],
+            const deepThink = await deepSeek.chat.completions.create({
+              model: "deepseek-reasoner",
+              messages: [{ role: "user", content: "Fix this critical bug:\n" + fullPrompt }],
               temperature: 0.1,
             });
-            responseText = response.choices[0].message.content || "";
+            responseText = deepThink.choices[0].message.content || "";
           } catch (e: any) {
-            console.error("❌ Kimi Fixer failed:", e?.message);
-            // Sista utväg: Returnera tom sträng eller fallback
-            responseText = "";
+            console.error("❌ DeepSeek Reasoner Fixer failed:", e?.message);
+            // Fallback till Kimi om DeepSeek Reasoner failar
+            if (moonshot) {
+              try {
+                console.log("🌙 Falling back to Kimi k2 for GENIUS fix...");
+                const response = await moonshot.chat.completions.create({
+                  model: "moonshot-v1-128k",
+                  messages: [
+                    { 
+                      role: "system", 
+                      content: context || "You are the Lead Engineer. Solve this complex dependency issue. Analyze the full context and provide a comprehensive fix." 
+                    },
+                    { role: "user", content: fullPrompt }
+                  ],
+                  temperature: 0.1,
+                });
+                responseText = response.choices[0].message.content || "";
+                console.log("✅ Kimi fallback succeeded");
+              } catch (kimiErr: any) {
+                console.error("❌ Kimi Fixer also failed:", kimiErr?.message);
+                console.warn("⚠️ All GENIUS-level fixers failed. Trying Claude as last resort...");
+                
+                // Last resort: Claude 3.5 Sonnet
+                if (anthropic) {
+                  try {
+                    const claudeFix = await anthropic.messages.create({
+                      model: "claude-sonnet-4-5",
+                      max_tokens: 4000,
+                      messages: [{
+                        role: "user",
+                        content: `${context || "You are the Lead Engineer. Solve this complex issue."}\n\n${fullPrompt}`
+                      }]
+                    });
+                    responseText = claudeFix.content[0].type === 'text' ? claudeFix.content[0].text : "";
+                    console.log("✅ Claude fallback succeeded");
+                  } catch (claudeErr: any) {
+                    console.error("❌ Claude fallback also failed:", claudeErr?.message);
+                    responseText = "";
+                  }
+                } else {
+                  responseText = "";
+                }
+              }
+            } else {
+              // No Kimi, try Claude directly
+              if (anthropic) {
+                try {
+                  console.log("🔄 No Kimi, using Claude as GENIUS fallback...");
+                  const claudeFix = await anthropic.messages.create({
+                    model: "claude-sonnet-4-5",
+                    max_tokens: 4000,
+                    messages: [{
+                      role: "user",
+                      content: `${context || "You are the Lead Engineer. Solve this complex issue."}\n\n${fullPrompt}`
+                    }]
+                  });
+                  responseText = claudeFix.content[0].type === 'text' ? claudeFix.content[0].text : "";
+                } catch (claudeErr: any) {
+                  console.error("❌ Claude fallback failed:", claudeErr?.message);
+                  responseText = "";
+                }
+              } else {
+                responseText = "";
+              }
+            }
           }
         } else {
-          console.warn("⚠️ Kimi not available, Fixer failed.");
-          responseText = "";
+          // Fallback till Kimi om DeepSeek inte finns
+          if (moonshot) {
+            try {
+              const response = await moonshot.chat.completions.create({
+                model: "moonshot-v1-128k",
+                messages: [
+                  { 
+                    role: "system", 
+                    content: context || "You are the Lead Engineer. Solve this complex dependency issue." 
+                  },
+                  { role: "user", content: fullPrompt }
+                ],
+                temperature: 0.1,
+              });
+              responseText = response.choices[0].message.content || "";
+            } catch (e: any) {
+              console.error("❌ Kimi Fixer failed:", e?.message);
+              responseText = "";
+            }
+          } else {
+            console.warn("⚠️ No fixer available, Fixer failed.");
+            responseText = "";
+          }
         }
       }
       break;

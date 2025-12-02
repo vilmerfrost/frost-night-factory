@@ -1,0 +1,4 @@
+packages:
+  - 'agent-runner'
+  - 'agent-runner/workspace/sandbox/*'
+

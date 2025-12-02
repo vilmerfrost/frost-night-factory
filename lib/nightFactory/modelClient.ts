@@ -680,7 +680,7 @@ export async function generateGroqFix(errorLog: string, brokenFileContent: strin
  * THE MODEL BRAIN: Centraliserad modellväljare
  * Väljer rätt modell för rätt uppgift baserat på roll
  */
-export type AgentRole = "PLANNER" | "FRONTEND" | "BACKEND" | "RESEARCH" | "AUDIT" | "ROUTER" | "REVIEWER" | "FIXER";
+export type AgentRole = "PLANNER" | "FRONTEND" | "BACKEND" | "RESEARCH" | "AUDIT" | "ROUTER" | "REVIEWER" | "FIXER" | "CODE_REVIEWER" | "DEBUGGER" | "OPTIMIZER" | "NUCLEAR" | "LOOP_DETECTIVE" | "PROMPT_ENGINEER";
 
 export async function callAI(
   role: AgentRole,
@@ -1025,6 +1025,207 @@ export async function callAI(
           }
         } else {
           responseText = await runKimiQA(fullPrompt);
+        }
+      }
+      break;
+
+    case "CODE_REVIEWER":
+    case "DEBUGGER":
+      // 🧠 DeepSeek R1 (Reasoning) - Best for analysis and strategy
+      console.log(`🧠 ${role}: Analyzing with DeepSeek R1 (Reasoner)...`);
+      if (deepSeek) {
+        try {
+          const reasoner = await deepSeek.chat.completions.create({
+            model: "deepseek-reasoner",
+            messages: [
+              {
+                role: "system",
+                content: role === "CODE_REVIEWER"
+                  ? "You are a Senior Code Reviewer. You do NOT fix code. You only find errors and explain WHY they happen."
+                  : "You are a Debugging Strategist. Analyze the Reviewer's findings and create a step-by-step fix plan."
+              },
+              { role: "user", content: fullPrompt }
+            ],
+          });
+          responseText = reasoner.choices[0].message.content || "";
+        } catch (e: any) {
+          console.warn(`⚠️ DeepSeek Reasoner (${role}) failed:`, e?.message);
+          // Fallback to DeepSeek Chat
+          if (deepSeek) {
+            try {
+              const fallback = await deepSeek.chat.completions.create({
+                model: "deepseek-chat",
+                messages: [
+                  {
+                    role: "system",
+                    content: role === "CODE_REVIEWER"
+                      ? "You are a Senior Code Reviewer. Analyze code for errors."
+                      : "You are a Debugging Strategist. Create a fix plan."
+                  },
+                  { role: "user", content: fullPrompt }
+                ],
+                temperature: 0.1,
+              });
+              responseText = fallback.choices[0].message.content || "";
+            } catch (fallbackErr: any) {
+              console.error(`❌ DeepSeek fallback (${role}) failed:`, fallbackErr?.message);
+              responseText = await generateContent(fullPrompt, `You are a ${role}.`);
+            }
+          } else {
+            responseText = await generateContent(fullPrompt, `You are a ${role}.`);
+          }
+        }
+      } else {
+        responseText = await generateContent(fullPrompt, `You are a ${role}.`);
+      }
+      break;
+
+    case "OPTIMIZER":
+      // ✨ Gemini 2.0 Flash - Fast and great at text reformulation
+      console.log("⚡ OPTIMIZER: Enhancing prompt with Gemini 2.0 Flash...");
+      if (geminiModel) {
+        try {
+          const result = await geminiModel.generateContent(`
+            USER PROMPT: "${fullPrompt}"
+            
+            TASK: Rewrite this prompt to be crystal clear for an AI Software Architect.
+            - Expand ambiguous terms ("make it pop" -> "use high contrast animations").
+            - Add technical constraints if missing (e.g. "Next.js 15").
+            - Keep the original intent.
+            
+            OUTPUT: Return ONLY the optimized prompt, no explanations.
+          `);
+          responseText = result.response.text();
+        } catch (e: any) {
+          console.warn("⚠️ Gemini Optimizer failed:", e?.message);
+          responseText = fullPrompt; // Return original if optimization fails
+        }
+      } else {
+        responseText = fullPrompt; // Return original if Gemini not available
+      }
+      break;
+
+    case "LOOP_DETECTIVE":
+      // 🕵️ LOOP DETECTIVE: Kimi k2 (Deep Context)
+      console.log("🕵️ LOOP DETECTIVE: Kimi k2 is analyzing the entire history...");
+      if (moonshot) {
+        try {
+          const kimiResponse = await moonshot.chat.completions.create({
+            model: "moonshot-v1-128k", // Eller 'kimi-k2' beroende på din provider
+            messages: [
+              { 
+                role: "system", 
+                content: context || "You are a Senior Debugging Detective. Analyze repetitive errors and find the ROOT CAUSE." 
+              },
+              { role: "user", content: fullPrompt }
+            ],
+            temperature: 0.1 // Analytisk och exakt
+          });
+          responseText = kimiResponse.choices[0].message.content || "";
+        } catch (e: any) {
+          console.warn("⚠️ Kimi unavailable, falling back to DeepSeek R1...");
+          // Fallback till DeepSeek Reasoner om Kimi är nere
+          if (deepSeek) {
+            try {
+              const r1 = await deepSeek.chat.completions.create({
+                model: "deepseek-reasoner",
+                messages: [{ role: "user", content: fullPrompt }]
+              });
+              responseText = r1.choices[0].message.content || "";
+            } catch (r1Error: any) {
+              console.error("❌ DeepSeek Reasoner fallback also failed:", r1Error?.message);
+              responseText = "";
+            }
+          } else {
+            responseText = "";
+          }
+        }
+      } else {
+        // Fallback till DeepSeek Reasoner om Kimi inte finns
+        if (deepSeek) {
+          try {
+            const r1 = await deepSeek.chat.completions.create({
+              model: "deepseek-reasoner",
+              messages: [{ role: "user", content: fullPrompt }]
+            });
+            responseText = r1.choices[0].message.content || "";
+          } catch (r1Error: any) {
+            console.error("❌ DeepSeek Reasoner fallback failed:", r1Error?.message);
+            responseText = "";
+          }
+        } else {
+          responseText = "";
+        }
+      }
+      break;
+
+    case "PROMPT_ENGINEER":
+      // ✨ PROMPT ENGINEER: Gemini 2.0 Flash (Fast & Smart)
+      console.log("✨ PROMPT ENGINEER: Gemini 2.0 Flash optimizing...");
+      if (geminiModel) {
+        try {
+          const systemPrompt = context || "You are a Senior Technical Product Manager.";
+          const result = await geminiModel.generateContent(
+            `${systemPrompt}\n\nUSER REQUEST: ${fullPrompt}`
+          );
+          responseText = result.response.text();
+        } catch (e: any) {
+          console.error("❌ Gemini Prompt Engineer failed:", e?.message);
+          responseText = fullPrompt; // Return original if optimization fails
+        }
+      } else {
+        console.warn("⚠️ Gemini not available, using original prompt.");
+        responseText = fullPrompt; // Return original if Gemini not available
+      }
+      break;
+
+    case "NUCLEAR":
+      // ☢️ Claude 3.5 Sonnet - The smartest coder for critical situations
+      console.log("☢️ NUCLEAR: Claude 3.5 Sonnet taking over...");
+      if (anthropic) {
+        try {
+          const claude = await anthropic.messages.create({
+            model: "claude-sonnet-4-5",
+            max_tokens: 8192,
+            messages: [{
+              role: "user",
+              content: fullPrompt
+            }]
+          });
+          responseText = claude.content[0].type === 'text' ? claude.content[0].text : "";
+        } catch (e: any) {
+          console.error("❌ Claude Nuclear failed:", e?.message);
+          // Fallback to DeepSeek Reasoner
+          if (deepSeek) {
+            try {
+              const fallback = await deepSeek.chat.completions.create({
+                model: "deepseek-reasoner",
+                messages: [{ role: "user", content: fullPrompt }],
+              });
+              responseText = fallback.choices[0].message.content || "";
+            } catch (fallbackErr: any) {
+              console.error("❌ Nuclear fallback failed:", fallbackErr?.message);
+              responseText = "";
+            }
+          } else {
+            responseText = "";
+          }
+        }
+      } else {
+        // Fallback to DeepSeek Reasoner if Claude not available
+        if (deepSeek) {
+          try {
+            const fallback = await deepSeek.chat.completions.create({
+              model: "deepseek-reasoner",
+              messages: [{ role: "user", content: fullPrompt }],
+            });
+            responseText = fallback.choices[0].message.content || "";
+          } catch (fallbackErr: any) {
+            console.error("❌ Nuclear fallback failed:", fallbackErr?.message);
+            responseText = "";
+          }
+        } else {
+          responseText = "";
         }
       }
       break;

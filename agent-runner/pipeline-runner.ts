@@ -29,6 +29,7 @@ import { runDocumentationStep } from '../lib/nightFactory/documentationAgent';
 import { getLatestFrameworkIntel } from '../lib/nightFactory/knowledgeBase';
 import { runIntegrationStep } from '../lib/nightFactory/integrationAgent';
 import { generateSeedData } from '../lib/nightFactory/seederAgent';
+import { consultHiveMind, memorizeSolution } from '../lib/nightFactory/hiveMind';
 
 // =============================================================================
 // PHASE 1-7 INTELLIGENT SYSTEMS (NEW)
@@ -847,6 +848,47 @@ function getRepoPath(pipeline: any): string {
   return repoPath;
 }
 
+/**
+ * Atomic Reset: Force reset tsconfig.json with Golden Template
+ * This ensures tsconfig.json is always correct, regardless of AI modifications
+ */
+function forceResetTsConfig(repoPath: string) {
+  console.log("🧨 NUCLEAR OPTION: Resetting tsconfig.json...");
+  
+  const goldenTsConfig = {
+    "compilerOptions": {
+      "target": "es5",
+      "lib": ["dom", "dom.iterable", "esnext"],
+      "allowJs": true,
+      "skipLibCheck": true,
+      "strict": true,
+      "noEmit": true,
+      "esModuleInterop": true,
+      "module": "esnext",
+      "moduleResolution": "bundler",
+      "resolveJsonModule": true,
+      "isolatedModules": true,
+      "jsx": "preserve",
+      "incremental": true,
+      "plugins": [{ "name": "next" }],
+      "paths": { "@/*": ["./*"] }
+    },
+    "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+    "exclude": ["node_modules"]
+  };
+
+  const tsConfigPath = path.join(repoPath, 'tsconfig.json');
+  const tsConfigDir = path.dirname(tsConfigPath);
+  
+  // Ensure directory exists
+  if (!fs.existsSync(tsConfigDir)) {
+    fs.mkdirSync(tsConfigDir, { recursive: true });
+  }
+  
+  fs.writeFileSync(tsConfigPath, JSON.stringify(goldenTsConfig, null, 2));
+  console.log("✅ tsconfig.json reset to Golden Template.");
+}
+
 async function updatePipeline(id: string, updates: any) {
   const { error } = await supabase.from('pipelines').update({ ...updates, updated_at: new Date().toISOString() }).eq('id', id);
   if (error) console.error('Error updating pipeline:', error);
@@ -1110,19 +1152,69 @@ A bulleted list of TECHNICAL CONSTRAINTS and CONFIGURATION RULES for the Planner
 // ------------------------------------------------------------------
 // STEG 2: PLANNER
 // ------------------------------------------------------------------
+/**
+ * Prompt Optimizer: Enhances user prompts for better AI understanding
+ * Uses PROMPT_ENGINEER (Gemini Flash) to expand vague requests into detailed specs
+ */
+async function optimizeUserRequest(rawRequest: string): Promise<string> {
+  console.log("✨ Calling Prompt Engineer (Gemini Flash)...");
+  
+  const systemPrompt = `
+    ROLE: You are a Senior Technical Product Manager.
+    TASK: Expand the user's raw request into a detailed technical specification for an AI Software Architect.
+    
+    GUIDELINES:
+    1. FILL GAPS: If user says "blog", assume "Next.js 15, Markdown support, SEO friendly, Dark mode".
+    2. TECH STACK: Enforce the "Golden Stack" (Next.js 14.2+, Tailwind, Supabase).
+    3. CLARITY: Remove ambiguity. Define specific features.
+    4. DO NOT write code. Write REQUIREMENTS.
+    
+    OUTPUT FORMAT:
+    Return ONLY the optimized prompt text.
+  `;
+
+  try {
+    const optimized = await callAI("PROMPT_ENGINEER", rawRequest, systemPrompt);
+    if (optimized && optimized.trim().length > 0) {
+      console.log(`✅ Prompt optimized (${rawRequest.length} -> ${optimized.length} chars)`);
+      return optimized;
+    }
+  } catch (e: any) {
+    console.warn("⚠️ Prompt optimization failed, using original:", e?.message);
+  }
+  return rawRequest;
+}
+
+// Alias for backward compatibility
+async function optimizeUserPrompt(rawPrompt: string): Promise<string> {
+  return optimizeUserRequest(rawPrompt);
+}
+
 async function runPlannerStep(pipeline: any, repoPath: string) {
+  // 1. CHECKPOINT CHECK: Skip if already completed
+  const existingStep = await getStep(pipeline.id, 'planner');
+  if (existingStep && existingStep.status === 'completed') {
+    console.log("⏭️ Planner step already completed (Checkpoint found). Skipping.");
+    return;
+  }
+
   console.log(`[Planner] Creating blueprint...`);
   await updatePipeline(pipeline.id, { current_phase: 'planner' });
   await createStep(pipeline.id, 'planner', 'running');
 
+  // ✨ PROMPT OPTIMIZER: Enhance user request before processing
+  const rawRequest = pipeline.initial_prompt || pipeline.prompt || "";
+  const optimizedRequest = await optimizeUserPrompt(rawRequest);
+  console.log(`✨ Using optimized prompt (${optimizedRequest.length} chars)`);
+
   // 🧠 GATEKEEPER: Tech Matrix Detection
   console.log("🧠 Gatekeeper scanning request...");
-  const matrix = await detectTechMatrix(pipeline.initial_prompt || pipeline.prompt || "");
+  const matrix = await detectTechMatrix(optimizedRequest);
   console.log(`🧬 MATRIX: Backend=${matrix.primary_backend} | Frontend=${matrix.frontend_framework} | Arch=${matrix.architecture} | Complexity=${matrix.complexity}`);
 
   // 🧠 INTENT DETECTION (Före planering!) - Keep for backward compatibility
   console.log("🧠 Detecting Project DNA...");
-  const intent = await detectProjectIntent(pipeline.initial_prompt || pipeline.prompt || "");
+  const intent = await detectProjectIntent(optimizedRequest);
   console.log(`🧬 DNA Config: ${intent.isPython ? "PYTHON 🐍" : "NODE ⚡"} (${intent.projectType})`);
 
   // 📚 RESEARCHER: RAG - Fetch latest framework intel
@@ -1311,14 +1403,20 @@ ${BLUEPRINT_PROTOCOL_PROMPT}
 // Hjälpfunktion för att städa bort markdown inuti [FILE]-block
 function cleanCodeBlock(content: string): string {
   content = content.trim();
-  // Ta bort ```typescript ... ``` om det finns inuti blocket
-  if (content.startsWith("```")) {
-    content = content.replace(/^```[a-z]*\n/i, "").replace(/```$/, "");
-  }
+  
+  // THE SANITIZER: Ta bort alla Markdown-artefakter och FILE-taggar
+  content = content.replace(/^```[a-zA-Z0-9]*\n?/m, ''); // Ta bort start-block
+  content = content.replace(/```$/m, ''); // Ta bort slut-block
+  content = content.replace(/^### FILE:.*\n?/gm, ''); // Ta bort ### FILE headers
+  content = content.replace(/^\[FILE:.*\]\n?/gm, ''); // Ta bort [FILE: ...] headers
+  content = content.replace(/```[a-zA-Z0-9]*\n/g, '').replace(/```$/g, ''); // Rensa inbäddade block
+  
   // Ta bort markdown headers som kan ha hamnat inuti
   content = content.replace(/^#+\s*.*$/gm, "");
+  
   // Ta bort "Here is..." eller "I created..." text
   content = content.replace(/^(Here is|I created|I've created|Here's).*$/gmi, "");
+  
   return content.trim();
 }
 
@@ -1482,13 +1580,12 @@ async function parseAndWriteFiles(rawOutput: string, repoPath: string): Promise<
       if (parts.length > 1) fileName = parts.slice(1).join('/');
     }
 
-    // 1. THE SANITIZER: Ta bort alla Markdown-artefakter (om inte redan gjort)
-    if (!content.includes('[FILE:') && !content.includes('### FILE:')) {
-      content = content.replace(/^```[a-zA-Z0-9]*\n?/m, '');
-      content = content.replace(/```$/m, '');
-      content = content.replace(/^### FILE:.*\n?/m, '');
-      content = content.replace(/```[a-zA-Z0-9]*\n/g, '').replace(/```$/g, '');
-    }
+    // 1. THE SANITIZER: Ta bort alla Markdown-artefakter och FILE-taggar
+    content = content.replace(/^```[a-zA-Z0-9]*\n?/m, ''); // Ta bort start-block
+    content = content.replace(/```$/m, ''); // Ta bort slut-block
+    content = content.replace(/^### FILE:.*\n?/gm, ''); // Ta bort ### FILE headers
+    content = content.replace(/^\[FILE:.*\]\n?/gm, ''); // Ta bort [FILE: ...] headers
+    content = content.replace(/```[a-zA-Z0-9]*\n/g, '').replace(/```$/g, ''); // Rensa inbäddade block
     content = content.trim();
 
     // 2. FIX: Force Safe globals.css
@@ -1582,6 +1679,114 @@ module.exports = {
       
       // Write file
       const contentToWrite = content.trim();
+      
+      // =============================================================================
+      // 🛡️ PARSER SHIELD: Protect Critical Files from Corruption (V5.1 UPGRADE)
+      // =============================================================================
+      
+      // VALIDATION 1: JSON GUARD - Prevent agents from writing code/text in JSON files
+      if (fileName.endsWith('.json')) {
+        try {
+          // Try to parse the content as JSON
+          JSON.parse(contentToWrite);
+          // If it succeeds, it's valid JSON. Continue.
+        } catch (e) {
+          console.error(`❌ JSON GUARD TRIGGERED for ${fileName}: Invalid JSON content.`);
+          console.log("   ⚠️ Agent attempted to write non-JSON content. BLOCKING WRITE.");
+          console.log(`   Content preview: ${contentToWrite.substring(0, 200)}...`);
+          console.log(`   Error: ${(e as Error).message}`);
+          
+          // If it's tsconfig.json, restore to Golden Template
+          if (fileName.endsWith('tsconfig.json')) {
+            console.log("   ✅ Restoring Golden tsconfig.json...");
+            const goldenTsConfig = {
+              "compilerOptions": {
+                "target": "es5",
+                "lib": ["dom", "dom.iterable", "esnext"],
+                "allowJs": true,
+                "skipLibCheck": true,
+                "strict": true,
+                "noEmit": true,
+                "esModuleInterop": true,
+                "module": "esnext",
+                "moduleResolution": "bundler",
+                "resolveJsonModule": true,
+                "isolatedModules": true,
+                "jsx": "preserve",
+                "incremental": true,
+                "plugins": [{ "name": "next" }],
+                "paths": { "@/*": ["./*"] }
+              },
+              "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+              "exclude": ["node_modules"]
+            };
+            contentToWrite = JSON.stringify(goldenTsConfig, null, 2);
+          } else if (fileName.endsWith('package.json')) {
+            // If package.json is broken, use the template
+            console.log("   ✅ Restoring Golden package.json...");
+            if (GOLDEN_PACKAGE_JSON) {
+              contentToWrite = typeof GOLDEN_PACKAGE_JSON === 'string' 
+                ? GOLDEN_PACKAGE_JSON 
+                : JSON.stringify(GOLDEN_PACKAGE_JSON, null, 2);
+            } else {
+              // Fallback if GOLDEN_PACKAGE_JSON is not available
+              console.warn("   ⚠️ GOLDEN_PACKAGE_JSON not available, skipping file.");
+              continue;
+            }
+          } else {
+            // For other JSON files, don't write the garbage
+            console.log(`   ⚠️ Skipping invalid JSON file: ${fileName}`);
+            continue;
+          }
+        }
+      }
+      
+      // VALIDATION 2: Protect TypeScript files from chatty content
+      if (fileName.endsWith('.ts') || fileName.endsWith('.tsx')) {
+        // If file contains typical chat phrases without actual code, block it
+        const chattyPatterns = /Here is the code|I have updated|Let me check|I'll create|Here's the|Let me fix/i;
+        const hasCode = contentToWrite.includes('import ') || 
+                       contentToWrite.includes('export ') || 
+                       contentToWrite.includes('function ') ||
+                       contentToWrite.includes('const ') ||
+                       contentToWrite.includes('interface ') ||
+                       contentToWrite.includes('type ');
+        
+        if (chattyPatterns.test(contentToWrite) && !hasCode) {
+          console.error(`❌ REFUSING TO WRITE CHATTY CONTENT to ${fileName}.`);
+          console.log(`   Content preview: ${contentToWrite.substring(0, 200)}...`);
+          continue; // Skip this file
+        }
+      }
+      
+      // VALIDATION 3: Protect critical config files from empty or invalid content
+      if (fileName.endsWith('tsconfig.json') && contentToWrite.length < 50) {
+        console.error(`❌ REFUSING TO WRITE SUSPICIOUSLY SHORT tsconfig.json (${contentToWrite.length} chars).`);
+        console.log("   ✅ Restoring Golden tsconfig.json...");
+        const goldenTsConfig = {
+          "compilerOptions": {
+            "target": "es5",
+            "lib": ["dom", "dom.iterable", "esnext"],
+            "allowJs": true,
+            "skipLibCheck": true,
+            "strict": true,
+            "noEmit": true,
+            "esModuleInterop": true,
+            "module": "esnext",
+            "moduleResolution": "bundler",
+            "resolveJsonModule": true,
+            "isolatedModules": true,
+            "jsx": "preserve",
+            "incremental": true,
+            "plugins": [{ "name": "next" }],
+            "paths": { "@/*": ["./*"] }
+          },
+          "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+          "exclude": ["node_modules"]
+        };
+        contentToWrite = JSON.stringify(goldenTsConfig, null, 2);
+      }
+      
       fs.writeFileSync(filePath, contentToWrite, 'utf-8');
       
       // ✅ VERIFY write succeeded
@@ -1643,6 +1848,13 @@ module.exports = {
 }
 
 async function runCoderStep(pipeline: any, repoPath: string) {
+  // 1. CHECKPOINT CHECK: Skip if already completed
+  const existingStep = await getStep(pipeline.id, 'coder');
+  if (existingStep && existingStep.status === 'completed') {
+    console.log("⏭️ Coder step already completed (Checkpoint found). Skipping.");
+    return;
+  }
+
   console.log(`\n🔍 === PATH VERIFICATION START ===`);
   console.log(`[Coder] Expected path: ${repoPath}`);
   console.log(`[Coder] Path exists: ${fs.existsSync(repoPath)}`);
@@ -3984,9 +4196,40 @@ function sanitizeMiddleware(projectPath: string) {
 }
 
 async function runTesterStep(pipeline: any, repoPath: string) {
+  // 1. CHECKPOINT CHECK: Skip if already completed
+  const existingStep = await getStep(pipeline.id, 'tester');
+  if (existingStep && existingStep.status === 'completed') {
+    console.log("⏭️ Tester step already completed (Checkpoint found). Skipping.");
+    return;
+  }
+
   console.log(`[Tester] Starting verification for ${pipeline.id}...`);
   await updatePipeline(pipeline.id, { current_phase: 'tester' });
   await createStep(pipeline.id, 'tester', 'running');
+
+  // =============================================================================
+  // 🔒 SYNC ENFORCER: Force Backend/Frontend Type Sync (V5.1 UPGRADE)
+  // =============================================================================
+  if (fs.existsSync(path.join(repoPath, 'backend'))) {
+    console.log("🔒 Enforcing Backend/Frontend Type Sync...");
+    try {
+      // Detektera backend-typ
+      const hasPython = fs.existsSync(path.join(repoPath, 'backend', 'main.py')) || 
+                       fs.existsSync(path.join(repoPath, 'backend', 'requirements.txt'));
+      const backendType = hasPython ? "Python" : "Node";
+      
+      await runIntegrationStep(repoPath, backendType);
+      console.log("✅ Backend/Frontend types synchronized.");
+    } catch (syncError: any) {
+      console.warn("⚠️ Type sync failed (non-critical, continuing):", syncError?.message);
+      // Continue anyway - build might still work
+    }
+  }
+
+  // =============================================================================
+  // 🧨 ATOMIC RESET: Force Reset tsconfig.json (V5.1 UPGRADE)
+  // =============================================================================
+  forceResetTsConfig(repoPath);
 
   // ✅ STEP 0: ENFORCE NEXT.JS 15 STRUCTURE FIRST (ALWAYS!)
   // This is the PERMANENT FIX - converts src/app to app/ and ensures correct structure
@@ -4023,38 +4266,8 @@ async function runTesterStep(pipeline: any, repoPath: string) {
   // --- 🛠️ PRE-FLIGHT FIXES (THE SILVER BULLET) ---
   console.log("[Tester] 🔧 Applying Pre-flight System Fixes...");
 
-  // 1. TVINGA RÄTT TSCONFIG (Nu med "Röntgen-syn" för både src och root)
-  const tsConfigContent = {
-    "compilerOptions": {
-      "target": "es5",
-      "lib": ["dom", "dom.iterable", "esnext"],
-      "allowJs": true,
-      "skipLibCheck": true,
-      "strict": true,
-      "noEmit": true,
-      "esModuleInterop": true,
-      "module": "esnext",
-      "moduleResolution": "bundler",
-      "resolveJsonModule": true,
-      "isolatedModules": true,
-      "jsx": "preserve",
-      "incremental": true,
-      "plugins": [{ "name": "next" }],
-      "paths": {
-        "@/*": ["./*"] // Root structure only (Golden Stack - no src/)
-      }
-    },
-    "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-    "exclude": ["node_modules"]
-  };
-  // Safe Write: Ensure directory exists
-  const tsConfigPath = path.join(repoPath, 'tsconfig.json');
-  const tsConfigDir = path.dirname(tsConfigPath);
-  if (!fs.existsSync(tsConfigDir)) {
-    fs.mkdirSync(tsConfigDir, { recursive: true });
-  }
-  fs.writeFileSync(tsConfigPath, JSON.stringify(tsConfigContent, null, 2));
-  console.log("-> Fixed tsconfig.json for src/ and root directory");
+  // Note: tsconfig.json is already reset by forceResetTsConfig() above (Atomic Reset)
+  // This ensures tsconfig.json is always correct, regardless of AI modifications
 
   // 2. MASS-INJICERA GOLDEN COMPONENTS (Vänta inte på fel)
   // Golden Stack uses components/ in root, NOT src/components/
@@ -4747,6 +4960,14 @@ export default nextConfig;
         });
         console.log("✅ Build Successful!");
         
+        // 🧠 MEMORIZE SOLUTION: Save successful fix to Hive Mind
+        if (wasFixing && lastAppliedFix && lastErrorLog) {
+          console.log("🧠 Memorizing successful fix to Hive Mind...");
+          await memorizeSolution(lastErrorLog, lastAppliedFix).catch(err => 
+            console.warn("⚠️ Failed to memorize solution:", err?.message)
+          );
+        }
+        
         // 3.5. ASSERT: Verify page.tsx and layout.tsx export valid default components
         console.log("[Tester] 🛡️ Verifying page.tsx and layout.tsx export default components...");
         const pagePath = path.join(repoPath, 'src', 'app', 'page.tsx');
@@ -4936,6 +5157,15 @@ RETURN FORMAT:
       
       if (auditPassed) {
         console.log("✅ All checks passed! Ready for publishing.");
+        
+        // 🧠 MEMORIZE SOLUTION: Save successful fix to Hive Mind
+        if (wasFixing && lastAppliedFix && lastErrorLog) {
+          console.log("🧠 Memorizing successful fix to Hive Mind...");
+          await memorizeSolution(lastErrorLog, lastAppliedFix).catch(err => 
+            console.warn("⚠️ Failed to memorize solution:", err?.message)
+          );
+        }
+        
         success = true;
       } else {
         // Om audit misslyckades efter max retries men fixade filer, försök bygga igen
@@ -5001,67 +5231,130 @@ RETURN FORMAT:
       const isLooping = last3Errors.length === 3 && last3Errors.every(e => e === currentError);
       
       if (isLooping) {
-        console.error("\n🔁 CRITICAL LOOP DETECTED: The agent is hallucinating fixes.");
-        console.log("🚨 ACTIVATING NUCLEAR OPTION: Rewriting the file from scratch.");
+        console.error("\n🔁 LOOP DETECTED: The standard agents are stuck.");
         
-        // Extract target file from error if available
+        // 1. SAMLA BEVIS (Kontext)
+        // Kimi behöver se filen, felet OCH vad vi försökt göra
         const fileMatch = fullLog.match(/([a-zA-Z0-9_\-\/\.]+\.(tsx?|jsx?|py|ts|js))(?:\s*\((\d+),(\d+)\))?/);
         const targetFile = fileMatch ? fileMatch[1].trim() : (brokenFile || 'app/page.tsx');
         
-        // Read target file content if not already read
-        let targetFileContent = brokenFileContent;
-        if (!targetFileContent && targetFile) {
-          try {
-            targetFileContent = fs.readFileSync(path.join(repoPath, targetFile), 'utf-8');
-          } catch (e) {
-            targetFileContent = 'File not found';
+        const targetFileContent = fs.existsSync(path.join(repoPath, targetFile)) 
+          ? fs.readFileSync(path.join(repoPath, targetFile), 'utf-8')
+          : "File not found";
+          
+        const investigationPrompt = `
+        🚨 LOOP INVESTIGATION REQUEST 🚨
+        
+        THE SITUATION:
+        The 'Fixer Agent' has tried to fix the same error 3 times and FAILED.
+        We are stuck in a loop.
+        
+        THE ERROR:
+        ${currentError}
+        
+        THE FILE CONTENT (Current State):
+        ${targetFileContent.substring(0, 3000)}${targetFileContent.length > 3000 ? '\n... (truncated)' : ''}
+        
+        YOUR TASK (Detective):
+        1. Why is the fix failing? (e.g., "Agent keeps removing the import but it's required", "Agent is fixing syntax but logic is wrong").
+        2. What is the RADICAL solution? (e.g., "Delete the file", "Rewrite from scratch", "Change the interface").
+        
+        OUTPUT JSON ONLY:
+        {
+            "analysis": "The agent keeps...",
+            "strategy": "REWRITE" | "DELETE" | "IGNORE",
+            "instructions": "Write the code to..."
+        }
+        `;
+
+        // 2. ANROPA DETEKTIVEN (Kimi)
+        let strategy: { analysis?: string; strategy: string; instructions: string };
+        try {
+          const detectiveJson = await callAI("LOOP_DETECTIVE", investigationPrompt);
+          const jsonMatch = detectiveJson.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            strategy = JSON.parse(jsonMatch[0]);
+          } else {
+            throw new Error("No JSON found in detective response");
           }
+        } catch (e: any) {
+          // Fallback om Kimi svamlar
+          console.warn("⚠️ Detective response parsing failed, using fallback strategy:", e?.message);
+          strategy = { strategy: "REWRITE", instructions: "Rewrite the file entirely." };
         }
         
-        // Instead of "FIXER", call "CODER" (Create new)
-        const radicalPrompt = `
-STOP. YOU ARE STUCK.
+        console.log(`🕵️ Detective Analysis: ${strategy.analysis || 'No analysis provided'}`);
+        console.log(`🕵️ Detective Strategy: ${strategy.strategy}`);
+        console.log(`📝 Instructions: ${strategy.instructions}`);
 
-The file '${targetFile}' causes the same error 3 times in a row:
-
-"${currentError}"
-
-DO NOT TRY TO PATCH IT.
-REWRITE THE FILE FROM SCRATCH.
-
-Use the simplest, most robust implementation possible.
-- If it's a type error, simplify the types using 'any' if necessary to pass the build.
-- If it's an import error, remove the import and inline the component/logic.
-- If it's a syntax error, rewrite the entire function/component cleanly.
-
-GOAL: A GREEN BUILD. Functionality can be simplified, but it must compile.
-
-Current broken file content (for reference, but DO NOT copy it):
-${targetFileContent ? targetFileContent.substring(0, 1000) : 'File not found'}
-
-OUTPUT FORMAT:
-[FILE: ${targetFile}]
-... completely rewritten code ...
-[GOAL]
-        `;
-        
-        // Use a smarter model (DeepSeek/Claude) to rewrite completely
-        try {
-          const newFileContent = await callAI("FRONTEND", radicalPrompt, undefined, undefined, "GENIUS");
-          const filesCreated = await parseAndWriteFiles(newFileContent, repoPath);
+        // 3. UTFÖR ORDER (Nuclear Option med Claude)
+        if (strategy.strategy === "REWRITE") {
+          console.log("🚨 ACTIVATING NUCLEAR OPTION (Claude 3.5)...");
+          const nuclearPrompt = `
+            STOP. LISTEN TO THE DETECTIVE.
+            
+            INSTRUCTIONS:
+            ${strategy.instructions}
+            
+            FILE: ${targetFile}
+            ERROR: ${currentError}
+            
+            REWRITE THE FILE COMPLETELY. DO NOT PATCH.
+            OUTPUT [FILE: ...] FORMAT.
+          `;
           
-          if (filesCreated > 0) {
-            console.log(`✅ Nuclear rewrite applied: ${filesCreated} file(s) rewritten from scratch.`);
-            errorHistory = []; // Reset history
-            continue; // Restart the loop
-          } else {
-            console.error("❌ Nuclear rewrite produced no files. Breaking loop.");
+          try {
+            const fix = await callAI("NUCLEAR", nuclearPrompt);
+            const filesCreated = await parseAndWriteFiles(fix, repoPath);
+            
+            if (filesCreated > 0) {
+              console.log(`✅ Nuclear rewrite applied: ${filesCreated} file(s) rewritten from scratch.`);
+              errorHistory = []; // Nollställ minnet
+              continue; // Starta om
+            } else {
+              console.error("❌ Nuclear rewrite produced no files. Breaking loop.");
+              break;
+            }
+          } catch (nuclearError: any) {
+            console.error("❌ Nuclear rewrite failed:", nuclearError.message);
+            console.error("🚨 MANUAL INTERVENTION REQUIRED");
             break;
           }
-        } catch (radicalError: any) {
-          console.error("❌ Nuclear rewrite failed:", radicalError.message);
-          console.error("🚨 MANUAL INTERVENTION REQUIRED");
-          break;
+        } 
+        else if (strategy.strategy === "DELETE") {
+          console.log("🗑️ Detective ordered DELETION.");
+          try {
+            const filePath = path.join(repoPath, targetFile);
+            if (fs.existsSync(filePath)) {
+              fs.unlinkSync(filePath);
+              console.log(`✅ Deleted file: ${targetFile}`);
+              errorHistory = []; // Nollställ minnet
+              continue; // Starta om
+            } else {
+              console.warn(`⚠️ File not found for deletion: ${targetFile}`);
+            }
+          } catch (deleteError: any) {
+            console.error("❌ File deletion failed:", deleteError.message);
+          }
+        }
+        else if (strategy.strategy === "IGNORE") {
+          console.log("⏭️ Detective ordered IGNORE. Continuing with next attempt...");
+          errorHistory = []; // Nollställ minnet
+          continue;
+        }
+        else {
+          console.warn(`⚠️ Unknown strategy: ${strategy.strategy}. Using default REWRITE.`);
+          // Fallback to rewrite
+          const nuclearPrompt = `Rewrite the file ${targetFile} completely. ${strategy.instructions}`;
+          try {
+            const fix = await callAI("NUCLEAR", nuclearPrompt);
+            await parseAndWriteFiles(fix, repoPath);
+            errorHistory = [];
+            continue;
+          } catch (e: any) {
+            console.error("❌ Fallback rewrite failed:", e.message);
+            break;
+          }
         }
       }
       
@@ -5395,7 +5688,40 @@ OUTPUT FORMAT:
         }
       }
 
-      let fixOutput = "";
+      // =============================================================================
+      // 🧠 HIVE MIND: Check Memory First (V5.1 UPGRADE)
+      // =============================================================================
+      console.log("🧠 Consulting Hive Mind for proven solutions...");
+      const memoryFix = await consultHiveMind(fullLog);
+      
+      if (memoryFix && brokenFile) {
+        console.log("💡 Hive Mind recall: Found a proven fix! Applying directly...");
+        try {
+          const filePath = path.join(repoPath, brokenFile);
+          const dir = path.dirname(filePath);
+          if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+          }
+          fs.writeFileSync(filePath, memoryFix);
+          console.log(`✅ Applied fix from Hive Mind to ${brokenFile}`);
+          
+          // Continue to next attempt (skip AI call)
+          continue;
+        } catch (memoryError: any) {
+          console.warn("⚠️ Failed to apply Hive Mind fix:", memoryError?.message);
+          // Fall through to Review Loop
+        }
+      }
+
+      // =============================================================================
+      // 🔄 V5.1 REVIEW LOOP: Review -> Debug -> Fix (Triple-Loop System)
+      // =============================================================================
+      console.log(`\n🔄 V5.1 Review Loop engaging (Attempt ${attempt}/${maxRetries})...`);
+      
+      // Track if we're fixing (for memorization later)
+      let wasFixing = true;
+      let lastErrorLog = fullLog;
+      let lastAppliedFix = "";
       
       // 1. SKAPA KARTA ÖVER PROJEKTET
       const projectFiles = getProjectStructure(repoPath);
@@ -5404,248 +5730,161 @@ OUTPUT FORMAT:
       ${projectFiles.join('\n')}
       `;
 
-      // 2. UPPDATERAD PROMPT MED KONTEXT
-      // 2. UPPDATERAD PROMPT MED "GOLDEN RULES"
-      const promptContext = `
-      You are a Senior TypeScript Fixer.
+      // ------------------------------------------------------------
+      // STEG 1: CODE REVIEW AGENT (Analys)
+      // ------------------------------------------------------------
+      console.log("🧐 STEP 1: Calling Code Review Agent...");
       
-      ERROR CONTEXT:
-      - Build failed. Review the LOG and the CURRENT PROJECT STRUCTURE above.
-      
-      CRITICAL "GOLDEN COMPONENT" RULES:
-      1. **READ-ONLY:** Do NOT modify files in 'src/components/ui/' (like Button.tsx, Card.tsx). They are reset on every run.
-      2. **FIX THE USAGE:** You must fix the file *using* the component, not the component itself.
-      
-      COMMON TRANSLATIONS (Apply these fixes):
-      - Error: 'Type "primary" is not assignable...' (Button) -> CHANGE usage to 'variant="default"'
-      - Error: 'Cannot find module...' -> Check 'CURRENT PROJECT STRUCTURE'. If missing, CREATE it.
-      - Error: 'Markdown artifacts' -> Remove \`\`\` lines.
-      
-      NEXT.JS 15 ASYNC FIXES (CRITICAL):
-      - Error: 'Property does not exist on type Promise' -> This is a Next.js 15 async API issue.
-      - If you see params/searchParams/cookies()/headers() used WITHOUT await -> ADD await and make function async.
-      - Example fixes:
-        * const { slug } = params; -> const { slug } = await params; (and make function async)
-        * const token = cookies().get('token'); -> const token = (await cookies()).get('token');
-        * const searchParams = props.searchParams; -> const searchParams = await props.searchParams;
-      - ALWAYS check if the component/page is async. If not, make it async: export default async function Page({ params }) { ... }
-      
-      RETURN FORMAT:
-      ### FILE: <path>
-      ... code ...
-      ### END_FILE
+      const reviewPrompt = `
+        CONTEXT: Build failed during validation.
+
+        TARGET FILE: ${brokenFile || 'unknown'}
+
+        ERROR LOG:
+        ${fullLog.substring(0, 5000)}
+
+        FILE CONTENT:
+        ${brokenFileContent ? brokenFileContent.substring(0, 3000) + (brokenFileContent.length > 3000 ? '\n... (truncated)' : '') : 'File not found or not readable'}
+
+        ${relatedFileContent ? `
+        RELATED FILE (${relatedFilePath}):
+        ${relatedFileContent.substring(0, 2000)}${relatedFileContent.length > 2000 ? '\n... (truncated)' : ''}
+        ` : ''}
+
+        CURRENT PROJECT STRUCTURE:
+        ${fileTreeContext}
+
+        TASK: Perform a static analysis. 
+        - Identify syntax errors (missing braces, wrong imports).
+        - Check for logic errors (hooks outside component, server/client mismatch).
+        - Identify export/import mismatches.
+        - DO NOT FIX IT. Just list the errors clearly with line numbers and explanations.
       `;
 
-      // 3. BATCH FIXER (Fix all files at once)
-      console.log(`🚑 Batch Fixer engaging (Attempt ${attempt}/${maxRetries})...`);
-      
-      // VÄLJ INTELLIGENS-NIVÅ (Tiered Escalation)
-      let smartLevel: 'FAST' | 'SMART' | 'GENIUS' = 'FAST';
-      if (attempt > 1) smartLevel = 'SMART'; // Efter 1 försök, byt till DeepSeek direkt
-      if (attempt > 3) smartLevel = 'GENIUS'; // Efter 3 försök, byt till Kimi
-      
-      // =============================================================================
-      // 🧠 INTELLIGENT ERROR PARSING - "The Suggestion Listener"
-      // =============================================================================
-      let specificInstruction = "";
-      
-      // Fånga TypeScripts egna förslag ("Did you mean to use...")
-      const suggestionMatch = fullLog.match(/Did you mean to use '([^']+)' instead\?/);
-      if (suggestionMatch) {
-        specificInstruction = `
-🚨 PRECISE FIX FOUND: TypeScript suggests replacing the import with:
-${suggestionMatch[1]}
+      const analysis = await callAI("CODE_REVIEWER", reviewPrompt);
+      console.log(`📋 Analysis: ${analysis.substring(0, 200)}...`);
 
-ACTION: Locate the incorrect import line in '${brokenFile || "the affected file"}' and replace it with the suggestion above.
-DO NOT delete the file. DO NOT rewrite the whole file. Just fix the import.
-`;
-        console.log(`[Watchdog] 🎯 TypeScript suggestion detected: ${suggestionMatch[1]}`);
-      } 
-      // Fånga "Cannot find module" (Missing file)
-      else if (fullLog.includes("Cannot find module") || fullLog.includes("TS2307")) {
-        const moduleMatch = fullLog.match(/Cannot find module ['"]([^'"]+)['"]/);
-        const missingModule = moduleMatch ? moduleMatch[1] : "unknown";
-        
-        specificInstruction = `
-🚨 MISSING MODULE ERROR: The file '${brokenFile || "unknown"}' tries to import '${missingModule}' which doesn't exist.
+      // ------------------------------------------------------------
+      // STEG 2: DEBUGGER / RECOVERY AGENT (Strategi)
+      // ------------------------------------------------------------
+      console.log("🚑 STEP 2: Calling Error Recovery Agent...");
+      
+      const recoveryPrompt = `
+        ANALYSIS FROM CODE REVIEWER:
+        ${analysis}
 
-ACTION: 
-1. **CRITICAL: Use '@/' alias** - If the import uses relative paths (../ or ./), convert it to use '@/' alias.
-   - WRONG: import { Button } from '../components/ui/Button';
-   - CORRECT: import { Button } from '@/components/ui/Button';
-   - WRONG: import { User } from '../../lib/types';
-   - CORRECT: import { User } from '@/lib/types';
-2. Check CURRENT PROJECT STRUCTURE above to see if the file exists with a different path.
-3. If the component truly doesn't exist, CREATE A LOCAL PLACEHOLDER at the bottom of the file instead of crashing.
-   Example: 
-   const ${missingModule.split('/').pop()?.replace(/\.(tsx?|jsx?)$/, '') || 'MissingComponent'} = () => <div className="p-4 border border-red-500">Missing Component</div>;
-4. If it's a type/interface, define it locally in the file.
-`;
-        console.log(`[Watchdog] 🚨 Missing module detected: ${missingModule}`);
-      }
-      // Fånga "Property does not exist" (Typfel)
-      else if (fullLog.includes("Property") && fullLog.includes("does not exist")) {
-        const propertyMatch = fullLog.match(/Property '([^']+)' does not exist on type '([^']+)'/);
-        if (propertyMatch) {
-          specificInstruction = `
-🚨 PROPERTY ERROR: Property '${propertyMatch[1]}' does not exist on type '${propertyMatch[2]}'.
+        ERROR LOG:
+        ${fullLog.substring(0, 3000)}
 
-ACTION:
-1. Check if the property name is misspelled (TypeScript often suggests corrections).
-2. Check if you need to import the correct type from a different module.
-3. If it's a Next.js 15 async API issue (params/searchParams/cookies/headers), add 'await' and make function async.
-`;
+        TARGET FILE: ${brokenFile || 'unknown'}
+
+        TASK: Decide the recovery strategy.
+        - Is this a simple syntax fix? -> Strategy: PATCH
+        - Is this a fundamental architecture flaw? -> Strategy: REWRITE
+        - Are we missing dependencies? -> Strategy: INSTALL
+        - Is this an export/import mismatch? -> Strategy: ALIGN_EXPORTS
+
+        Output a concise JSON plan: { "strategy": "PATCH|REWRITE|INSTALL|ALIGN_EXPORTS", "steps": ["step1", "step2", ...], "files": ["file1.tsx", "file2.ts"] }
+      `;
+
+      const strategyJson = await callAI("DEBUGGER", recoveryPrompt);
+      console.log(`📋 Strategy: ${strategyJson.substring(0, 200)}...`);
+
+      // Parse strategy (try to extract JSON, but be lenient)
+      let strategy = "PATCH";
+      let steps: string[] = [];
+      let targetFiles: string[] = [brokenFile || 'unknown'];
+      
+      try {
+        const jsonMatch = strategyJson.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          strategy = parsed.strategy || strategy;
+          steps = parsed.steps || steps;
+          targetFiles = parsed.files || targetFiles;
         }
+      } catch (e) {
+        // If JSON parsing fails, try to extract strategy from text
+        if (strategyJson.toLowerCase().includes('rewrite')) strategy = "REWRITE";
+        else if (strategyJson.toLowerCase().includes('install')) strategy = "INSTALL";
+        else if (strategyJson.toLowerCase().includes('export') || strategyJson.toLowerCase().includes('import')) strategy = "ALIGN_EXPORTS";
       }
-      // Fånga "Module has no exported member" (Export-fel)
-      else if (fullLog.includes("has no exported member") || fullLog.includes("TS2305")) {
-        const exportMatch = fullLog.match(/Module ['"]([^'"]+)['"] has no exported member '([^']+)'/);
-        if (exportMatch) {
-          specificInstruction = `
-🚨 EXPORT ERROR: Module '${exportMatch[1]}' has no exported member '${exportMatch[2]}'.
 
-ACTION:
-1. Check CURRENT PROJECT STRUCTURE to see what is actually exported from '${exportMatch[1]}'.
-2. If the export doesn't exist, DEFINE IT LOCALLY in this file instead of trying to import it.
-   Example: Add 'interface ${exportMatch[2]} { ... }' or 'type ${exportMatch[2]} = ...' at the top of the file.
-3. This is the "inline fix" strategy - it guarantees a green build even if the source file is broken.
-`;
-        }
-      }
-      
-      // Batch Fix-Prompt: Fix ALL reported issues in ALL files
+      console.log(`🎯 Strategy: ${strategy}`);
+      if (steps.length > 0) console.log(`📝 Steps: ${steps.slice(0, 3).join(', ')}...`);
+
+      // ------------------------------------------------------------
+      // STEG 3: EXECUTION (Fixer)
+      // ------------------------------------------------------------
+      console.log("🛠️ STEP 3: Executing Fix...");
+
+      // Build comprehensive fix prompt with all context
       const EXPORT_RULE = `
 CRITICAL EXPORT RULES (MANDATORY):
-
 1. COMPONENTS (in /components): MUST use named exports.
    - Correct: export function Button() { ... }
    - Wrong: export default function Button() { ... }
-
 2. PAGES (in /app): MUST use default exports.
    - Correct: export default function Page() { ... }
    - Wrong: export function Page() { ... }
-
 3. IMPORTS: MUST match the export type.
    - Importing a component: import { Button } from '@/components/ui/Button';
-   - Importing a page/layout: (Not common, but would be default import)
 `;
 
       const fixPrompt = `
-QUALITY CONTROL FAILED.
+        STRATEGY: ${strategy}
+        STEPS: ${steps.join('\n')}
+        
+        ANALYSIS: ${analysis}
+        
+        ERROR LOG:
+        ${fullLog.substring(0, 5000)}
 
-ERROR LOGS:
-${fullLog.substring(0, 8000)}
+        TARGET FILES: ${targetFiles.join(', ')}
 
-${specificInstruction ? `\n${specificInstruction}\n` : ''}
+        PRIMARY FILE (${brokenFile || 'unknown'}):
+        ${brokenFileContent ? brokenFileContent.substring(0, 3000) + (brokenFileContent.length > 3000 ? '\n... (truncated)' : '') : 'File not found'}
 
-TASK: Fix ALL reported issues in the files.
+        ${relatedFileContent ? `
+        RELATED FILE (${relatedFilePath}):
+        ${relatedFileContent.substring(0, 2000)}${relatedFileContent.length > 2000 ? '\n... (truncated)' : ''}
+        ` : ''}
 
-- If TypeScript errors: Fix types/interfaces in ALL affected files.
-- If MyPy errors: Fix Python type hints in ALL affected files.
-- If ESLint errors: Fix code style/logic in ALL affected files.
-- If import errors: Create missing files or fix import paths.
-- If Next.js 15 async errors: Add await to params/searchParams/cookies/headers and make functions async.
+        CURRENT PROJECT STRUCTURE:
+        ${fileTreeContext}
 
-CURRENT PROJECT STRUCTURE:
-${fileTreeContext}
+        TASK: Execute the fix on the target file(s).
+        
+        CRITICAL RULES:
+        1. Use '@/' alias for all imports (never '../' or './').
+        2. Follow EXPORT_RULE: Components = named exports, Pages = default exports.
+        3. For Next.js 15: Add 'await' to params/searchParams/cookies/headers and make functions async.
+        4. If export doesn't exist, define it locally inline (inline fix strategy).
+        5. Maintain existing functionality. Do NOT delete page content.
 
-PRIMARY FILE (${brokenFile || 'unknown'}):
-${brokenFile && brokenFileContent ? brokenFileContent.substring(0, 3000) + (brokenFileContent.length > 3000 ? '\n... (truncated)' : '') : 'File not found or not readable'}
+        ${EXPORT_RULE}
 
-${relatedFileContent ? `
-🚨 RELATED FILE FOUND (${relatedFilePath}):
-(The error likely originates here based on the import issue)
-
-${relatedFileContent.substring(0, 3000)}${relatedFileContent.length > 3000 ? '\n... (truncated)' : ''}
-` : ''}
-
-OUTPUT: Provide the FULL corrected content for EVERY file that needs fixing.
-Use [FILE: path/to/file] format for each file.
-
-CRITICAL RULES:
-1. Fix ALL files mentioned in the error log, not just one.
-2. Ensure all imports are correct and files exist.
-3. For Next.js 15: All route handlers must be async if using params/searchParams/cookies/headers.
-4. For Python: Add proper type hints to all functions.
-5. ${specificInstruction ? 'FOLLOW THE SPECIFIC INSTRUCTION ABOVE - it contains TypeScript\'s own suggestion!' : 'If TypeScript suggests a fix ("Did you mean..."), use that exact suggestion.'}
-6. CRITICAL: Maintain existing functionality. Do NOT delete the page content.
-
-${relatedFileContent ? `
-🚨 SHERLOCK STRATEGY (Import/Export Mismatch Detected):
-
-1. Look at '${relatedFilePath}'. See how it exports its components/functions.
-   - Is it 'export default'? Or 'export function' / 'export const'?
-   - Check what is actually exported from this file.
-
-2. Look at '${brokenFile || 'PRIMARY FILE'}'. See how it tries to import.
-   - Is it 'import { X } from ...' (named import)?
-   - Or 'import X from ...' (default import)?
-
-3. FIX THE MISMATCH:
-   - If '${relatedFilePath}' has 'export default', change '${brokenFile || 'PRIMARY FILE'}' to use 'import X from ...' (default import).
-   - If '${relatedFilePath}' has named exports ('export function X' or 'export const X'), change '${brokenFile || 'PRIMARY FILE'}' to use 'import { X } from ...' (named import).
-   - OR: Change the export in '${relatedFilePath}' to match the import (if safe and follows EXPORT_RULE above).
-
-4. REMEMBER: Components use named exports, Pages use default exports (see EXPORT_RULE above).
-` : ''}
-
-${EXPORT_RULE}
-
-CRITICAL IMPORT RULE (MANDATORY):
-- ALWAYS use the '@/' alias for imports instead of relative paths like '../../' or '../'.
-- Example CORRECT: import { Button } from '@/components/ui/Button';
-- Example CORRECT: import { User } from '@/lib/types';
-- Example CORRECT: import { api } from '@/lib/api';
-- Example WRONG: import { Button } from '../../components/ui/Button';
-- Example WRONG: import { Button } from '../components/ui/Button';
-- Example WRONG: import { User } from '../../../lib/types';
-- Do NOT use '../' for internal components, types, or utilities.
-- The '@/' alias is configured in tsconfig.json and points to the project root.
-- This ensures consistent imports and prevents path resolution errors.
-
-OUTPUT FORMAT:
-[FILE: path/to/file1.tsx]
-... fixed code ...
-[GOAL]
-
-[FILE: path/to/file2.ts]
-... fixed code ...
-[GOAL]
-
-CRITICAL "INLINE FIX" RULE (Green Build Strategy):
-- If the error is "Module has no exported member" or "Cannot find name", do NOT try to edit the imported file.
-- Instead, DEFINE THE MISSING INTERFACE/TYPE LOCALLY in this file to satisfy the compiler.
-- Example: If 'ApiKeyDisplay' is missing from '@/lib/types', add 'interface ApiKeyDisplay { id: string; ... }' right here in this file.
-- Example: If 'ProcessingStatus' type is missing, add 'type ProcessingStatus = "initializing" | "extraction" | ...' locally.
-- Stop trying to fix external files. Fix THIS file by defining what it needs inline.
-- This is the "silver tape" solution - it guarantees a green build even if types.ts is broken.
-
-${promptContext}
-
-RETURN FORMAT:
-### FILE: <path>
-... code ...
-### END_FILE
+        OUTPUT FORMAT:
+        [FILE: path/to/file.tsx]
+        ... fixed code ...
+        [GOAL]
       `;
 
-      // Anropa den nya Tiered Fixer-logiken
-      fixOutput = await callAI(
-        "FIXER", 
-        fixPrompt, 
-        promptContext, 
-        undefined, 
-        smartLevel
-      );
+      // VÄLJ INTELLIGENS-NIVÅ (Tiered Escalation)
+      let smartLevel: 'FAST' | 'SMART' | 'GENIUS' = 'FAST';
+      if (attempt > 1) smartLevel = 'SMART';
+      if (attempt > 3 || strategy === 'REWRITE') smartLevel = 'GENIUS';
+
+      const fixOutput = await callAI("FIXER", fixPrompt, undefined, undefined, smartLevel);
       
       // Fallback om fixOutput är tom
-      if (!fixOutput || fixOutput.trim().length === 0) {
+      let finalFixOutput = fixOutput;
+      if (!finalFixOutput || finalFixOutput.trim().length === 0) {
         console.warn(`⚠️ ${smartLevel} Fixer returned empty. Trying fallback...`);
         if (smartLevel === 'FAST') {
-          // Fallback till SMART om FAST misslyckades
-          fixOutput = await callAI("FIXER", fixPrompt, promptContext, undefined, 'SMART');
+          finalFixOutput = await callAI("FIXER", fixPrompt, undefined, undefined, 'SMART');
         } else if (smartLevel === 'SMART') {
-          // Fallback till GENIUS om SMART misslyckades
-          fixOutput = await callAI("FIXER", fixPrompt, promptContext, undefined, 'GENIUS');
+          finalFixOutput = await callAI("FIXER", fixPrompt, undefined, undefined, 'GENIUS');
         }
       }
 
@@ -5655,7 +5894,7 @@ RETURN FORMAT:
       let fileMatch;
       let fixedCount = 0;
       
-      while ((fileMatch = fileRegex.exec(fixOutput)) !== null) {
+      while ((fileMatch = fileRegex.exec(finalFixOutput)) !== null) {
         const fileName = fileMatch[1].trim();
         let content = fileMatch[2].trim();
         
@@ -5672,6 +5911,10 @@ RETURN FORMAT:
         
         fs.writeFileSync(filePath, content);
         console.log(`[Batch Fixer] 🛠️ Fixed file: ${fileName}`);
+        // Save applied fix for memorization
+        if (brokenFile === fileName || fixedCount === 0) {
+          lastAppliedFix = content;
+        }
         fixedCount++;
       }
       
@@ -5679,7 +5922,7 @@ RETURN FORMAT:
       if (fixedCount === 0) {
         fileRegex = /### FILE: (.*?)\n([\s\S]*?)### END_FILE/g;
         
-        while ((fileMatch = fileRegex.exec(fixOutput)) !== null) {
+        while ((fileMatch = fileRegex.exec(finalFixOutput)) !== null) {
           const fileName = fileMatch[1].trim();
           let content = fileMatch[2].trim();
           
@@ -5696,6 +5939,10 @@ RETURN FORMAT:
 
           fs.writeFileSync(filePath, content);
           console.log(`[Batch Fixer] 🛠️ Fixed file (fallback): ${fileName}`);
+          // Save applied fix for memorization
+          if (brokenFile === fileName || fixedCount === 0) {
+            lastAppliedFix = content;
+          }
           fixedCount++;
         }
       }
@@ -5705,7 +5952,7 @@ RETURN FORMAT:
         console.log("[Watchdog] ⚠️ Strict parsing failed. Trying Fallback Strategy...");
         
         // Kolla om vi har ett markdown-block
-        const codeBlockMatch = fixOutput.match(/```(?:typescript|tsx|ts|js)?\n([\s\S]*?)```/);
+        const codeBlockMatch = finalFixOutput.match(/```(?:typescript|tsx|ts|js)?\n([\s\S]*?)```/);
         if (codeBlockMatch) {
           const content = codeBlockMatch[1].trim();
           const filePath = path.join(repoPath, brokenFile); // Använd filen vi siktade på
@@ -6407,17 +6654,63 @@ async function runPublisherStep(pipeline: any, repoPath: string) {
         const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
         if (GITHUB_TOKEN) {
             try {
-                await fetch('https://api.github.com/user/repos', {
+                const response = await fetch('https://api.github.com/user/repos', {
                     method: 'POST',
-            headers: { 
+                    headers: { 
                         'Authorization': `token ${GITHUB_TOKEN}`,
                         'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ name: repoName, private: true })
-        });
-                console.log(`[Publisher] 📦 Created new repo: ${repoName}`);
-            } catch (e) {
-                console.log("[Publisher] Repo might already exist, continuing...");
+                    },
+                    body: JSON.stringify({ name: repoName, private: true })
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    const errorMessage = errorData.message || response.statusText;
+                    
+                    if (errorMessage.includes("name already exists") || errorMessage.includes("already exists")) {
+                        console.warn("⚠️ Repo exists. Activating Auto-Pivot...");
+                        
+                        // GENERERA NYTT NAMN AUTOMATISKT
+                        const newName = `${repoName}-${Math.floor(Math.random() * 1000)}`;
+                        console.log(`🔄 Pivoting to new repo name: ${newName}`);
+                        
+                        // Uppdatera pipeline data
+                        repoName = newName;
+                        targetRepoUrl = `https://github.com/${username}/${repoName}.git`;
+                        
+                        // Försök igen med nytt namn
+                        const retryResponse = await fetch('https://api.github.com/user/repos', {
+                            method: 'POST',
+                            headers: { 
+                                'Authorization': `token ${GITHUB_TOKEN}`,
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({ name: repoName, private: true })
+                        });
+                        
+                        if (!retryResponse.ok) {
+                            throw new Error(`Failed to create repo after pivot: ${retryResponse.statusText}`);
+                        }
+                        
+                        console.log(`[Publisher] 📦 Created new repo (pivoted): ${repoName}`);
+                    } else {
+                        throw new Error(`GitHub API error: ${errorMessage}`);
+                    }
+                } else {
+                    console.log(`[Publisher] 📦 Created new repo: ${repoName}`);
+                }
+            } catch (e: any) {
+                if (e.message && (e.message.includes("name already exists") || e.message.includes("already exists"))) {
+                    // Retry med pivot om det fortfarande misslyckas
+                    console.warn("⚠️ Repo exists. Activating Auto-Pivot (retry)...");
+                    const newName = `${repoName}-${Math.floor(Math.random() * 1000)}`;
+                    repoName = newName;
+                    targetRepoUrl = `https://github.com/${username}/${repoName}.git`;
+                    console.log(`🔄 Pivoting to new repo name: ${newName}`);
+                } else {
+                    console.error("[Publisher] ❌ Failed to create GitHub repo:", e.message);
+                    throw e;
+                }
             }
         }
     }

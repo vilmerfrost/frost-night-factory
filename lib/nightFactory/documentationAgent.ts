@@ -2,8 +2,48 @@ import { callAI } from "./modelClient";
 import * as fs from 'fs';
 import * as path from 'path';
 
+/**
+ * Generate documentation in background (non-blocking)
+ */
+async function generateDocsInBackground(prompt: string, projectPath: string) {
+  try {
+    const output = await callAI("AUDIT", prompt);
+    
+    // Parse and write files
+    const fileRegex = /\[FILE:\s*(.*?)\]([\s\S]*?)\[GOAL\]/g;
+    let match;
+    let filesCreated = 0;
+    
+    while ((match = fileRegex.exec(output)) !== null) {
+      const fileName = match[1].trim();
+      let content = match[2].trim();
+      
+      // Sanitize markdown artifacts
+      content = content.replace(/^```[a-z]*\n/i, "").replace(/```$/, "");
+      content = content.replace(/^### FILE:.*\n/i, "");
+      
+      const filePath = path.join(projectPath, fileName);
+      const dir = path.dirname(filePath);
+      
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      
+      fs.writeFileSync(filePath, content);
+      console.log(`📝 [Async] Wrote ${fileName}`);
+      filesCreated++;
+    }
+    
+    if (filesCreated === 0) {
+      console.warn("[Documentation] ⚠️ No files were parsed from AI output.");
+    }
+  } catch (err: any) {
+    console.error("❌ Background Docs Failed:", err?.message);
+  }
+}
+
 export async function runDocumentationStep(projectPath: string, techStack: string) {
-  console.log("📝 Kimi K2 is analyzing the codebase for documentation...");
+  console.log("📝 Queuing Documentation Generation (Batch Mode)...");
 
   // 1. Läs in filstruktur och nyckelfiler för kontext
   const fileList: string[] = [];
@@ -96,61 +136,12 @@ export async function runDocumentationStep(projectPath: string, techStack: strin
     [GOAL]
   `;
 
-  // Använd Kimi (AUDIT-rollen använder Kimi i modelClient)
-  const output = await callAI("AUDIT", prompt);
+  // Fire-and-forget: Start documentation generation in background
+  generateDocsInBackground(prompt, projectPath).catch(err => 
+    console.error("❌ Background Docs Failed:", err)
+  );
   
-  // Parsa och skriv filerna
-  const fileRegex = /\[FILE: (.*?)\]\n([\s\S]*?)\[GOAL\]/g;
-  let match;
-  let filesCreated = 0;
-  
-  while ((match = fileRegex.exec(output)) !== null) {
-    const fileName = match[1].trim();
-    let content = match[2].trim();
-    
-    // Sanitize markdown artifacts
-    content = content.replace(/^```[a-z]*\n/i, "").replace(/```$/, "");
-    content = content.replace(/^### FILE:.*\n/i, "");
-    
-    const filePath = path.join(projectPath, fileName);
-    const dir = path.dirname(filePath);
-    
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    
-    fs.writeFileSync(filePath, content);
-    console.log(`[Documentation] ✅ Created: ${fileName}`);
-    filesCreated++;
-  }
-  
-  // Fallback: Om regex inte hittade något, försök med alternativ format
-  if (filesCreated === 0) {
-    const altRegex = /### FILE: (.*?)\n([\s\S]*?)### END_FILE/g;
-    while ((match = altRegex.exec(output)) !== null) {
-      const fileName = match[1].trim();
-      let content = match[2].trim();
-      
-      content = content.replace(/^```[a-z]*\n/i, "").replace(/```$/, "");
-      
-      const filePath = path.join(projectPath, fileName);
-      const dir = path.dirname(filePath);
-      
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-      
-      fs.writeFileSync(filePath, content);
-      console.log(`[Documentation] ✅ Created: ${fileName}`);
-      filesCreated++;
-    }
-  }
-  
-  if (filesCreated === 0) {
-    console.warn("[Documentation] ⚠️ No files were parsed from AI output. Documentation step may have failed.");
-  } else {
-    console.log(`[Documentation] ✅ Documentation complete: ${filesCreated} files created.`);
-  }
+  console.log("✅ Documentation job submitted in background (Non-blocking).");
   
   // --- 🚀 "FIRST TRY" START-SKRIPTET ---
   // Generera start-skript för att göra det enkelt att starta appen

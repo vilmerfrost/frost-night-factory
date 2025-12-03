@@ -41,3 +41,29 @@ agent-runner/.env
 next-env.d.ts
 
 agent-runner/workspace/sandbox/
+
+notepad .gitignore
+# Skola npm bypass
+npm.ps1
+npm.bat
+dev-server.js
+node.exe
+
+# NightFactory snapshots
+.nightfactory-snapshots/
+
+# Notebook files (skoldator only)
+*.ipynb
+*.ipynb_checkpoints/
+# Portable tools
+git.ps1
+tools/git-portable/
+# Skoldator-hack
+npm.ps1
+npm.bat
+dev.bat
+dev-server.js
+install-deps.js
+node.exe
+node_modules/npm/
+PortableGit/

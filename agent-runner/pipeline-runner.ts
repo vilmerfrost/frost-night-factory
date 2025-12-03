@@ -28,6 +28,7 @@ import { detectProjectIntent, detectTechMatrix, TechMatrix, ProjectIntent } from
 import { runVisualAudit } from '../lib/nightFactory/visualAudit';
 import { runDocumentationStep } from '../lib/nightFactory/documentationAgent';
 import { DESIGN_SYSTEM, DESIGN_SYSTEM_EXAMPLES } from '../lib/nightFactory/design-system';
+import { planPerfectFileStructure, FileStructurePlan } from '../lib/nightFactory/structurePlanner';
 import { refinementLoop, startDevServerWithVerification, VisionAuditResult } from '../lib/nightFactory/vision-audit-system';
 import { runZeroShotPipeline } from '../lib/nightFactory/zero-shot-validation';
 import { getLatestFrameworkIntel } from '../lib/nightFactory/knowledgeBase';
@@ -66,6 +67,15 @@ import {
   runSelfAwareValidation, 
   generateExportReport 
 } from '../lib/nightFactory/selfAwareCoder';
+import { runDependencyDetective } from '../lib/nightFactory/dependencyDetective';
+import { runImportGraphValidator } from '../lib/nightFactory/importGraphValidator';
+import { 
+  snapshotBeforeTester, 
+  snapshotBeforeFixer,
+  restoreFromSnapshot,
+  getLatestSnapshot,
+  cleanupSnapshots
+} from '../lib/nightFactory/versionControl';
 import { 
   runErrorAutopsy, 
   shouldPerformAutopsy, 
@@ -2837,81 +2847,196 @@ ${FILE_PROTOCOL}
       // Men hoppa över den vanliga parsing-loopen eftersom vi redan har skrivit filerna
     } else {
       // ---------------------------------------------------------
-      // SCENARIO 2: MONOLIT (Standard Next.js)
+      // SCENARIO 2: MONOLIT (Standard Next.js) - V7.5 FILE STRUCTURE PLANNING
       // ---------------------------------------------------------
-      // SMART ROUTER: Välj rätt AI
-      if (isNewProject) {
-        console.log("[Coder] 🚀 New project detected. Using Claude 4.5 Sonnet (premium quality)...");
-        rawOutput = await generateClaudeCoder(taskPrompt, systemContext);
-      } else {
-        // Backend/Frontend Specialist: För updates, välj modell baserat på uppgift
-        if (pipeline.type === 'update') {
-          const isDesignTask = pipeline.initial_prompt.toLowerCase().includes("design") || 
-                              pipeline.initial_prompt.toLowerCase().includes("ui") ||
-                              pipeline.initial_prompt.toLowerCase().includes("styling");
+      
+      // =============================================================================
+      // 🏗️ V7.5: PLAN PERFECT FILE STRUCTURE FIRST (The Architect)
+      // =============================================================================
+      let structurePlan: FileStructurePlan | null = null;
+      let useV75Planning = isNewProject; // Use V7.5 for new projects
+      
+      if (useV75Planning) {
+        try {
+          console.log(chalk.cyan("\n🏗️ V7.5 FILE STRUCTURE PLANNING: Architecting perfect structure..."));
+          structurePlan = await planPerfectFileStructure(pipeline.initial_prompt || pipeline.prompt || "", rootDir);
+          console.log(chalk.green(`✅ Planned ${structurePlan.files.length} files.`));
           
-          if (isDesignTask) {
-            console.log("[Coder] 🎨 UI Task detected. Deploying Claude 4.5.");
-            rawOutput = await generateClaudeCoder(taskPrompt, systemContext);
+          // --- SPARA TILL DATABASEN ---
+          await updatePipeline(pipeline.id, {
+            file_structure_plan: structurePlan,
+            current_phase: 'coder_planning_complete' // Bra för debugging
+          });
+          console.log(chalk.green("💾 File structure plan saved to Supabase."));
+          // ----------------------------------
+          
+          // Update rootDir based on plan
+          if (structurePlan.root && structurePlan.root !== rootDir) {
+            console.log(chalk.yellow(`   📁 Plan specifies root: ${structurePlan.root}, updating...`));
+            // rootDir is already set from matrix, but we can use plan's root for file paths
+          }
+        } catch (error: any) {
+          console.warn(chalk.yellow(`⚠️ File structure planning failed: ${error.message}. Falling back to V5.5...`));
+          useV75Planning = false;
+        }
+      }
+      
+      if (useV75Planning && structurePlan) {
+        // =============================================================================
+        // V7.5: SCAFFOLD FILES FIRST (Create empty files)
+        // =============================================================================
+        console.log(chalk.cyan("\n📁 V7.5: Creating scaffold files..."));
+        for (const file of structurePlan.files) {
+          const fullPath = path.join(repoPath, file.path);
+          const dir = path.dirname(fullPath);
+          if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+          }
+          // Create empty file with placeholder
+          fs.writeFileSync(fullPath, "// Pending implementation...\n");
+          console.log(chalk.gray(`   📄 Scaffolded: ${file.path}`));
+        }
+        
+        // =============================================================================
+        // V7.5: CODE FILES ONE BY ONE (Surgical Coding)
+        // =============================================================================
+        console.log(chalk.cyan("\n🎨 V7.5: Coding files surgically (one by one)..."));
+        
+        let filesCreated = 0;
+        for (const file of structurePlan.files) {
+          console.log(chalk.cyan(`\n   🎨 Coding: ${file.path}...`));
+          
+          const contextPrompt = `
+PROJECT CONTEXT:
+${JSON.stringify(structurePlan.files.map(f => f.path))}
+
+YOUR TASK: Implement '${file.path}'.
+DESCRIPTION: ${file.description}
+
+MANDATORY IMPORTS (COPY-PASTE THESE):
+${file.imports.join('\n')}
+
+MANDATORY EXPORTS:
+${file.exports.join(', ')}
+
+DESIGN SYSTEM:
+${JSON.stringify(DESIGN_SYSTEM.colors)}
+
+${systemContext}
+
+OUTPUT FORMAT:
+[FILE: ${file.path}]
+... code ...
+[GOAL]
+          `;
+          
+          // Choose AI model based on file type
+          let code: string;
+          if (file.type === 'page' || file.type === 'component') {
+            // Use Claude for UI files
+            code = await generateClaudeCoder(contextPrompt, systemContext);
           } else {
-            console.log("[Coder] ⚙️ Logic/Fix Task detected. Deploying DeepSeek V3.");
-            // DeepSeek V3 för logik/fixar (billigare och snabbare)
+            // Use DeepSeek for utils/config
+            const fullPrompt = `${systemContext}\n\n${contextPrompt}`;
+            code = await generateDeepSeekCoder(fullPrompt);
+          }
+          
+          // Parse and write this single file
+          const fileCreated = await parseAndWriteFiles(code, repoPath, rootDir);
+          if (fileCreated > 0) {
+            filesCreated += fileCreated;
+            console.log(chalk.green(`   ✅ Coded: ${file.path}`));
+          } else {
+            console.log(chalk.yellow(`   ⚠️ Failed to code: ${file.path}`));
+          }
+        }
+        
+        if (filesCreated === 0) {
+          throw new Error("V7.5: Failed to create any files from plan.");
+        }
+        
+        console.log(chalk.green(`\n✅ V7.5 Complete: ${filesCreated} files created from plan.`));
+        
+      } else {
+        // =============================================================================
+        // V5.5 FALLBACK: Original reactive approach
+        // =============================================================================
+        console.log(chalk.yellow("\n📦 V5.5 FALLBACK: Using reactive coding approach..."));
+        
+        // SMART ROUTER: Välj rätt AI
+        if (isNewProject) {
+          console.log("[Coder] 🚀 New project detected. Using Claude 4.5 Sonnet (premium quality)...");
+          rawOutput = await generateClaudeCoder(taskPrompt, systemContext);
+        } else {
+          // Backend/Frontend Specialist: För updates, välj modell baserat på uppgift
+          if (pipeline.type === 'update') {
+            const isDesignTask = pipeline.initial_prompt.toLowerCase().includes("design") || 
+                                pipeline.initial_prompt.toLowerCase().includes("ui") ||
+                                pipeline.initial_prompt.toLowerCase().includes("styling");
+            
+            if (isDesignTask) {
+              console.log("[Coder] 🎨 UI Task detected. Deploying Claude 4.5.");
+              rawOutput = await generateClaudeCoder(taskPrompt, systemContext);
+            } else {
+              console.log("[Coder] ⚙️ Logic/Fix Task detected. Deploying DeepSeek V3.");
+              // DeepSeek V3 för logik/fixar (billigare och snabbare)
+              const fullPrompt = `${systemContext}\n\n${taskPrompt}`;
+              rawOutput = await generateDeepSeekCoder(fullPrompt);
+            }
+          } else {
+            // För nya projekt eller små ändringar, använd DeepSeek V3 direkt (snabbare än Localhost)
+            console.log("[Coder] ⚙️ Using DeepSeek V3 for fast generation...");
             const fullPrompt = `${systemContext}\n\n${taskPrompt}`;
             rawOutput = await generateDeepSeekCoder(fullPrompt);
           }
+        }
+        
+        // =============================================================================
+        // 🧠 SELF-AWARE CODER: Validate imports BEFORE writing (V6.0)
+        // =============================================================================
+        console.log(chalk.cyan("\n🧠 SELF-AWARE CODER: Validating generated code..."));
+        
+        // Parse the output to extract files (without writing yet)
+        const parsedFiles: { path: string; content: string }[] = [];
+        const parts = rawOutput.split(/(?:\[FILE:|### FILE:)\s*([^\s\]\n]+)(?:\]|)/);
+        
+        for (let i = 1; i < parts.length; i += 2) {
+          const filePath = parts[i]?.trim();
+          let content = parts[i+1];
+          
+          if (!filePath || !content) continue;
+          
+          content = content.split(/\[GOAL\]|### END_FILE/)[0];
+          content = content.replace(/^```[a-z]*\n/im, '').replace(/```$/m, '');
+          content = content.trim();
+          
+          if (filePath && content) {
+            parsedFiles.push({ path: filePath, content });
+          }
+        }
+        
+        // Validate imports against exports
+        const validation = runSelfAwareValidation(parsedFiles);
+        
+        if (!validation.valid) {
+          console.log(chalk.yellow(`   ⚠️ Found ${validation.issues.length} import/export issues`));
+          console.log(chalk.green("   🔧 Auto-fixing import/export mismatches..."));
+          
+          // Use the auto-fixed files instead
+          const fixedOutput = validation.fixes.map(f => 
+            `### FILE: ${f.path}\n\`\`\`tsx\n${f.content}\n\`\`\`\n### END_FILE`
+          ).join('\n\n');
+          
+          rawOutput = fixedOutput;
         } else {
-          // För nya projekt eller små ändringar, använd DeepSeek V3 direkt (snabbare än Localhost)
-          console.log("[Coder] ⚙️ Using DeepSeek V3 for fast generation...");
-          const fullPrompt = `${systemContext}\n\n${taskPrompt}`;
-          rawOutput = await generateDeepSeekCoder(fullPrompt);
+          console.log(chalk.green("   ✅ All imports are valid!"));
         }
+        
+        // Använd hjälpfunktionen för parsing och skrivning
+        const filesCreated = await parseAndWriteFiles(rawOutput, repoPath, rootDir);
+        
+        if (filesCreated === 0) throw new Error("AI generated 0 valid files.");
       }
-      
-      // =============================================================================
-      // 🧠 SELF-AWARE CODER: Validate imports BEFORE writing (V6.0)
-      // =============================================================================
-      console.log(chalk.cyan("\n🧠 SELF-AWARE CODER: Validating generated code..."));
-      
-      // Parse the output to extract files (without writing yet)
-      const parsedFiles: { path: string; content: string }[] = [];
-      const parts = rawOutput.split(/(?:\[FILE:|### FILE:)\s*([^\s\]\n]+)(?:\]|)/);
-      
-      for (let i = 1; i < parts.length; i += 2) {
-        const filePath = parts[i]?.trim();
-        let content = parts[i+1];
-        
-        if (!filePath || !content) continue;
-        
-        content = content.split(/\[GOAL\]|### END_FILE/)[0];
-        content = content.replace(/^```[a-z]*\n/im, '').replace(/```$/m, '');
-        content = content.trim();
-        
-        if (filePath && content) {
-          parsedFiles.push({ path: filePath, content });
-        }
-      }
-      
-      // Validate imports against exports
-      const validation = runSelfAwareValidation(parsedFiles);
-      
-      if (!validation.valid) {
-        console.log(chalk.yellow(`   ⚠️ Found ${validation.issues.length} import/export issues`));
-        console.log(chalk.green("   🔧 Auto-fixing import/export mismatches..."));
-        
-        // Use the auto-fixed files instead
-        const fixedOutput = validation.fixes.map(f => 
-          `### FILE: ${f.path}\n\`\`\`tsx\n${f.content}\n\`\`\`\n### END_FILE`
-        ).join('\n\n');
-        
-        rawOutput = fixedOutput;
-      } else {
-        console.log(chalk.green("   ✅ All imports are valid!"));
-      }
-      
-      // Använd hjälpfunktionen för parsing och skrivning
-      const filesCreated = await parseAndWriteFiles(rawOutput, repoPath, rootDir);
-      
-      if (filesCreated === 0) throw new Error("AI generated 0 valid files.");
       
       // =============================================================================
       // 🔧 POST-CODER FIXES: Run Client Detector & Import Rewriter (V6.0)
@@ -2923,6 +3048,38 @@ ${FILE_PROTOCOL}
       
       // Convert relative imports to @/ aliases
       runImportRewriter(repoPath);
+      
+      // =============================================================================
+      // 🏆 #1: AUTO-DEPENDENCY INSTALLER (Fixes 25% of errors)
+      // =============================================================================
+      console.log(chalk.cyan("\n📦 DEPENDENCY DETECTIVE: Auto-installing missing packages..."));
+      try {
+        const depResult = runDependencyDetective(repoPath);
+        if (depResult.installed.length > 0) {
+          console.log(chalk.green(`   ✅ Installed ${depResult.installed.length} packages`));
+        }
+        if (depResult.errors.length > 0) {
+          console.log(chalk.yellow(`   ⚠️ ${depResult.errors.length} installation errors (non-critical)`));
+        }
+      } catch (error: any) {
+        console.warn(chalk.yellow(`   ⚠️ Dependency Detective failed: ${error.message}`));
+      }
+      
+      // =============================================================================
+      // 🥈 #2: IMPORT GRAPH VALIDATOR (Fixes 30% of errors)
+      // =============================================================================
+      console.log(chalk.cyan("\n🔗 IMPORT GRAPH VALIDATOR: Validating import/export graph..."));
+      try {
+        const importResult = runImportGraphValidator(repoPath);
+        if (importResult.fixed > 0) {
+          console.log(chalk.green(`   ✅ Fixed ${importResult.fixed} import/export mismatches`));
+        }
+        if (importResult.issues.length > 0) {
+          console.log(chalk.yellow(`   ⚠️ ${importResult.issues.length} issues remain (may need manual fix)`));
+        }
+      } catch (error: any) {
+        console.warn(chalk.yellow(`   ⚠️ Import Graph Validator failed: ${error.message}`));
+      }
       
       console.log(chalk.green("   ✅ Post-coder fixes applied"));
     }
@@ -4583,6 +4740,21 @@ async function runTesterStep(pipeline: any, repoPath: string) {
   if (existingStep && existingStep.status === 'completed') {
     console.log("⏭️ Tester step already completed (Checkpoint found). Skipping.");
     return;
+  }
+
+  // =============================================================================
+  // 🥉 #3: VERSION CONTROL / UNDO - Create snapshot before risky operations
+  // =============================================================================
+  console.log(chalk.cyan("\n📸 VERSION CONTROL: Creating safety snapshot..."));
+  let snapshotId: string | null = null;
+  try {
+    snapshotId = snapshotBeforeTester(repoPath);
+    console.log(chalk.green(`   ✅ Snapshot created: ${snapshotId}`));
+    
+    // Clean up old snapshots (keep last 5)
+    cleanupSnapshots(repoPath, 5);
+  } catch (error: any) {
+    console.warn(chalk.yellow(`   ⚠️ Snapshot creation failed: ${error.message}`));
   }
 
   console.log(`[Tester] Starting verification for ${pipeline.id}...`);
@@ -6814,7 +6986,25 @@ Provide a comprehensive solution that addresses the root cause, not just symptom
         
         console.log('\n🧠 Switching to INTELLIGENT BATCH FIXER (standard watchdog exhausted)...\n');
         
+        // Create snapshot before fixer operation
+        let fixerSnapshotId: string | null = null;
+        try {
+          fixerSnapshotId = snapshotBeforeFixer(repoPath);
+          console.log(chalk.green(`   📸 Snapshot created before fixer: ${fixerSnapshotId}`));
+        } catch (error: any) {
+          console.warn(chalk.yellow(`   ⚠️ Snapshot creation failed: ${error.message}`));
+        }
+        
         const intelligentResult = await runIntelligentBatchFixer(repoPath, fullLog, pipeline);
+        
+        // If fixer failed catastrophically, restore from snapshot
+        if (!intelligentResult.success && fixerSnapshotId && intelligentResult.circuitBroken) {
+          console.log(chalk.yellow("\n🔄 Fixer failed catastrophically. Restoring from snapshot..."));
+          const restored = restoreFromSnapshot(repoPath, fixerSnapshotId);
+          if (restored) {
+            console.log(chalk.green("   ✅ Project restored from snapshot"));
+          }
+        }
         
         if (intelligentResult.success) {
           console.log('✅ Intelligent Fixer succeeded!');

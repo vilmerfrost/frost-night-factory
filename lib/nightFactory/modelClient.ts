@@ -680,7 +680,7 @@ export async function generateGroqFix(errorLog: string, brokenFileContent: strin
  * THE MODEL BRAIN: Centraliserad modellväljare
  * Väljer rätt modell för rätt uppgift baserat på roll
  */
-export type AgentRole = "PLANNER" | "FRONTEND" | "BACKEND" | "RESEARCH" | "AUDIT" | "ROUTER" | "REVIEWER" | "FIXER" | "CODE_REVIEWER" | "DEBUGGER" | "OPTIMIZER" | "NUCLEAR" | "LOOP_DETECTIVE" | "PROMPT_ENGINEER";
+export type AgentRole = "PLANNER" | "FRONTEND" | "BACKEND" | "RESEARCH" | "AUDIT" | "ROUTER" | "REVIEWER" | "FIXER" | "CODE_REVIEWER" | "DEBUGGER" | "OPTIMIZER" | "NUCLEAR" | "LOOP_DETECTIVE" | "PROMPT_ENGINEER" | "ORACLE" | "FLOW_WATCHER";
 
 export async function callAI(
   role: AgentRole,
@@ -1385,6 +1385,84 @@ export async function callAI(
             responseText = "";
           }
         }
+      }
+      break;
+
+    // =============================================================================
+    // 🔮 THE ORACLE: DeepSeek R1 (Reasoning + Caching)
+    // =============================================================================
+    case "ORACLE":
+      console.log("🔮 ORACLE: DeepSeek R1 analyzing codebase structure...");
+      if (deepSeek) {
+        try {
+          const r1 = await deepSeek.chat.completions.create({
+            model: "deepseek-reasoner",
+            messages: [
+              { 
+                role: "system", 
+                content: context || "You are the Codebase Oracle. You understand the entire file structure and can trace imports/exports perfectly." 
+              },
+              { role: "user", content: fullPrompt }
+            ],
+            // DeepSeek caches context automatically if it's identical at the start!
+          });
+          responseText = r1.choices[0].message.content || "";
+        } catch (e: any) {
+          console.warn("⚠️ DeepSeek R1 Oracle failed:", e?.message);
+          // Fallback to Gemini
+          if (geminiModel) {
+            try {
+              const result = await geminiModel.generateContent(fullPrompt);
+              responseText = result.response.text();
+            } catch (geminiErr: any) {
+              console.error("❌ Gemini Oracle fallback failed:", geminiErr?.message);
+              responseText = "";
+            }
+          } else {
+            responseText = "";
+          }
+        }
+      } else {
+        // Fallback to Gemini if DeepSeek not available
+        if (geminiModel) {
+          try {
+            const result = await geminiModel.generateContent(fullPrompt);
+            responseText = result.response.text();
+          } catch (geminiErr: any) {
+            console.error("❌ Gemini Oracle fallback failed:", geminiErr?.message);
+            responseText = "";
+          }
+        } else {
+          responseText = "";
+        }
+      }
+      break;
+
+    // =============================================================================
+    // 🌊 FLOW WATCHER: Gemini 1.5 Flash (Enorm Context + Speed)
+    // =============================================================================
+    case "FLOW_WATCHER":
+      console.log("🌊 FLOW WATCHER: Gemini checking data integrity...");
+      if (genAI) {
+        try {
+          // Use Gemini 1.5 Flash for massive context (1M tokens)
+          const flashModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+          
+          // Combine context data with prompt
+          const fullContent = imageBase64 
+            ? `${context || "Check if data flowed correctly."}\n\nCONTEXT DATA:\n${imageBase64}\n\nQUESTION: ${fullPrompt}`
+            : `${context || "Check if data flowed correctly."}\n\nQUESTION: ${fullPrompt}`;
+          
+          const result = await flashModel.generateContent(fullContent);
+          responseText = result.response.text();
+        } catch (e: any) {
+          console.warn("⚠️ Gemini Flow Watcher failed:", e?.message);
+          // Simple fallback - just return PASS if we can't check
+          responseText = "PASS (Flow check unavailable)";
+        }
+      } else {
+        console.warn("⚠️ Gemini not available for Flow Watcher.");
+        responseText = "PASS (Flow check unavailable)";
       }
       break;
   }

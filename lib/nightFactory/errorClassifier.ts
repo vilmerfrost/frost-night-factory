@@ -164,6 +164,23 @@ const ERROR_PATTERNS: ErrorPattern[] = [
   
   // LAZY CODE ERRORS
   {
+    pattern: /LAZY CODE DETECTED/i,
+    category: ErrorCategory.LAZY_CODE,
+    severity: 'high',
+    confidence: 100,
+    extractFiles: (match, fullError) => {
+      // Try to extract file paths from the lazy code issues
+      const filePattern = /([a-zA-Z0-9_\-\/\.]+\.(tsx?|jsx?|py))/gi;
+      const files: string[] = [];
+      let fileMatch;
+      while ((fileMatch = filePattern.exec(fullError)) !== null) {
+        files.push(fileMatch[1]);
+      }
+      return files;
+    },
+    suggestedFix: 'Rewrite file completely - NO placeholders, NO any types, NO return null'
+  },
+  {
     pattern: /Found 'TODO'|Found 'FIXME'|Found 'pass'/,
     category: ErrorCategory.LAZY_CODE,
     suggestedFix: 'Replace placeholder with actual implementation'
@@ -522,8 +539,8 @@ export function getFixingStrategy(category: ErrorCategory): {
     case ErrorCategory.LAZY_CODE:
       return {
         fixFiles: [], // Determined by error
-        approach: 'Replace placeholders with actual implementation',
-        maxAttempts: 2,
+        approach: 'Rewrite file completely - NO placeholders, NO any types, NO return null',
+        maxAttempts: 3, // Allow more attempts for lazy code (it's critical)
       };
     
     case ErrorCategory.RUNTIME_ERROR:

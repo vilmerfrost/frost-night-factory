@@ -61,8 +61,9 @@ export const GOLDEN_TSCONFIG = `{
     "jsx": "preserve",
     "incremental": true,
     "plugins": [{ "name": "next" }],
+    "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./src/*"]
     },
     "noImplicitAny": true,
     "strictNullChecks": true,

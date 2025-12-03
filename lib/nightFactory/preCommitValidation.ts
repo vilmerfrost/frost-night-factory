@@ -65,6 +65,11 @@ export async function runPreCommitValidation(
   results.push(filesResult);
   console.log(`  ${filesResult.passed ? '✅' : '❌'} Required files check`);
   
+  // 8. Validate component casing (JSX tags)
+  const casingResult = await validateComponentCasing(projectDir, autoFix);
+  results.push(casingResult);
+  console.log(`  ${casingResult.passed ? '✅' : '❌'} Component casing validation`);
+  
   const allPassed = results.every(r => r.passed);
   
   console.log(`\n${allPassed ? '✅ ALL CHECKS PASSED' : '❌ SOME CHECKS FAILED'}\n`);
@@ -430,11 +435,11 @@ async function validateRequiredFiles(
     'next.config.mjs',
     'tailwind.config.ts',
     'postcss.config.js',
-    'app/page.tsx',
-    'app/layout.tsx',
-    'app/globals.css',
-    'lib/types.ts',
-    'lib/mock-data.ts',
+    'src/app/page.tsx',  // STRICT: Always use src/ structure
+    'src/app/layout.tsx',
+    'src/app/globals.css',
+    'src/lib/types.ts',
+    'src/lib/mock-data.ts',
   ];
   
   for (const file of requiredFiles) {
@@ -463,6 +468,235 @@ async function validateRequiredFiles(
     check: 'required-files',
     passed: errors.length === 0 || fixApplied,
     errors,
+    autoFixable: true,
+    fixApplied,
+  };
+}
+
+/**
+ * Check component casing in JSX tags
+ * Finds lowercase JSX tags that should be capitalized (e.g., <card> -> <Card>)
+ */
+function checkComponentCasing(fileContent: string): string[] {
+  const errors: string[] = [];
+  
+  // Common HTML tags that are lowercase by design
+  const commonHtmlTags = new Set([
+    'div', 'span', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    'ul', 'ol', 'li', 'a', 'button', 'input', 'form', 'label',
+    'section', 'main', 'header', 'footer', 'nav', 'article', 'aside',
+    'img', 'svg', 'path', 'circle', 'rect', 'line', 'polygon',
+    'table', 'thead', 'tbody', 'tr', 'td', 'th',
+    'select', 'option', 'textarea', 'fieldset', 'legend',
+    'br', 'hr', 'meta', 'link', 'script', 'style',
+    'html', 'head', 'body', 'title',
+  ]);
+  
+  // Regex för att hitta JSX-taggar som börjar med liten bokstav
+  const jsxTagRegex = /<([a-z][a-z0-9-]*)(?:\s|>|\/)/g;
+  const closingTagRegex = /<\/([a-z][a-z0-9-]*)>/g;
+  
+  const foundTags = new Set<string>();
+  
+  // Find opening tags
+  let match;
+  while ((match = jsxTagRegex.exec(fileContent)) !== null) {
+    const tag = match[1];
+    if (!commonHtmlTags.has(tag)) {
+      foundTags.add(tag);
+    }
+  }
+  
+  // Find closing tags
+  while ((match = closingTagRegex.exec(fileContent)) !== null) {
+    const tag = match[1];
+    if (!commonHtmlTags.has(tag)) {
+      foundTags.add(tag);
+    }
+  }
+  
+  // Check if we have imports that match (with capital letter)
+  for (const tag of foundTags) {
+    const capitalizedTag = tag.charAt(0).toUpperCase() + tag.slice(1);
+    
+    // Check for import statements with capitalized version
+    const hasImport = fileContent.includes(`import { ${capitalizedTag} }`) ||
+                      fileContent.includes(`import ${capitalizedTag} `) ||
+                      fileContent.includes(`import ${capitalizedTag} from`) ||
+                      fileContent.includes(`import { ${capitalizedTag} } from`);
+    
+    if (hasImport) {
+      errors.push(`Suspicious lowercase JSX tag: <${tag}>. Did you mean <${capitalizedTag}>?`);
+    }
+  }
+  
+  return errors;
+}
+
+/**
+ * Validate component casing and auto-fix if enabled
+ */
+async function validateComponentCasing(
+  projectDir: string,
+  autoFix: boolean
+): Promise<ValidationResult> {
+  const errors: string[] = [];
+  let fixApplied = false;
+  const fixes: Array<{ file: string; fixes: number }> = [];
+  
+  // Common HTML tags that are lowercase by design
+  const commonHtmlTags = new Set([
+    'div', 'span', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    'ul', 'ol', 'li', 'a', 'button', 'input', 'form', 'label',
+    'section', 'main', 'header', 'footer', 'nav', 'article', 'aside',
+    'img', 'svg', 'path', 'circle', 'rect', 'line', 'polygon',
+    'table', 'thead', 'tbody', 'tr', 'td', 'th',
+    'select', 'option', 'textarea', 'fieldset', 'legend',
+    'br', 'hr', 'meta', 'link', 'script', 'style',
+    'html', 'head', 'body', 'title',
+  ]);
+  
+  // Common component names that are often mistyped
+  const commonComponents = [
+    'card', 'badge', 'button', 'input', 'select', 'textarea',
+    'modal', 'dialog', 'dropdown', 'menu', 'nav', 'sidebar',
+    'header', 'footer', 'section', 'article', 'aside',
+    'form', 'field', 'label', 'checkbox', 'radio', 'switch',
+    'table', 'row', 'cell', 'column', 'thead', 'tbody',
+    'list', 'item', 'grid', 'container', 'wrapper',
+    'avatar', 'icon', 'image', 'link', 'text', 'heading',
+    'spinner', 'loader', 'skeleton', 'alert', 'toast', 'notification',
+    'tabs', 'tab', 'panel', 'accordion', 'collapse',
+    'tooltip', 'popover', 'dropdown', 'menu',
+  ];
+  
+  function scanFile(filePath: string) {
+    if (!filePath.endsWith('.tsx') && !filePath.endsWith('.jsx')) return;
+    
+    const relativePath = path.relative(projectDir, filePath);
+    let content = fs.readFileSync(filePath, 'utf-8');
+    const originalContent = content;
+    
+    // Check for casing errors
+    const fileErrors = checkComponentCasing(content);
+    if (fileErrors.length > 0) {
+      errors.push(...fileErrors.map(e => `${relativePath}: ${e}`));
+      
+      // Auto-fix: Replace lowercase tags with capitalized versions
+      if (autoFix) {
+        let fixCount = 0;
+        
+        // Fix common components
+        for (const component of commonComponents) {
+          const capitalized = component.charAt(0).toUpperCase() + component.slice(1);
+          
+          // Check if component is imported (indicating it should be capitalized)
+          const hasImport = content.includes(`import { ${capitalized} }`) ||
+                          content.includes(`import ${capitalized} `) ||
+                          content.includes(`import ${capitalized} from`) ||
+                          content.includes(`import { ${capitalized} } from`);
+          
+          if (hasImport) {
+            // Replace opening tags: <card> -> <Card>
+            const openingRegex = new RegExp(`<${component}(?=\\s|>|/)`, 'g');
+            const openingMatches = content.match(openingRegex);
+            if (openingMatches) {
+              content = content.replace(openingRegex, `<${capitalized}`);
+              fixCount += openingMatches.length;
+            }
+            
+            // Replace closing tags: </card> -> </Card>
+            const closingRegex = new RegExp(`</${component}>`, 'g');
+            const closingMatches = content.match(closingRegex);
+            if (closingMatches) {
+              content = content.replace(closingRegex, `</${capitalized}>`);
+              fixCount += closingMatches.length;
+            }
+          }
+        }
+        
+        // Generic fix: Find any lowercase tag that has a capitalized import
+        const lowercaseTagRegex = /<([a-z][a-z0-9-]*)(?=\s|>|\/)/g;
+        let tagMatch;
+        const tagReplacements = new Map<string, string>();
+        
+        while ((tagMatch = lowercaseTagRegex.exec(content)) !== null) {
+          const tag = tagMatch[1];
+          const capitalized = tag.charAt(0).toUpperCase() + tag.slice(1);
+          
+          // Skip if it's a common HTML tag
+          if (commonHtmlTags.has(tag)) continue;
+          
+          // Check if capitalized version is imported
+          const hasImport = content.includes(`import { ${capitalized} }`) ||
+                          content.includes(`import ${capitalized} `) ||
+                          content.includes(`import ${capitalized} from`) ||
+                          content.includes(`import { ${capitalized} } from`);
+          
+          if (hasImport && !tagReplacements.has(tag)) {
+            tagReplacements.set(tag, capitalized);
+          }
+        }
+        
+        // Apply replacements
+        for (const [lowercase, capitalized] of tagReplacements.entries()) {
+          // Opening tags
+          content = content.replace(
+            new RegExp(`<${lowercase}(?=\\s|>|/)`, 'g'),
+            `<${capitalized}`
+          );
+          // Closing tags
+          content = content.replace(
+            new RegExp(`</${lowercase}>`, 'g'),
+            `</${capitalized}>`
+          );
+          fixCount += 2; // Approximate count
+        }
+        
+        if (content !== originalContent) {
+          fs.writeFileSync(filePath, content);
+          fixes.push({ file: relativePath, fixes: fixCount });
+          fixApplied = true;
+        }
+      }
+    }
+  }
+  
+  function scanDir(dir: string) {
+    if (!fs.existsSync(dir)) return;
+    
+    const files = fs.readdirSync(dir);
+    for (const file of files) {
+      if (file === 'node_modules' || file === '.next' || file.startsWith('.')) continue;
+      
+      const filePath = path.join(dir, file);
+      const stat = fs.statSync(filePath);
+      
+      if (stat.isDirectory()) {
+        scanDir(filePath);
+      } else {
+        scanFile(filePath);
+      }
+    }
+  }
+  
+  // Scan common directories
+  scanDir(path.join(projectDir, 'src'));
+  scanDir(path.join(projectDir, 'app'));
+  scanDir(path.join(projectDir, 'components'));
+  
+  // Log fixes if any were applied
+  if (fixApplied && fixes.length > 0) {
+    console.log('    🔧 Auto-fixed component casing:');
+    fixes.forEach(({ file, fixes: count }) => {
+      console.log(`      - ${file} (${count} fixes)`);
+    });
+  }
+  
+  return {
+    check: 'component-casing',
+    passed: errors.length === 0 || fixApplied,
+    errors: errors.slice(0, 10), // Limit to first 10
     autoFixable: true,
     fixApplied,
   };

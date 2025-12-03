@@ -13,6 +13,7 @@ export interface TechMatrix {
   frontend_framework: "Next.js" | "React Native" | "Electron" | "None";
   architecture: "Monolith" | "Hybrid" | "Microservices";
   complexity: "MVP" | "Production";
+  project_root: "src" | "."; // Project root directory structure
 }
 
 export async function detectProjectIntent(userRequest: string): Promise<ProjectIntent> {
@@ -56,13 +57,19 @@ export async function detectTechMatrix(userRequest: string): Promise<TechMatrix>
     - Architecture: If frontend + separate backend -> Hybrid. If single codebase -> Monolith.
     - Complexity: Always choose "Production" unless explicitly stated as MVP/prototype.
     
+    DECIDE PROJECT ROOT:
+    - If Next.js/React: Use "src" (Standard enterprise pattern).
+    - If Python/FastAPI only: Use "." (Root).
+    - If Hybrid: Use "src" for frontend.
+    
     OUTPUT JSON ONLY:
     {
       "languages": ["string"],
       "primary_backend": "Node" | "Python" | "Go" | "Rust",
       "frontend_framework": "Next.js" | "React Native" | "Electron" | "None",
       "architecture": "Monolith" | "Hybrid" | "Microservices",
-      "complexity": "Production"
+      "complexity": "Production",
+      "project_root": "src" | "."
     }
   `;
 
@@ -77,7 +84,8 @@ export async function detectTechMatrix(userRequest: string): Promise<TechMatrix>
       primary_backend: parsed.primary_backend || "Node",
       frontend_framework: parsed.frontend_framework || "Next.js",
       architecture: parsed.architecture || "Monolith",
-      complexity: parsed.complexity || "Production"
+      complexity: parsed.complexity || "Production",
+      project_root: parsed.project_root || "src" // Default to "src" for Next.js projects
     };
   } catch (e) {
     console.warn("⚠️ Tech Matrix detection failed, using defaults.");
@@ -87,7 +95,8 @@ export async function detectTechMatrix(userRequest: string): Promise<TechMatrix>
       primary_backend: "Node", 
       frontend_framework: "Next.js", 
       architecture: "Monolith",
-      complexity: "Production" 
+      complexity: "Production",
+      project_root: "src" // Default to "src" for Next.js projects
     };
   }
 }

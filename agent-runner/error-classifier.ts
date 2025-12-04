@@ -39,7 +39,7 @@ export function classifyError(errorLog: string): ErrorAnalysis {
       errorCode: 'TS6133',
       errorSignature: generateSignature('TS6133', errorLog),
       fixStrategy: 'SANITIZE',
-      maxRetries: 5,
+      maxRetries: 10,  // ✅ Increased from 5 (industry standard: 10-50x)
       backoffMs: 0,
       canCache: true
     }
@@ -69,7 +69,7 @@ export function classifyError(errorLog: string): ErrorAnalysis {
       errorCode: 'TS2307',
       errorSignature: generateSignature('TS2307', errorLog),
       fixStrategy: 'AI_FIX',
-      maxRetries: 3,
+      maxRetries: 8,  // ✅ Increased from 3 (industry standard: 10-50x)
       backoffMs: 500,
       canCache: false // Each missing file is unique
     }
@@ -99,7 +99,7 @@ export function classifyError(errorLog: string): ErrorAnalysis {
       errorCode: 'PLACEHOLDER',
       errorSignature: generateSignature('PLACEHOLDER', errorLog),
       fixStrategy: 'REGEN',
-      maxRetries: 2,
+      maxRetries: 10,  // ✅ Increased from 2 (critical: must eliminate placeholders)
       backoffMs: 0,
       canCache: false
     }
@@ -210,6 +210,52 @@ export async function recordErrorPattern(
   } catch (error) {
     console.error('Failed to record error pattern:', error)
     // Don't throw - this is non-critical
+  }
+}
+
+/**
+ * Generate reflection on why code generation failed
+ * Used in multi-pass generation to learn from mistakes
+ */
+export async function generateReflection(
+  errorLog: string,
+  attemptNumber: number
+): Promise<string> {
+  try {
+    const { callAI, selectModel } = await import('./ai-client')
+    
+    // Use cheap model for reflection
+    const reflection = await callAI({
+      pipelineId: 'reflection',
+      step: 'reflection',
+      role: 'REVIEWER',
+      model: selectModel('REVIEWER'),  // Usually cheaper model
+      messages: [
+        {
+          role: 'system',
+          content: `You are a debugging expert analyzing why code generation failed.
+
+Generate a SHORT (2-3 sentences) reflection on:
+1. What went wrong
+2. What should be done differently next time
+
+Be specific and actionable.`
+        },
+        {
+          role: 'user',
+          content: `Attempt ${attemptNumber} failed with this error:
+
+${errorLog}
+
+What lesson should we learn for the next attempt?`
+        }
+      ]
+    })
+    
+    return reflection
+  } catch (error) {
+    console.error('Failed to generate reflection:', error)
+    return `Previous attempt failed. Review errors carefully and fix all issues.`
   }
 }
 

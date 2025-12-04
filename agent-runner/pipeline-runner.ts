@@ -43,6 +43,9 @@ import { validateCode, autoFixFileExtension, ValidationResult as CodeValidationR
 import { callAI, selectModel } from './ai-client';
 import { classifyError, recordErrorPattern, ErrorAnalysis } from './error-classifier';
 import { validateCodeCompleteness } from './ast-validator';
+import { generateWithValidation } from './multi-pass-generator';  // ✅ Phase 1: Multi-pass generation
+import { generateRepositoryMap } from './repo-map-generator';  // ✅ Phase 1: Repository map
+import { logEvent } from './event-logger';  // ✅ Phase 0: Event logging
 
 // =============================================================================
 // 🧠 INTELLIGENT FIX SYSTEMS (V6.0 - Zero Human Input)
@@ -1630,16 +1633,49 @@ ${BLUEPRINT_PROTOCOL_PROMPT}
   const planPrompt = RUTHLESS_PLANNER_PROMPT;
 
   try {
-    // ✅ NEW: Unified AI client with cost tracking
+    // ✅ Phase 1: Generate repository map for planner
+    console.log("[Planner] 📋 Generating repository map...");
+    let repoMap = '';
+    try {
+      repoMap = generateRepositoryMap(repoPath);
+      console.log(`[Planner] ✅ Repository map generated (${repoMap.length} chars)`);
+    } catch (e) {
+      console.warn(`[Planner] ⚠️ Could not generate repo map: ${e}`);
+      repoMap = '\n(Repository map unavailable - new project)\n';
+    }
+    
+    // ✅ Phase 0: Log step start
+    await logEvent(pipeline.id, 'STEP_START', 'planner');
+    
+    // ✅ NEW: Unified AI client with cost tracking + repo map
     console.log("[Planner] Thinking with unified AI client...");
+    const enhancedPlanPrompt = `${planPrompt}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REPOSITORY MAP - AVAILABLE EXPORTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+${repoMap}
+
+CRITICAL: When planning imports, ONLY reference files listed above.
+If you need something not listed, include it in your file creation plan.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+    
     const plan = await callAI({
       pipelineId: pipeline.id,
       step: 'planner',
       role: 'PLANNER',
       model: selectModel('PLANNER'),
       messages: [
-        { role: 'user', content: planPrompt }
+        { role: 'user', content: enhancedPlanPrompt }
       ]
+    });
+    
+    // ✅ Phase 0: Log step complete
+    await logEvent(pipeline.id, 'STEP_COMPLETE', 'planner', {
+      plan_length: plan.length,
+      repo_map_size: repoMap.length
     });
     
     await updateStep(pipeline.id, 'planner', 'completed', JSON.stringify({ 
@@ -3673,35 +3709,46 @@ You MUST use this exact format:
 ... code ...
           `;
           
-          // ✅ NEW: Unified AI client with cost tracking
-          let code: string;
-          if (file.type === 'page' || file.type === 'component') {
-            // Use Claude for UI files
-            code = await callAI({
-              pipelineId: pipeline.id,
-              step: 'coder',
-              role: 'CODER',
-              model: selectModel('CODER'),
-              messages: [
-                { role: 'system', content: systemContext },
-                { role: 'user', content: contextPrompt }
-              ]
+          // ✅ Phase 1: Multi-pass generation with validation
+          const targetFile = file.path;
+          const fullPrompt = file.type === 'page' || file.type === 'component'
+            ? `${systemContext}\n\n${contextPrompt}`
+            : `${systemContext}\n\n${contextPrompt}`;
+          
+          await logEvent(pipeline.id, 'GENERATION_ATTEMPT', 'coder', {
+            file: targetFile,
+            type: file.type
+          });
+          
+          const result = await generateWithValidation(
+            pipeline.id,
+            'coder',
+            fullPrompt,
+            targetFile,
+            repoPath,
+            10  // Max attempts
+          );
+          
+          if (!result.success) {
+            await logEvent(pipeline.id, 'VALIDATION_FAILED', 'coder', {
+              file: targetFile,
+              attempts: result.attempts,
+              issues: result.issues
             });
-          } else {
-            // Use cheaper model for utils/config
-            const fullPrompt = `${systemContext}\n\n${contextPrompt}`;
-            code = await callAI({
-              pipelineId: pipeline.id,
-              step: 'coder',
-              role: 'CODER',
-              model: selectModel('CODER', 'simple'),
-              messages: [
-                { role: 'user', content: fullPrompt }
-              ]
+            console.log(chalk.red(`   ❌ Failed to generate valid code for ${targetFile} after ${result.attempts} attempts`));
+            result.issues.forEach((issue, idx) => {
+              console.log(chalk.red(`      ${idx + 1}. ${issue}`));
             });
+            continue; // Skip this file, try next
           }
           
-          // Parse and write this single file
+          await logEvent(pipeline.id, 'VALIDATION_PASSED', 'coder', {
+            file: targetFile,
+            attempts: result.attempts
+          });
+          
+          // Parse and write the validated code
+          const code = result.code;
           const fileCreated = await parseAndWriteFiles(code, repoPath, pipeline.id);
           if (fileCreated > 0) {
             filesCreated += fileCreated;
@@ -3725,17 +3772,33 @@ You MUST use this exact format:
         
         // ✅ NEW: Unified AI client with smart routing
         if (isNewProject) {
-          console.log("[Coder] 🚀 New project detected. Using premium model...");
-          rawOutput = await callAI({
-            pipelineId: pipeline.id,
-            step: 'coder',
-            role: 'CODER',
-            model: selectModel('CODER'),
-            messages: [
-              { role: 'system', content: systemContext },
-              { role: 'user', content: taskPrompt }
-            ]
+          console.log("[Coder] 🚀 New project detected. Using multi-pass generation...");
+          
+          // ✅ Phase 1: Multi-pass generation for new projects
+          const result = await generateWithValidation(
+            pipeline.id,
+            'coder',
+            `${systemContext}\n\n${taskPrompt}`,
+            'PROJECT_ROOT',  // Virtual file for full project generation
+            repoPath,
+            10  // Max attempts
+          );
+          
+          if (!result.success) {
+            await logEvent(pipeline.id, 'VALIDATION_FAILED', 'coder', {
+              attempts: result.attempts,
+              issues: result.issues,
+              is_new_project: true
+            });
+            throw new Error(`Failed to generate project: ${result.issues.join(', ')}`);
+          }
+          
+          await logEvent(pipeline.id, 'VALIDATION_PASSED', 'coder', {
+            attempts: result.attempts,
+            is_new_project: true
           });
+          
+          rawOutput = result.code;
         } else {
           // Backend/Frontend Specialist: För updates, välj modell baserat på uppgift
           if (pipeline.type === 'update') {
@@ -3744,43 +3807,69 @@ You MUST use this exact format:
                                 pipeline.initial_prompt.toLowerCase().includes("styling");
             
             if (isDesignTask) {
-              console.log("[Coder] 🎨 UI Task detected. Using premium model.");
-              rawOutput = await callAI({
-                pipelineId: pipeline.id,
-                step: 'coder',
-                role: 'CODER',
-                model: selectModel('CODER'),
-                messages: [
-                  { role: 'system', content: systemContext },
-                  { role: 'user', content: taskPrompt }
-                ]
-              });
+              console.log("[Coder] 🎨 UI Task detected. Using multi-pass generation.");
+              const result = await generateWithValidation(
+                pipeline.id,
+                'coder',
+                `${systemContext}\n\n${taskPrompt}`,
+                'UI_COMPONENTS',
+                repoPath,
+                10
+              );
+              
+              if (!result.success) {
+                await logEvent(pipeline.id, 'VALIDATION_FAILED', 'coder', {
+                  attempts: result.attempts,
+                  issues: result.issues,
+                  task_type: 'design'
+                });
+                throw new Error(`UI generation failed: ${result.issues.join(', ')}`);
+              }
+              
+              rawOutput = result.code;
             } else {
-              console.log("[Coder] ⚙️ Logic/Fix Task detected. Using efficient model.");
-              const fullPrompt = `${systemContext}\n\n${taskPrompt}`;
-              rawOutput = await callAI({
-                pipelineId: pipeline.id,
-                step: 'coder',
-                role: 'CODER',
-                model: selectModel('CODER', 'simple'),
-                messages: [
-                  { role: 'user', content: fullPrompt }
-                ]
-              });
+              console.log("[Coder] ⚙️ Logic/Fix Task detected. Using multi-pass generation.");
+              const result = await generateWithValidation(
+                pipeline.id,
+                'coder',
+                `${systemContext}\n\n${taskPrompt}`,
+                'LOGIC_FILES',
+                repoPath,
+                8  // Fewer attempts for logic tasks
+              );
+              
+              if (!result.success) {
+                await logEvent(pipeline.id, 'VALIDATION_FAILED', 'coder', {
+                  attempts: result.attempts,
+                  issues: result.issues,
+                  task_type: 'logic'
+                });
+                throw new Error(`Logic generation failed: ${result.issues.join(', ')}`);
+              }
+              
+              rawOutput = result.code;
             }
           } else {
             // För nya projekt eller små ändringar
-            console.log("[Coder] ⚙️ Using efficient model for fast generation...");
-            const fullPrompt = `${systemContext}\n\n${taskPrompt}`;
-            rawOutput = await callAI({
-              pipelineId: pipeline.id,
-              step: 'coder',
-              role: 'CODER',
-              model: selectModel('CODER', 'simple'),
-              messages: [
-                { role: 'user', content: fullPrompt }
-              ]
-            });
+            console.log("[Coder] ⚙️ Using multi-pass generation...");
+            const result = await generateWithValidation(
+              pipeline.id,
+              'coder',
+              `${systemContext}\n\n${taskPrompt}`,
+              'GENERAL_FILES',
+              repoPath,
+              8
+            );
+            
+            if (!result.success) {
+              await logEvent(pipeline.id, 'VALIDATION_FAILED', 'coder', {
+                attempts: result.attempts,
+                issues: result.issues
+              });
+              throw new Error(`Code generation failed: ${result.issues.join(', ')}`);
+            }
+            
+            rawOutput = result.code;
           }
         }
         
@@ -4881,6 +4970,13 @@ async function runIntelligentBatchFixer(
     // 2. CHECK CIRCUIT BREAKER
     const { canRetry, reason } = circuitBreaker.shouldRetry(classified);
     if (!canRetry) {
+      // ✅ Phase 0: Log circuit breaker event
+      await logEvent(pipeline?.id || '', 'CIRCUIT_BREAKER', 'tester', {
+        attempts: circuitBreaker.getStatus().totalAttempts,
+        reason: reason || 'Max retries exceeded',
+        error_category: classified.category
+      });
+      
       console.error(`\n🚨 CIRCUIT BREAKER TRIGGERED: ${reason}\n`);
       
       // ✅ UPDATE DB STATE FIRST (before restoring snapshot)

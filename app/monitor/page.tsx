@@ -69,11 +69,12 @@ export default function MonitorPage() {
     }
   }
 
-  // Load pipelines
+  // Load pipelines (only active, non-archived)
   const loadPipelines = async () => {
     const { data } = await supabase
       .from('pipelines')
       .select('*')
+      .is('archived_at', null)  // ✅ Only active pipelines
       .order('created_at', { ascending: false })
       .limit(20)
     

@@ -18,7 +18,7 @@ interface CircuitState {
 export class SmartCircuitBreaker {
   private state: Map<string, CircuitState> = new Map()
   private globalFailures: number = 0
-  private readonly MAX_GLOBAL_FAILURES = 15
+  private readonly MAX_GLOBAL_FAILURES = 50  // ✅ Increased from 15 (allow more attempts)
   
   classifyError(errorMessage: string): ErrorClassification {
     const msg = errorMessage.toLowerCase()
@@ -47,7 +47,7 @@ export class SmartCircuitBreaker {
       return {
         type: 'FIXABLE_AUTO',
         category: 'UNUSED_IMPORT',
-        maxRetries: 3,
+        maxRetries: 10,  // ✅ Increased from 3 (industry standard: 10-50x)
         backoffMs: 0,
         strategy: 'SANITIZER'
       }
@@ -70,7 +70,7 @@ export class SmartCircuitBreaker {
       return {
         type: 'FIXABLE_AI',
         category: 'MISSING_MODULE',
-        maxRetries: 3,
+        maxRetries: 8,  // ✅ Increased from 3 (industry standard: 10-50x)
         backoffMs: 500,
         strategy: 'AI_FIX'
       }

@@ -36,7 +36,7 @@ if (anthropicApiKey) {
 // ============================================================
 const deepSeekApiKey = process.env.DEEPSEEK_API_KEY;
 const deepSeek = deepSeekApiKey ? new OpenAI({
-  baseURL: 'https://api.deepseek.com',
+  baseURL: 'https://api.deepseek.com/v1',  // 🆕 ADD /v1
   apiKey: deepSeekApiKey,
 }) : null;
 
@@ -50,7 +50,7 @@ if (deepSeekApiKey) {
 const moonshotApiKey = process.env.MOONSHOT_API_KEY;
 const moonshot = moonshotApiKey ? new OpenAI({
   apiKey: moonshotApiKey,
-  baseURL: "https://api.moonshot.ai/v1", // <-- ÄNDRA TILL .AI
+  baseURL: "https://api.moonshot.ai/v1", // ✅ CORRECT: Use .ai domain for international keys
 }) : null;
 
 if (moonshotApiKey) {
@@ -88,6 +88,45 @@ if (qwenApiKey) {
 // ============================================================
 let claudeCircuitOpen = false;
 let claudeRetryTime = 0;
+
+// ============================================================
+// RETRY LOGIC: Exponential Backoff for Rate Limits
+// ============================================================
+/**
+ * Timeout wrapper for API calls
+ */
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, operation: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${operation} timed out after ${timeoutMs}ms`)), timeoutMs)
+    )
+  ]);
+}
+
+async function callWithRetry<T>(
+  fn: () => Promise<T>,
+  maxRetries: number = 3,
+  baseDelay: number = 2000
+): Promise<T> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      if (attempt === maxRetries) throw error;
+      
+      // Check if it's a rate limit error
+      if (error.status === 429 || error.message?.includes('rate limit')) {
+        const delay = baseDelay * Math.pow(2, attempt - 1);
+        console.log(`⏳ Rate limited, retrying in ${delay}ms (attempt ${attempt}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+        throw error; // Non-retryable error
+      }
+    }
+  }
+  throw new Error('Unreachable');
+}
 
 // ============================================================
 // GENERIC GENERATORS (Bakåtkompatibilitet)
@@ -256,11 +295,13 @@ export async function generateDeepSeekPlanner(prompt: string): Promise<string> {
   console.log("🧠 DeepSeek Reasoner is thinking...");
 
   try {
-    const completion = await deepSeek.chat.completions.create({
-      messages: [{ role: "user", content: prompt }],
-      model: "deepseek-reasoner", // Eller "deepseek-chat" för V3
-      temperature: 0.6, // Lite kreativitet för planering
-    });
+    const completion = await callWithRetry(() =>
+      deepSeek.chat.completions.create({
+        messages: [{ role: "user", content: prompt }],
+        model: "deepseek-reasoner", // Eller "deepseek-chat" för V3
+        temperature: 0.6, // Lite kreativitet för planering
+      })
+    );
 
     const content = completion.choices[0].message.content || "";
     console.log("✅ DeepSeek Success! Output length:", content.length);
@@ -288,11 +329,13 @@ export async function generateDeepSeekCoder(prompt: string): Promise<string> {
 
   try {
     // DeepSeek V3 använder "deepseek-chat"
-    const completion = await deepSeek.chat.completions.create({
-      messages: [{ role: "user", content: prompt }],
-      model: "deepseek-chat",
-      temperature: 0.2, // Låg temperatur för SQL-syntax
-    });
+    const completion = await callWithRetry(() =>
+      deepSeek.chat.completions.create({
+        messages: [{ role: "user", content: prompt }],
+        model: "deepseek-chat",
+        temperature: 0.2, // Låg temperatur för SQL-syntax
+      })
+    );
 
     const content = completion.choices[0].message.content || "";
     console.log("✅ DeepSeek V3 Success! Output length:", content.length);
@@ -748,21 +791,42 @@ export async function callAI(
       break;
 
     case "PLANNER":
-      // DeepSeek V3.2 (Reasoning Mode) - Nu med V3.2 Thinking Mode
-      console.log("🧠 PLANNER: Thinking with DeepSeek V3.2 (Reasoner)...");
-      try {
-        if (deepSeek) {
-          const planner = await deepSeek.chat.completions.create({
-            model: "deepseek-reasoner", // Pekar nu automatiskt på V3.2 Thinking Mode
-            messages: [{ role: "user", content: fullPrompt }],
-            temperature: 0.3,
-          });
+      // DeepSeek R1 (Reasoning) - For complex architecture planning
+      console.log("🧠 [PLANNER] Starting DeepSeek R1...");
+      if (deepSeek) {
+        try {
+          const startTime = Date.now();
+          
+          const planner = await withTimeout(
+            deepSeek.chat.completions.create({
+              model: "deepseek-reasoner",
+              messages: [
+                { 
+                  role: "user", 
+                  content: fullPrompt  // No system prompt for R1!
+                }
+              ],
+              temperature: 1.0,  // R1 works best at 1.0
+              max_tokens: 8000
+            }),
+            300000, // 5 minutes (R1 is SLOW for complex planning)
+            'DeepSeek R1 Planner'
+          );
+          
+          const elapsed = Date.now() - startTime;
+          console.log(`✅ [PLANNER] DeepSeek R1 succeeded in ${elapsed}ms`);
           responseText = planner.choices[0].message.content || "";
-        } else {
-          responseText = await generateDeepSeekPlanner(fullPrompt);
+        } catch (e: any) {
+          if (e.message?.includes('terminated') || e.message?.includes('timeout')) {
+            console.warn('⚠️ DeepSeek R1 timed out (expected for complex planning)');
+          } else {
+            console.error('❌ [PLANNER] DeepSeek R1 failed:', e?.message);
+          }
+          
+          console.log('🔄 Falling back to Gemini 2.0 Flash...');
+          responseText = await generateContent(fullPrompt, "You are an expert technical architect.");
         }
-      } catch (e) {
-        console.warn("⚠️ DeepSeek Reasoner failed, using V3.2 Chat...");
+      } else {
         responseText = await generateDeepSeekPlanner(fullPrompt);
       }
       break;
@@ -895,14 +959,16 @@ export async function callAI(
         }
 
         try {
-          const deepSeekBackup = await deepSeek.chat.completions.create({
-            model: "deepseek-chat", // V3 identifieras ofta så här i deras API
-            messages: [
-              { role: "system", content: systemInstruction || "You are an expert Frontend Architect replacing Claude." },
-              { role: "user", content: fullPrompt }
-            ],
-            temperature: 0.1 // Låg temp för att undvika flum när den är backup
-          });
+          const deepSeekBackup = await callWithRetry(() =>
+            deepSeek.chat.completions.create({
+              model: "deepseek-chat", // V3 identifieras ofta så här i deras API
+              messages: [
+                { role: "system", content: systemInstruction || "You are an expert Frontend Architect replacing Claude." },
+                { role: "user", content: fullPrompt }
+              ],
+              temperature: 0.1 // Låg temp för att undvika flum när den är backup
+            })
+          );
           
           console.log("✅ DeepSeek V3 successfully saved the build!");
           responseText = deepSeekBackup.choices[0].message.content || "";
@@ -916,25 +982,51 @@ export async function callAI(
       break;
 
     case "BACKEND":
-      // DeepSeek V3.2 (Chat) - Switchar från Qwen till DeepSeek V3.2 (Bättre & Billigare)
-      console.log("⚙️ BACKEND: Coding with DeepSeek V3.2 (Chat)...");
+      // PRIMARY: DeepSeek V3.2 (Fast code generation, not reasoning)
+      const isSQL = fullPrompt.toLowerCase().includes('database') || 
+                    fullPrompt.toLowerCase().includes('sql');
+      
+      const systemPrompt = isSQL 
+        ? "You are a senior backend engineer specializing in PostgreSQL and Supabase."
+        : (context || "You are a senior backend engineer. Write clean, type-safe code.");
+      
       if (deepSeek) {
         try {
-          const dsBackend = await deepSeek.chat.completions.create({
-            model: "deepseek-chat", // Pekar nu på V3.2
-            messages: [
-              { role: "system", content: context || "You are a Senior Python Backend Engineer." },
-              { role: "user", content: fullPrompt }
-            ],
-            temperature: 0.0, // V3.2 är väldigt bra på att följa instruktioner med låg temp
-          });
-          responseText = dsBackend.choices[0].message.content || "";
-        } catch (e) {
-          console.warn("⚠️ DeepSeek V3.2 failed, falling back to Gemini...");
-          responseText = await generateContent(fullPrompt, context || "You are a Senior Backend Engineer.");
+          console.log('⚡ [BACKEND] Starting DeepSeek V3.2 (Fast Mode)...');
+          const startTime = Date.now();
+          
+          const backendResult = await callWithRetry(() =>
+            withTimeout(
+              deepSeek.chat.completions.create({
+                model: "deepseek-chat",  // Use V3.2 NOT R1 for code generation
+                messages: [
+                  { role: "system", content: systemPrompt },
+                  { role: "user", content: fullPrompt }
+                ],
+                temperature: 0.3,
+                max_tokens: 8000
+              }),
+              60000, // 60 seconds is enough for fast models
+              'DeepSeek V3.2 Backend'
+            ),
+            3,
+            3000
+          );
+          
+          const elapsed = Date.now() - startTime;
+          console.log(`✅ [BACKEND] DeepSeek V3.2 succeeded in ${elapsed}ms`);
+          responseText = backendResult.choices[0].message.content || "";
+        } catch (primaryError: any) {
+          console.error('❌ [BACKEND] DeepSeek V3.2 failed:', primaryError?.message);
+          console.warn('⚠️ Falling back to Gemini 2.0 Flash...');
+          
+          // FALLBACK: Gemini (fast and free)
+          responseText = await generateContent(fullPrompt, systemPrompt);
         }
       } else {
-        responseText = await generateDeepSeekCoder(fullPrompt);
+        // No DeepSeek, use Gemini directly
+        console.log("⚠️ No DeepSeek API key found, using Gemini for backend...");
+        responseText = await generateContent(fullPrompt, systemPrompt);
       }
       break;
 
@@ -1031,52 +1123,50 @@ export async function callAI(
 
     case "CODE_REVIEWER":
     case "DEBUGGER":
-      // 🧠 DeepSeek R1 (Reasoning) - Best for analysis and strategy
-      console.log(`🧠 ${role}: Analyzing with DeepSeek R1 (Reasoner)...`);
+      // PRIMARY: DeepSeek V3.2 (Fast reviews/debugging, not reasoning)
+      const reviewTimeout = role === "CODE_REVIEWER" ? 45000 : 60000;
+      const reviewSystemPrompt = role === "CODE_REVIEWER"
+        ? "You are an expert code reviewer. Find bugs, syntax errors, and architectural issues."
+        : "You are a Debugging Strategist. Analyze the Reviewer's findings and create a step-by-step fix plan.";
+      
+      console.log(`⚡ ${role}: Using DeepSeek V3.2 (Fast Mode)...`);
       if (deepSeek) {
         try {
-          const reasoner = await deepSeek.chat.completions.create({
-            model: "deepseek-reasoner",
-            messages: [
-              {
-                role: "system",
-                content: role === "CODE_REVIEWER"
-                  ? "You are a Senior Code Reviewer. You do NOT fix code. You only find errors and explain WHY they happen."
-                  : "You are a Debugging Strategist. Analyze the Reviewer's findings and create a step-by-step fix plan."
-              },
-              { role: "user", content: fullPrompt }
-            ],
-          });
-          responseText = reasoner.choices[0].message.content || "";
-        } catch (e: any) {
-          console.warn(`⚠️ DeepSeek Reasoner (${role}) failed:`, e?.message);
-          // Fallback to DeepSeek Chat
-          if (deepSeek) {
-            try {
-              const fallback = await deepSeek.chat.completions.create({
-                model: "deepseek-chat",
+          const startTime = Date.now();
+          const reviewResult = await callWithRetry(() =>
+            withTimeout(
+              deepSeek.chat.completions.create({
+                model: "deepseek-chat",  // Fast reviews
                 messages: [
                   {
                     role: "system",
-                    content: role === "CODE_REVIEWER"
-                      ? "You are a Senior Code Reviewer. Analyze code for errors."
-                      : "You are a Debugging Strategist. Create a fix plan."
+                    content: reviewSystemPrompt
                   },
                   { role: "user", content: fullPrompt }
                 ],
-                temperature: 0.1,
-              });
-              responseText = fallback.choices[0].message.content || "";
-            } catch (fallbackErr: any) {
-              console.error(`❌ DeepSeek fallback (${role}) failed:`, fallbackErr?.message);
-              responseText = await generateContent(fullPrompt, `You are a ${role}.`);
-            }
-          } else {
-            responseText = await generateContent(fullPrompt, `You are a ${role}.`);
-          }
+                temperature: 0.3,
+                max_tokens: 8000
+              }),
+              reviewTimeout,
+              `DeepSeek V3.2 ${role}`
+            ),
+            3,
+            2000
+          );
+          
+          const elapsed = Date.now() - startTime;
+          console.log(`✅ [${role}] DeepSeek V3.2 succeeded in ${elapsed}ms`);
+          responseText = reviewResult.choices[0].message.content || "";
+        } catch (e: any) {
+          console.warn(`⚠️ DeepSeek V3.2 (${role}) failed:`, e?.message);
+          // FALLBACK: Gemini
+          console.warn("⚠️ Falling back to Gemini...");
+          responseText = await generateContent(fullPrompt, reviewSystemPrompt);
         }
       } else {
-        responseText = await generateContent(fullPrompt, `You are a ${role}.`);
+        // No DeepSeek key, use Gemini directly
+        console.log(`⚠️ No DeepSeek API key found, using Gemini for ${role}...`);
+        responseText = await generateContent(fullPrompt, reviewSystemPrompt);
       }
       break;
 

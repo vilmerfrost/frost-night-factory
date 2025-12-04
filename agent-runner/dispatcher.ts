@@ -54,20 +54,55 @@ Goal:
 - Ensure fix doesn't break existing functionality
 `;
 
-  const { data: pipeline, error } = await supabase
-    .from("pipelines")
-    .insert({
-      name: `Bugfix: ${ticket.title}`,
-      initial_prompt: initialPrompt,
-      status: "pending",
-      current_phase: "research",
-    })
-    .select("*")
-    .single();
+  // ✅ Use RPC function for atomic pipeline creation with all steps
+  const { data: rpcResult, error } = await supabase.rpc(
+    "create_pipeline_atomic",
+    {
+      p_name: `Bugfix: ${ticket.title}`,
+      p_initial_prompt: initialPrompt,
+      p_status: "pending",
+      p_current_phase: "research",
+      p_max_retries: 10,
+      p_created_by: null,
+    }
+  );
 
   if (error) {
     console.error("Error creating pipeline", error);
     return null;
+  }
+
+  if (!rpcResult || rpcResult.length === 0) {
+    console.error("RPC returned no data");
+    return null;
+  }
+
+  // Extract pipeline_id from RPC result
+  const pipelineId = rpcResult[0].pipeline_id;
+
+  // Fetch full pipeline details
+  const { data: pipeline, error: fetchError } = await supabase
+    .from("pipelines")
+    .select("*")
+    .eq("id", pipelineId)
+    .single();
+
+  if (fetchError) {
+    console.error("Error fetching pipeline", fetchError);
+    return null;
+  }
+
+  // Update with ticket-specific data
+  const { error: updateError } = await supabase
+    .from("pipelines")
+    .update({
+      ticket_id: ticket.id,
+    })
+    .eq("id", pipelineId);
+
+  if (updateError) {
+    console.error("Error updating pipeline with ticket_id", updateError);
+    // Continue anyway - pipeline is created
   }
 
   // Update ticket with pipeline_id and new status

@@ -14,44 +14,66 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Create pipeline
-    const { data: pipeline, error: pipelineError } = await supabase
-      .from("pipelines")
-      .insert({
-        name,
-        initial_prompt,
-        repo_url: repo_url || null,
-        branch,
-        status: "pending",
-        current_phase: "research",
-      })
-      .select("*")
-      .single();
+    // Create pipeline using RPC function (atomic creation with all steps)
+    const { data: rpcResult, error: pipelineError } = await supabase.rpc(
+      "create_pipeline_atomic",
+      {
+        p_name: name,
+        p_initial_prompt: initial_prompt,
+        p_status: "pending",
+        p_current_phase: "research",
+        p_max_retries: 10,
+        p_created_by: null,
+      }
+    );
 
     if (pipelineError) {
       console.error("Error creating pipeline", pipelineError);
       return NextResponse.json(
-        { error: "Failed to create pipeline" },
+        { error: "Failed to create pipeline", details: pipelineError.message },
         { status: 500 }
       );
     }
 
-    // Create initial research step
-    const { error: stepError } = await supabase
-      .from("pipeline_steps")
-      .insert({
-        pipeline_id: pipeline.id,
-        phase: "research",
-        status: "pending",
-        input: {
-          idea: initial_prompt,
-        },
-      });
+    if (!rpcResult || rpcResult.length === 0) {
+      return NextResponse.json(
+        { error: "Pipeline creation returned no data" },
+        { status: 500 }
+      );
+    }
 
-    if (stepError) {
-      console.error("Error creating initial step", stepError);
+    const pipelineId = rpcResult[0].pipeline_id;
+
+    // Update with request-specific data
+    const { error: updateError } = await supabase
+      .from("pipelines")
+      .update({
+        repo_url: repo_url || null,
+        branch,
+      })
+      .eq("id", pipelineId);
+
+    if (updateError) {
+      console.error("Error updating pipeline with repo_url/branch", updateError);
       // Continue anyway - pipeline is created
     }
+
+    // Fetch full pipeline
+    const { data: pipeline, error: fetchError } = await supabase
+      .from("pipelines")
+      .select("*")
+      .eq("id", pipelineId)
+      .single();
+
+    if (fetchError) {
+      console.error("Error fetching pipeline", fetchError);
+      return NextResponse.json(
+        { error: "Failed to fetch pipeline", details: fetchError.message },
+        { status: 500 }
+      );
+    }
+
+    // Note: RPC function already created all 5 steps atomically, no need to create research step manually
 
     return NextResponse.json({ pipeline }, { status: 201 });
   } catch (err) {

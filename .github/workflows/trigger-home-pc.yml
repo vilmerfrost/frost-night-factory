@@ -1,0 +1,31 @@
+name: Trigger Home PC Pipeline
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'agent-runner/**'
+      - 'app/**'
+      - 'supabase/**'
+  workflow_dispatch:  # Allows manual trigger from GitHub UI
+
+jobs:
+  trigger-home-pc:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send webhook to home PC
+        run: |
+          curl -X POST ${{ secrets.HOME_PC_URL }}/trigger \
+            -H "Authorization: Bearer ${{ secrets.HOME_PC_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"branch\": \"${{ github.ref_name }}\", \"commit\": \"${{ github.sha }}\"}"
+        continue-on-error: true  # Don't fail if home PC is offline
+      
+      - name: Notify result
+        run: |
+          if [ $? -eq 0 ]; then
+            echo "✅ Home PC pipeline triggered successfully"
+          else
+            echo "⚠️ Failed to reach home PC (might be offline)"
+          fi
+

@@ -219,6 +219,14 @@ export default function Home() {
           </div>
           
           <div className="flex items-center gap-3">
+            {/* Live Monitor Link */}
+            <Link
+              href="/monitor"
+              className="px-4 py-2 bg-[#00F0FF]/20 border border-[#00F0FF] rounded hover:bg-[#00F0FF]/30 transition-all font-mono text-sm text-[#00F0FF]"
+            >
+              📊 Live Monitor
+            </Link>
+
             {/* System Status */}
             <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-zinc-900/50 border border-zinc-800">
               <div className={`w-2 h-2 rounded-full ${

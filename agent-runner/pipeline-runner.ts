@@ -18,7 +18,7 @@ import {
   generateLocalFix,
   generateGroqFix,
   runKimiQA,
-  callAI
+  callAI as callAILegacy
 } from '../lib/nightFactory/modelClient';
 import { GOLDEN_COMPONENTS } from './lib/golden-components';
 import { analyzeUpdateScope, UpdateScope } from '../lib/nightFactory/scopeAnalyzer';
@@ -39,6 +39,10 @@ import { CodebaseOracle, getOracle } from '../lib/nightFactory/codebaseOracle';
 import { PipelineContext, createPipelineContext, validateContextForStage } from '../lib/nightFactory/contextTypes';
 import { verifyDataFlow, logContextState } from '../lib/nightFactory/flowChecker';
 import { generateScaffold, generateComponentRegistry, formatComponentRegistry } from '../lib/nightFactory/scaffoldAgent';
+import { validateCode, autoFixFileExtension, ValidationResult as CodeValidationResult } from './code-validator';
+import { callAI, selectModel } from './ai-client';
+import { classifyError, recordErrorPattern, ErrorAnalysis } from './error-classifier';
+import { validateCodeCompleteness } from './ast-validator';
 
 // =============================================================================
 // 🧠 INTELLIGENT FIX SYSTEMS (V6.0 - Zero Human Input)
@@ -94,7 +98,9 @@ import {
 // PHASE 1-7 INTELLIGENT SYSTEMS (NEW)
 // =============================================================================
 import { GOLDEN_VERSIONS, validateAndFixDependencies, getGoldenVersion } from '../lib/nightFactory/goldenVersions';
-import { classifyError, extractTargetFiles, ErrorCategory, ClassifiedError, getFixingStrategy, autoFixPythonError } from '../lib/nightFactory/errorClassifier';
+// ✅ REMOVED: Old classifyError import - using new error-classifier.ts instead
+// Keep other imports from old errorClassifier if still needed:
+import { extractTargetFiles, ErrorCategory, ClassifiedError, getFixingStrategy, autoFixPythonError } from '../lib/nightFactory/errorClassifier';
 import { CircuitBreaker, CircuitBreakerError, FixAttempt } from '../lib/nightFactory/circuitBreaker';
 import { recordErrorOccurrence, generatePreventionPrompt, getAutoFixSuggestion, getErrorStats } from '../lib/nightFactory/errorTelemetry';
 import { GOLDEN_TEMPLATES, getGoldenTemplate, hasGoldenTemplate, GOLDEN_PACKAGE_JSON, GOLDEN_TSCONFIG, GOLDEN_NEXT_CONFIG, GOLDEN_TAILWIND_CONFIG, GOLDEN_POSTCSS_CONFIG, GOLDEN_LAYOUT, GOLDEN_PAGE, GOLDEN_TYPES, GOLDEN_MOCK_DATA, GOLDEN_UTILS } from '../lib/nightFactory/goldenTemplates';
@@ -948,23 +954,23 @@ async function createPipelineWithSteps(projectSpec: string, name: string, initia
   try {
     // ✅ Use Supabase RPC for atomic transaction (Postgres handles rollback automatically)
     const { data, error } = await supabase.rpc('create_pipeline_atomic', {
-      p_name: name,
-      p_initial_prompt: initialPrompt,
-      p_status: 'pending',
-      p_current_phase: 'research',
-      p_max_retries: 10,
-      p_created_by: null
+      payload: {
+        name,
+        initial_prompt: initialPrompt,
+        status: 'pending',
+        current_phase: 'research',
+      }
     });
 
     if (error) {
       throw new Error(`[DB] Failed to create pipeline atomically: ${error.message}`);
     }
 
-    if (!data || data.length === 0) {
-      throw new Error('[DB] Pipeline creation returned no data');
+    if (!data || !data.success) {
+      throw new Error(`[DB] Pipeline creation failed: ${data?.error || 'Unknown error'}`);
     }
 
-    const pipelineId = data[0].pipeline_id;
+    const pipelineId = data.pipeline_id as string;
     
     // Fetch the created pipeline
     const { data: pipeline, error: fetchError } = await supabase
@@ -1624,15 +1630,17 @@ ${BLUEPRINT_PROTOCOL_PROMPT}
   const planPrompt = RUTHLESS_PLANNER_PROMPT;
 
   try {
-    // DU VÄLJER HÄR: Välj din planner "hjärna"
-    
-    // Alternativ A: DeepSeek R1 (Just nu - bränn dina credits, men bäst kvalitet)
-    console.log("[Planner] Thinking with DeepSeek R1...");
-    const plan = await generateDeepSeekPlanner(planPrompt);
-    
-    // Alternativ B: Kimi k2 (Spara pengar / testa logik / backup om DeepSeek ligger nere)
-    // console.log("[Planner] Thinking with Kimi k2...");
-    // const plan = await generateKimiPlanner(planPrompt);
+    // ✅ NEW: Unified AI client with cost tracking
+    console.log("[Planner] Thinking with unified AI client...");
+    const plan = await callAI({
+      pipelineId: pipeline.id,
+      step: 'planner',
+      role: 'PLANNER',
+      model: selectModel('PLANNER'),
+      messages: [
+        { role: 'user', content: planPrompt }
+      ]
+    });
     
     await updateStep(pipeline.id, 'planner', 'completed', JSON.stringify({ 
         content: plan, 
@@ -1644,9 +1652,24 @@ ${BLUEPRINT_PROTOCOL_PROMPT}
         sanitizedRequest: zeroShotData.sanitizedRequest,
     }));
     await updatePipeline(pipeline.id, { current_phase: 'coder', is_python: intent.isPython });
-  } catch (error) {
-    console.error('[Planner] Failed:', error);
-    await updatePipeline(pipeline.id, { status: 'failed' });
+  } catch (error: any) {
+    // ✅ NEW: Enhanced error classification
+    const errorLog = error.message || error.toString();
+    const analysis = classifyError(errorLog);
+    
+    console.error(`[Planner] Failed: ${analysis.classification} (${analysis.errorCode})`);
+    console.log(`   Strategy: ${analysis.fixStrategy}, Max retries: ${analysis.maxRetries}`);
+    
+    await supabase
+      .from('pipelines')
+      .update({
+        status: 'failed',
+        error_code: analysis.errorCode,
+        error_signature: analysis.errorSignature
+      })
+      .eq('id', pipeline.id);
+    
+    await recordErrorPattern(analysis, false);
   }
 }
 
@@ -2307,6 +2330,49 @@ async function updatePipelineStatus(
   console.log(`✅ Pipeline ${pipelineId}: ${currentStatus} → ${newStatus}${reason ? ` (${reason})` : ''}`);
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// VALIDATE AND WRITE FILE HELPER
+// ═══════════════════════════════════════════════════════════════════
+
+async function validateAndWriteFile(
+  filePath: string,
+  content: string,
+  projectRoot: string
+): Promise<{ success: boolean; errors: string[] }> {
+  const fileName = path.relative(projectRoot, filePath)
+  
+  // STEP 1: Auto-fix file extension if needed
+  const { code, newFileName } = autoFixFileExtension(content, fileName)
+  const finalPath = newFileName !== fileName 
+    ? path.join(projectRoot, newFileName) 
+    : filePath
+  
+  // STEP 2: Validate code
+  const validation = validateCode(code, newFileName, projectRoot)
+  
+  if (!validation.valid) {
+    console.log(`❌ CODE REJECTED: ${newFileName}`)
+    validation.errors.forEach(err => console.log(`   ${err}`))
+    return { success: false, errors: validation.errors }
+  }
+  
+  // STEP 3: Log warnings but continue
+  if (validation.warnings.length > 0) {
+    console.log(`⚠️ WARNINGS for ${newFileName}:`)
+    validation.warnings.forEach(warn => console.log(`   ${warn}`))
+  }
+  
+  // STEP 4: Write to disk
+  const dir = path.dirname(finalPath)
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true })
+  }
+  fs.writeFileSync(finalPath, code, 'utf8')
+  console.log(`✅ Validated & wrote: ${newFileName}`)
+  
+  return { success: true, errors: [] }
+}
+
 async function parseAndWriteFiles(
   codeBlock: string,
   localPath: string,
@@ -2403,9 +2469,18 @@ async function parseAndWriteFiles(
         content = autoFixEnvironmentVariables(content, rawPath);
       }
 
-      // Write file
-      fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-      fs.writeFileSync(fullPath, content, 'utf-8');
+      // ═══════════════════════════════════════════════════════════════════
+      // CODE VALIDATION GATE: Validate before writing
+      // ═══════════════════════════════════════════════════════════════════
+      const validationResult = await validateAndWriteFile(fullPath, content, localPath);
+      
+      if (!validationResult.success) {
+        console.error(`❌ [VALIDATOR] Rejected file: ${rawPath}`);
+        console.error(`   Errors: ${validationResult.errors.join(', ')}`);
+        // Skip this file - don't add to tempFiles
+        continue;
+      }
+      
       tempFiles.push(rawPath);
     }
 
@@ -2719,6 +2794,82 @@ FAILURE TO COMPLY WILL RESULT IN IMMEDIATE PROCESS TERMINATION.
    - CORRECT: const pattern = /regex/
 `;
 
+  const CODER_SYSTEM_PROMPT = `
+You are a PRODUCTION CODE GENERATOR for Frost Night Factory.
+
+═══════════════════════════════════════════════════════════════════
+⛔ CRITICAL: ABSOLUTELY FORBIDDEN PATTERNS
+═══════════════════════════════════════════════════════════════════
+
+NEVER GENERATE:
+- // TODO: implement X
+- // FIXME: add logic
+- // Add code here
+- return [];  (empty array)
+- return {};  (empty object)
+- return null;
+- /* mock data */
+- /* placeholder */
+- Promise.resolve({ /* ... */ })
+- 'mocked_data' strings
+- : any (use specific types)
+
+If you write ANY of these patterns, the build will FAIL and you will be asked to regenerate.
+
+═══════════════════════════════════════════════════════════════════
+✅ REQUIRED: FILE EXTENSION RULES
+═══════════════════════════════════════════════════════════════════
+
+- .ts files: NO JSX allowed. Pure TypeScript only.
+- .tsx files: JSX/React components allowed.
+- .ts files with <div>, <Component>, etc. will FAIL TypeScript parsing.
+
+Before writing a file, CHECK THE EXTENSION:
+- Is it .ts? → NO JSX, NO React components
+- Is it .tsx? → JSX is allowed
+
+═══════════════════════════════════════════════════════════════════
+✅ REQUIRED: COMPLETE IMPLEMENTATIONS
+═══════════════════════════════════════════════════════════════════
+
+Every function MUST:
+1. Have a complete implementation (not empty)
+2. Return actual data (not empty arrays/objects)
+3. Handle errors properly
+4. Use specific TypeScript types (not 'any')
+
+Example of CORRECT code:
+\`\`\`typescript
+export async function fetchMarketData(): Promise<MarketData> {
+  const response = await fetch('/api/markets')
+  if (!response.ok) throw new Error('Failed to fetch')
+  return response.json()
+}
+\`\`\`
+
+Example of FORBIDDEN code:
+\`\`\`typescript
+export async function fetchMarketData(): Promise<any> {
+  // TODO: implement
+  return []
+}
+\`\`\`
+
+═══════════════════════════════════════════════════════════════════
+✅ VERIFICATION CHECKLIST
+═══════════════════════════════════════════════════════════════════
+
+Before submitting code, verify:
+- [ ] No TODO/FIXME comments
+- [ ] No empty returns ([], {}, null)
+- [ ] No 'any' types
+- [ ] No JSX in .ts files
+- [ ] All imports reference REAL files
+- [ ] All functions have implementations
+
+Mark completed code with: // PRODUCTION_READY
+`;
+
   const FILE_PROTOCOL = `
 CRITICAL OUTPUT RULES:
 
@@ -2819,6 +2970,8 @@ CRITICAL UI RULES (The "Clickable" Mandate):
 ${STRICT_FRONTEND_RULES}
 
 ${CRITICAL_CODING_RULES}
+
+${CODER_SYSTEM_PROMPT}
 
 PART 2: THE BACKEND (Python FastAPI) - REQUIRED
 - Path: /backend
@@ -2945,6 +3098,8 @@ CRITICAL UI RULES (The "Clickable" Mandate):
 ${STRICT_FRONTEND_RULES}
 
 ${CRITICAL_CODING_RULES}
+
+${CODER_SYSTEM_PROMPT}
 
 NEXT.JS 15 RULES (CRITICAL - STRICT COMPLIANCE REQUIRED):
 
@@ -3244,6 +3399,8 @@ ${STRICT_FRONTEND_RULES}
 
 ${CRITICAL_CODING_RULES}
 
+${CODER_SYSTEM_PROMPT}
+
 ${COMPONENT_NAMING_RULE}
 
 ${EXPORT_RULE}
@@ -3516,15 +3673,32 @@ You MUST use this exact format:
 ... code ...
           `;
           
-          // Choose AI model based on file type
+          // ✅ NEW: Unified AI client with cost tracking
           let code: string;
           if (file.type === 'page' || file.type === 'component') {
             // Use Claude for UI files
-            code = await generateClaudeCoder(contextPrompt, systemContext);
+            code = await callAI({
+              pipelineId: pipeline.id,
+              step: 'coder',
+              role: 'CODER',
+              model: selectModel('CODER'),
+              messages: [
+                { role: 'system', content: systemContext },
+                { role: 'user', content: contextPrompt }
+              ]
+            });
           } else {
-            // Use DeepSeek for utils/config
+            // Use cheaper model for utils/config
             const fullPrompt = `${systemContext}\n\n${contextPrompt}`;
-            code = await generateDeepSeekCoder(fullPrompt);
+            code = await callAI({
+              pipelineId: pipeline.id,
+              step: 'coder',
+              role: 'CODER',
+              model: selectModel('CODER', 'simple'),
+              messages: [
+                { role: 'user', content: fullPrompt }
+              ]
+            });
           }
           
           // Parse and write this single file
@@ -3549,10 +3723,19 @@ You MUST use this exact format:
         // =============================================================================
         console.log(chalk.yellow("\n📦 V5.5 FALLBACK: Using reactive coding approach..."));
         
-        // SMART ROUTER: Välj rätt AI
+        // ✅ NEW: Unified AI client with smart routing
         if (isNewProject) {
-          console.log("[Coder] 🚀 New project detected. Using Claude 4.5 Sonnet (premium quality)...");
-          rawOutput = await generateClaudeCoder(taskPrompt, systemContext);
+          console.log("[Coder] 🚀 New project detected. Using premium model...");
+          rawOutput = await callAI({
+            pipelineId: pipeline.id,
+            step: 'coder',
+            role: 'CODER',
+            model: selectModel('CODER'),
+            messages: [
+              { role: 'system', content: systemContext },
+              { role: 'user', content: taskPrompt }
+            ]
+          });
         } else {
           // Backend/Frontend Specialist: För updates, välj modell baserat på uppgift
           if (pipeline.type === 'update') {
@@ -3561,19 +3744,43 @@ You MUST use this exact format:
                                 pipeline.initial_prompt.toLowerCase().includes("styling");
             
             if (isDesignTask) {
-              console.log("[Coder] 🎨 UI Task detected. Deploying Claude 4.5.");
-              rawOutput = await generateClaudeCoder(taskPrompt, systemContext);
+              console.log("[Coder] 🎨 UI Task detected. Using premium model.");
+              rawOutput = await callAI({
+                pipelineId: pipeline.id,
+                step: 'coder',
+                role: 'CODER',
+                model: selectModel('CODER'),
+                messages: [
+                  { role: 'system', content: systemContext },
+                  { role: 'user', content: taskPrompt }
+                ]
+              });
             } else {
-              console.log("[Coder] ⚙️ Logic/Fix Task detected. Deploying DeepSeek V3.");
-              // DeepSeek V3 för logik/fixar (billigare och snabbare)
+              console.log("[Coder] ⚙️ Logic/Fix Task detected. Using efficient model.");
               const fullPrompt = `${systemContext}\n\n${taskPrompt}`;
-              rawOutput = await generateDeepSeekCoder(fullPrompt);
+              rawOutput = await callAI({
+                pipelineId: pipeline.id,
+                step: 'coder',
+                role: 'CODER',
+                model: selectModel('CODER', 'simple'),
+                messages: [
+                  { role: 'user', content: fullPrompt }
+                ]
+              });
             }
           } else {
-            // För nya projekt eller små ändringar, använd DeepSeek V3 direkt (snabbare än Localhost)
-            console.log("[Coder] ⚙️ Using DeepSeek V3 for fast generation...");
+            // För nya projekt eller små ändringar
+            console.log("[Coder] ⚙️ Using efficient model for fast generation...");
             const fullPrompt = `${systemContext}\n\n${taskPrompt}`;
-            rawOutput = await generateDeepSeekCoder(fullPrompt);
+            rawOutput = await callAI({
+              pipelineId: pipeline.id,
+              step: 'coder',
+              role: 'CODER',
+              model: selectModel('CODER', 'simple'),
+              messages: [
+                { role: 'user', content: fullPrompt }
+              ]
+            });
           }
         }
         
@@ -4406,7 +4613,18 @@ async function runAuditLoop(pipeline: any, repoPath: string): Promise<boolean> {
       `;
 
       console.log("🧠 Claude is fixing audit issues...");
-      const fixedCode = await generateClaudeCoder(fixPrompt, "You are a Senior Developer fixing code. Output format: ### FILE: <name> ... ### END_FILE");
+      // ✅ NEW: Unified AI client with error signature for caching
+      const fixedCode = await callAI({
+        pipelineId: pipeline.id,
+        step: 'tester',
+        role: 'FIXER',
+        model: selectModel('FIXER', 'medium'),
+        messages: [
+          { role: 'system', content: "You are a Senior Developer fixing code. Output format: ### FILE: <name> ... ### END_FILE" },
+          { role: 'user', content: fixPrompt }
+        ],
+        errorSignature: undefined // TODO: Extract from error analysis
+      });
 
       // 4. Skriv över filerna (Med Fallback!)
       const fileRegex = /### FILE: (.*?)\n([\s\S]*?)### END_FILE/g;
@@ -6558,6 +6776,10 @@ export default function Page() {
           const mypyStderr = mypyError.stderr ? mypyError.stderr.toString() : "";
           const mypyFullLog = mypyOutput + "\n" + mypyStderr;
           
+          // ✅ NEW: Classify Python error
+          const pythonAnalysis = classifyError(mypyFullLog);
+          console.log(`   Classification: ${pythonAnalysis.classification} (${pythonAnalysis.errorCode})`);
+          
           // Hitta Python-filer med fel
           const pythonFileMatch = mypyFullLog.match(/(backend\/[a-zA-Z0-9_\-\/]+\.py)/);
           let brokenPythonFile = pythonFileMatch ? pythonFileMatch[1] : "backend/main.py";
@@ -6597,7 +6819,17 @@ RETURN FORMAT:
 ### END_FILE
           `;
           
-          const pythonFixOutput = await callAI("FIXER", pythonFixPrompt, "", undefined, "SMART");
+          // ✅ NEW: Unified AI client with error signature
+          const pythonFixOutput = await callAI({
+            pipelineId: pipeline.id,
+            step: 'tester',
+            role: 'FIXER',
+            model: selectModel('FIXER', 'simple'),
+            messages: [
+              { role: 'user', content: pythonFixPrompt }
+            ],
+            errorSignature: pythonAnalysis.errorSignature
+          });
           
           // Parsa och skriv den fixade filen
           const fileRegex = /### FILE: (.*?)\n([\s\S]*?)### END_FILE/g;
@@ -6672,6 +6904,52 @@ RETURN FORMAT:
       if (error.stdout) fullLog += "\n" + error.stdout.toString();
       if (error.stderr) fullLog += "\n" + error.stderr.toString();
 
+      // ✅ NEW: Enhanced error classification
+      const errorAnalysis = classifyError(fullLog);
+      console.log(chalk.cyan(`🔍 Error classified as: ${errorAnalysis.classification} (${errorAnalysis.errorCode})`));
+      console.log(chalk.cyan(`   Strategy: ${errorAnalysis.fixStrategy}, Max retries: ${errorAnalysis.maxRetries}`));
+      
+      // Update pipeline with error info
+      await supabase
+        .from('pipelines')
+        .update({
+          error_code: errorAnalysis.errorCode,
+          error_signature: errorAnalysis.errorSignature
+        })
+        .eq('id', pipeline.id);
+      
+      // Check if we should stop
+      if (errorAnalysis.fixStrategy === 'STOP') {
+        console.log(chalk.red('❌ FATAL ERROR - marking as failed_hard'));
+        await supabase
+          .from('pipelines')
+          .update({ status: 'failed_hard' })
+          .eq('id', pipeline.id);
+        await recordErrorPattern(errorAnalysis, false);
+        throw error;
+      }
+      
+      // Get current step attempts
+      const currentStep = await getStep(pipeline.id, 'tester');
+      const currentAttempts = (currentStep?.attempts as number) || 0;
+      
+      if (currentAttempts >= errorAnalysis.maxRetries) {
+        console.log(chalk.red(`🚨 Max retries (${errorAnalysis.maxRetries}) exceeded for ${errorAnalysis.classification}`));
+        await recordErrorPattern(errorAnalysis, false);
+        await supabase
+          .from('pipelines')
+          .update({ status: 'failed' })
+          .eq('id', pipeline.id);
+        throw error;
+      }
+      
+      // Increment attempt counter
+      await supabase
+        .from('pipeline_steps')
+        .update({ attempts: currentAttempts + 1 })
+        .eq('pipeline_id', pipeline.id)
+        .eq('name', 'tester');
+
       // LOGGA FELET SÅ DU SER DET
       console.log(chalk.yellow("🔻 --- ERROR LOG START --- 🔻"));
       console.log(fullLog.slice(0, 3000)); // Visa första 3000 tecknen
@@ -6683,7 +6961,7 @@ RETURN FORMAT:
       
       // Record error for autopsy tracking
       recordAutopsyError(
-        fullLog.match(/TS\d+/)?.[0] || 'UNKNOWN',
+        errorAnalysis.errorCode,
         fullLog.slice(0, 200),
         fullLog.match(/([a-zA-Z0-9_\/\\.-]+\.(tsx|ts))/)?.[1] || 'unknown',
         `Attempt ${attempt}`
@@ -6755,8 +7033,17 @@ RETURN FORMAT:
           if (diagnosis.requiresRewrite) {
             console.log(chalk.red("   🚨 NUCLEAR REWRITE REQUIRED"));
             
-            // Use the autopsy-informed fix prompt
-            const nuclearFix = await callAI("NUCLEAR", fixPrompt + "\n\n" + getTesterContext(enrichedContext));
+            // ✅ NEW: Unified AI client for nuclear rewrite
+            const nuclearFix = await callAI({
+              pipelineId: pipeline.id,
+              step: 'tester',
+              role: 'FIXER',
+              model: selectModel('FIXER', 'complex'),
+              messages: [
+                { role: 'user', content: fixPrompt + "\n\n" + getTesterContext(enrichedContext) }
+              ],
+              errorSignature: errorAnalysis.errorSignature
+            });
             const filesWritten = await parseAndWriteFiles(nuclearFix, repoPath, pipeline.id);
             
             if (filesWritten > 0) {
@@ -6880,7 +7167,17 @@ RETURN FORMAT:
           `;
           
           try {
-            const fix = await callAI("NUCLEAR", nuclearPrompt);
+            // ✅ NEW: Unified AI client
+            const fix = await callAI({
+              pipelineId: pipeline.id,
+              step: 'tester',
+              role: 'FIXER',
+              model: selectModel('FIXER', 'complex'),
+              messages: [
+                { role: 'user', content: nuclearPrompt }
+              ],
+              errorSignature: errorAnalysis.errorSignature
+            });
             const filesCreated = await parseAndWriteFiles(fix, repoPath, pipeline.id);
             
             if (filesCreated > 0) {
@@ -6923,7 +7220,17 @@ RETURN FORMAT:
           // Fallback to rewrite
           const nuclearPrompt = `Rewrite the file ${targetFile} completely. ${strategy.instructions}`;
           try {
-            const fix = await callAI("NUCLEAR", nuclearPrompt);
+            // ✅ NEW: Unified AI client
+            const fix = await callAI({
+              pipelineId: pipeline.id,
+              step: 'tester',
+              role: 'FIXER',
+              model: selectModel('FIXER', 'complex'),
+              messages: [
+                { role: 'user', content: nuclearPrompt }
+              ],
+              errorSignature: errorAnalysis.errorSignature
+            });
             await parseAndWriteFiles(fix, repoPath, pipeline.id);
             errorHistory = [];
             continue;

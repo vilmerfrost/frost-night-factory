@@ -10,7 +10,10 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "strict": false,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "types": ["node"],
+    "lib": ["esnext", "dom"],
+    "typeRoots": ["../node_modules/@types", "./node_modules/@types"]
   },
-  "include": ["**/*.ts", "../lib/**/*.ts"]
+  "include": ["**/*.ts", "../lib/**/*.ts", "types.d.ts"]
 }

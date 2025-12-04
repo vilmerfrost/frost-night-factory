@@ -58,12 +58,12 @@ Goal:
   const { data: rpcResult, error } = await supabase.rpc(
     "create_pipeline_atomic",
     {
-      p_name: `Bugfix: ${ticket.title}`,
-      p_initial_prompt: initialPrompt,
-      p_status: "pending",
-      p_current_phase: "research",
-      p_max_retries: 10,
-      p_created_by: null,
+      payload: {
+        name: `Bugfix: ${ticket.title}`,
+        initial_prompt: initialPrompt,
+        status: "pending",
+        current_phase: "research",
+      }
     }
   );
 
@@ -72,13 +72,13 @@ Goal:
     return null;
   }
 
-  if (!rpcResult || rpcResult.length === 0) {
-    console.error("RPC returned no data");
+  if (!rpcResult || !rpcResult.success) {
+    console.error(`RPC failed: ${rpcResult?.error || 'Unknown error'}`);
     return null;
   }
 
   // Extract pipeline_id from RPC result
-  const pipelineId = rpcResult[0].pipeline_id;
+  const pipelineId = rpcResult.pipeline_id as string;
 
   // Fetch full pipeline details
   const { data: pipeline, error: fetchError } = await supabase

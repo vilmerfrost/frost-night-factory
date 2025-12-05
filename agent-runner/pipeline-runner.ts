@@ -7453,8 +7453,12 @@ body {
       }
 
       // --- 🐍 THE PYTHON ENFORCER (MyPy Integration) ---
-      // Om projektet är Python/Hybrid -> Kör MyPy typkoll
-      if (pipeline.is_python || fs.existsSync(path.join(repoPath, 'backend', 'main.py'))) {
+      // ✅ STACK AWARENESS: Only check Python if backend is FastAPI/Python
+      const backendType = pipeline.stack_config?.backend || 
+                         (pipeline.is_python ? 'fastapi' : null) ||
+                         (fs.existsSync(path.join(repoPath, 'backend', 'main.py')) ? 'fastapi' : null);
+      
+      if (backendType === 'fastapi' || backendType === 'python') {
         console.log("[Tester] 🐍 Running Python Type Safety Check (MyPy)...");
         try {
           // Installera mypy om det saknas (bör ligga i requirements.txt men för säkerhets skull)

@@ -10456,11 +10456,23 @@ export async function runPipelineLoop(sandboxPath: string) {
       }
       
       // ✅ V8: Release ports on error
-      if (frontendPort) {
-        PortManager.releasePort(frontendPort);
+      // Get ports from pipeline metadata if not already set (fallback)
+      const frontendPortToRelease = frontendPort || pipeline.metadata?.frontend_port;
+      const backendPortToRelease = backendPort || pipeline.metadata?.backend_port;
+      
+      if (frontendPortToRelease) {
+        try {
+          PortManager.releasePort(frontendPortToRelease);
+        } catch {
+          // Ignore port release errors
+        }
       }
-      if (backendPort) {
-        PortManager.releasePort(backendPort);
+      if (backendPortToRelease) {
+        try {
+          PortManager.releasePort(backendPortToRelease);
+        } catch {
+          // Ignore port release errors
+        }
       }
       
       await sleep(5000);

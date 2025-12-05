@@ -130,6 +130,50 @@ export interface AICallOptions {
   cacheableBlocks?: Array<{ type: 'text'; text: string }>  // Static content to cache
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// CODE GENERATION RULES - Critical structure requirements
+// ═══════════════════════════════════════════════════════════════════
+const CODE_GENERATION_RULES = `
+CRITICAL CODE STRUCTURE RULES:
+
+1. **Import Order (MANDATORY)**:
+   - ALL import statements MUST come before ANY other code
+   - Correct: import → export → code
+   - Wrong: export → import (causes module errors)
+
+   Example (CORRECT):
+   \`\`\`typescript
+   'use client';
+
+   import { useState } from 'react';
+   import { motion } from 'framer-motion';
+
+   export const dynamic = 'force-dynamic';
+
+   export default function Component() {
+     // ...
+   }
+   \`\`\`
+
+   Example (WRONG - NEVER DO THIS):
+   \`\`\`typescript
+   'use client';
+
+   export const dynamic = 'force-dynamic';  // ❌ Export before import
+
+   import { useState } from 'react';  // ❌ Import after export
+   \`\`\`
+
+2. **ES Module Rules**:
+   - Imports must be at the top of the file
+   - No code between imports and exports
+   - No conditional imports
+
+3. **Next.js Route Segment Config**:
+   - Route configs (dynamic, revalidate, etc.) go AFTER imports
+   - But BEFORE the component export
+`;
+
 export async function callAI(opts: AICallOptions): Promise<string> {
   const { pipelineId, step, role, model, messages, errorSignature, temperature = 0.7 } = opts
   
@@ -194,8 +238,13 @@ export async function callAI(opts: AICallOptions): Promise<string> {
       // ═══════════════════════════════════════════════════════════════════
       
       // Extract system messages and filter them out from messages array
-      const systemMessages = messages.filter(m => m.role === 'system').map(m => m.content)
+      let systemMessages = messages.filter(m => m.role === 'system').map(m => m.content)
       const nonSystemMessages = messages.filter(m => m.role !== 'system')
+      
+      // ✅ Add CODE_GENERATION_RULES for CODER role
+      if (role === 'CODER' || role === 'FIXER') {
+        systemMessages = [CODE_GENERATION_RULES, ...systemMessages]
+      }
       
       // Convert system messages to Anthropic format (string or array of text blocks)
       const systemParam = systemMessages.length > 0 
@@ -249,10 +298,21 @@ export async function callAI(opts: AICallOptions): Promise<string> {
       }
       
     } else if (safeModel.startsWith('gpt')) {
+      // ✅ Add CODE_GENERATION_RULES for CODER role
+      const systemMessages = messages.filter(m => m.role === 'system').map(m => m.content)
+      const nonSystemMessages = messages.filter(m => m.role !== 'system')
+      const finalSystemMessages = (role === 'CODER' || role === 'FIXER')
+        ? [CODE_GENERATION_RULES, ...systemMessages]
+        : systemMessages
+      
       // Apply logit bias for OpenAI models (Gemini's brilliant idea)
       const result = await openai.chat.completions.create({
         model: safeModel,
         temperature,
+        messages: [
+          ...(finalSystemMessages.length > 0 ? finalSystemMessages.map(content => ({ role: 'system' as const, content })) : []),
+          ...nonSystemMessages.map(m => ({ role: m.role as any, content: m.content }))
+        ],
         messages: messages as any,
         logit_bias: FORBIDDEN_TOKENS // ← Model physically can't write these
       })
@@ -263,8 +323,13 @@ export async function callAI(opts: AICallOptions): Promise<string> {
       
     } else if (safeModel.startsWith('llama') || safeModel.includes('groq') || safeModel.includes('llama-3')) {
       // ✅ Phase 3: Groq API
-      const systemMessage = messages.find(m => m.role === 'system')
+      const systemMessages = messages.filter(m => m.role === 'system').map(m => m.content)
       const userMessages = messages.filter(m => m.role !== 'system')
+      
+      // ✅ Add CODE_GENERATION_RULES for CODER role
+      const finalSystemMessages = (role === 'CODER' || role === 'FIXER')
+        ? [CODE_GENERATION_RULES, ...systemMessages]
+        : systemMessages
       
       // Map model name to Groq's format
       const groqModel = safeModel.includes('llama-3.3') 
@@ -274,7 +339,7 @@ export async function callAI(opts: AICallOptions): Promise<string> {
       const result = await groq.chat.completions.create({
         model: groqModel,
         messages: [
-          ...(systemMessage ? [{ role: 'system', content: systemMessage.content }] : []),
+          ...(finalSystemMessages.length > 0 ? finalSystemMessages.map(content => ({ role: 'system' as const, content })) : []),
           ...userMessages.map(m => ({ role: m.role as any, content: m.content }))
         ],
         max_tokens: 8000,
@@ -287,13 +352,18 @@ export async function callAI(opts: AICallOptions): Promise<string> {
       
     } else if (safeModel.startsWith('deepseek')) {
       // ✅ Phase 3: DeepSeek API
-      const systemMessage = messages.find(m => m.role === 'system')
+      const systemMessages = messages.filter(m => m.role === 'system').map(m => m.content)
       const userMessages = messages.filter(m => m.role !== 'system')
+      
+      // ✅ Add CODE_GENERATION_RULES for CODER role
+      const finalSystemMessages = (role === 'CODER' || role === 'FIXER')
+        ? [CODE_GENERATION_RULES, ...systemMessages]
+        : systemMessages
       
       const result = await deepseek.chat.completions.create({
         model: safeModel.includes('reasoner') ? 'deepseek-reasoner' : 'deepseek-chat',
         messages: [
-          ...(systemMessage ? [{ role: 'system', content: systemMessage.content }] : []),
+          ...(finalSystemMessages.length > 0 ? finalSystemMessages.map(content => ({ role: 'system' as const, content })) : []),
           ...userMessages.map(m => ({ role: m.role as any, content: m.content }))
         ],
         max_tokens: 8000,
@@ -311,8 +381,13 @@ export async function callAI(opts: AICallOptions): Promise<string> {
       }
       
       // Extract system messages (Kimi uses standard OpenAI format)
-      const systemMessages = messages.filter(m => m.role === 'system').map(m => m.content)
+      let systemMessages = messages.filter(m => m.role === 'system').map(m => m.content)
       const nonSystemMessages = messages.filter(m => m.role !== 'system')
+      
+      // ✅ Add CODE_GENERATION_RULES for CODER role
+      if (role === 'CODER' || role === 'FIXER') {
+        systemMessages = [CODE_GENERATION_RULES, ...systemMessages]
+      }
       
       const result = await kimiClient.chat.completions.create({
         model: safeModel.includes('k2-thinking') || safeModel.includes('256k') ? 'kimi-k2-thinking' : 'moonshot-v1-8k',

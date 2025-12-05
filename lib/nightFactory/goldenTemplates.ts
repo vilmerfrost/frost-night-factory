@@ -244,12 +244,28 @@ export default function RootLayout({
 
 /**
  * Golden page.tsx (bulletproof landing page)
+ * 
+ * ⚠️ CRITICAL: Import order matters!
+ * 
+ * Correct structure:
+ * 1. Directives ('use client', 'use server')
+ * 2. Import statements (ALL imports)
+ * 3. Route segment config (export const dynamic, etc.)
+ * 4. Type definitions (interface, type)
+ * 5. Component export (export default function)
+ * 
+ * NEVER put exports before imports!
  */
 export const GOLDEN_PAGE = `'use client';
 
+// ✅ Step 1: ALL imports first
 import { motion } from 'framer-motion';
 import { Sparkles, ArrowRight, Code2, Zap } from 'lucide-react';
 
+// ✅ Step 2: Route config (if needed)
+// export const dynamic = 'force-dynamic';
+
+// ✅ Step 3: Component
 export default function Page() {
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950">

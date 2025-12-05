@@ -1976,6 +1976,28 @@ async function rewriteImportsToAlias(
 }
 
 /**
+ * Validate Next.js imports - Check for invalid or hallucinated imports
+ */
+function validateNextImports(content: string): string[] {
+  const errors: string[] = [];
+  
+  // Check for invalid Next.js imports
+  const invalidImports = [
+    /import\s+.*\s+from\s+['"]next\/.*DefaultLayout['"]/,  // Invalid DefaultLayout import
+    /import\s+.*DefaultLayout.*from\s+['"]next['"]/,      // DefaultLayout from 'next'
+    /import\s+.*\s+from\s+['"]react\/.*server['"]/,       // Invalid react/server imports
+  ];
+  
+  for (const pattern of invalidImports) {
+    if (pattern.test(content)) {
+      errors.push(`Invalid import detected: ${pattern.toString()}`);
+    }
+  }
+  
+  return errors;
+}
+
+/**
  * STRUCTURE VALIDATOR - Ensures critical files exist
  */
 async function validateProjectStructure(

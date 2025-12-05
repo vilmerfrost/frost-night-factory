@@ -9143,7 +9143,109 @@ async function generateRepoName(userRequest: string): Promise<string> {
 }
 
 /**
+ * Recovery Strategy Interface
+ */
+interface RecoveryStrategy {
+  name: string;
+  detect: (error: string) => boolean;
+  fix: (projectRoot: string, pipeline?: any) => Promise<boolean>;
+}
+
+/**
+ * Recovery Strategies - Strategy Pattern for Build Error Recovery
+ */
+const RECOVERY_STRATEGIES: Record<string, RecoveryStrategy> = {
+  MISSING_DEPENDENCIES: {
+    name: 'Missing Dependencies Fix',
+    detect: (error: string) => {
+      const deps = extractMissingDependencies(error);
+      return deps.length > 0;
+    },
+    fix: async (projectRoot: string) => {
+      // This will be handled in attemptBuildRecovery before strategies
+      return false;
+    }
+  },
+  
+  TYPESCRIPT_ERROR: {
+    name: 'TypeScript Error Fix',
+    detect: (error: string) => error.includes('Type error') || error.includes('TS'),
+    fix: async (projectRoot: string, pipeline?: any) => {
+      console.log('   🤖 TypeScript error detected - attempting AI fix...');
+      try {
+        const fixed = await fixBuildErrorWithAI('TypeScript error detected', projectRoot, pipeline);
+        return fixed;
+      } catch (aiError: any) {
+        console.warn(`   ⚠️ AI fixer failed: ${aiError.message}`);
+        return false;
+      }
+    }
+  },
+  
+  MODULE_RESOLUTION: {
+    name: 'Module Resolution Fix',
+    detect: (error: string) => error.includes('Module not found') || error.includes('Cannot resolve'),
+    fix: async () => {
+      console.log('   🔍 Module resolution issue detected - checking imports...');
+      // Could add import path fixing here in the future
+      return false; // Not auto-fixable yet
+    }
+  },
+  
+  HOMEPAGE_404: {
+    name: 'Homepage 404 Fix',
+    detect: (error: string) => error.includes('Homepage renders 404') || error.includes('This page could not be found'),
+    fix: async (projectRoot: string, pipeline?: any) => {
+      console.log('🔧 [Recovery] Fixing 404-only build...');
+      
+      // Find page.tsx files
+      const possiblePagePaths = [
+        path.join(projectRoot, 'src/app/page.tsx'),
+        path.join(projectRoot, 'app/page.tsx'),
+        path.join(projectRoot, 'src/pages/index.tsx'),
+        path.join(projectRoot, 'pages/index.tsx'),
+      ];
+      
+      const pagePath = possiblePagePaths.find(p => fs.existsSync(p));
+      if (!pagePath) {
+        console.log('   ⚠️ No page.tsx found');
+        return false;
+      }
+      
+      try {
+        let content = await fs.promises.readFile(pagePath, 'utf-8');
+        
+        // Strategy 1: Add force-dynamic
+        if (!content.includes('export const dynamic')) {
+          const fixed = addForceDynamic(content);
+          await fs.promises.writeFile(pagePath, fixed, 'utf-8');
+          console.log('✅ Added force-dynamic export');
+          return true;
+        }
+        
+        // Strategy 2: Check for async issues
+        if (content.includes('async function') && content.includes('export default')) {
+          console.log('⚠️ Async component detected - not allowed in App Router');
+          const fixed = await convertToClientComponent(content);
+          await fs.promises.writeFile(pagePath, fixed, 'utf-8');
+          console.log('✅ Converted async component to client component');
+          return true;
+        }
+        
+        // Strategy 3: Call AI
+        console.log('🤖 Calling AI to fix page structure...');
+        return await callAIToFixPage(pagePath, projectRoot, pipeline);
+      } catch (fileError: any) {
+        console.warn(`   ⚠️ Could not fix page.tsx: ${fileError.message}`);
+        return false;
+      }
+    }
+  }
+};
+
+/**
  * Recovery Agent: Attempts to fix common build errors automatically
+ * Uses strategy pattern for extensible error recovery
  */
 async function attemptBuildRecovery(
   error: string,
@@ -9152,7 +9254,7 @@ async function attemptBuildRecovery(
 ): Promise<boolean> {
   console.log('   🔧 [Recovery Agent] Analyzing error...');
   
-  // 1. Check for missing dependencies
+  // 1. Handle missing dependencies first (before strategies)
   const missingDeps = extractMissingDependencies(error);
   if (missingDeps.length > 0) {
     console.log(`   📦 Installing ${missingDeps.length} missing package(s): ${missingDeps.join(', ')}`);
@@ -9172,91 +9274,20 @@ async function attemptBuildRecovery(
     }
   }
   
-  // 2. Check for TypeScript errors that might be fixable
-  if (error.includes('Type error') || error.includes('TS')) {
-    console.log('   🤖 TypeScript error detected - attempting AI fix...');
-    try {
-      const fixed = await fixBuildErrorWithAI(error, projectRoot, pipeline);
-      if (fixed) {
-        return true;
-      }
-    } catch (aiError: any) {
-      console.warn(`   ⚠️ AI fixer failed: ${aiError.message}`);
-    }
-  }
-  
-  // 3. Check for module resolution issues
-  if (error.includes('Module not found') || error.includes('Cannot resolve')) {
-    console.log('   🔍 Module resolution issue detected - checking imports...');
-    // Could add import path fixing here
-    return false; // Not auto-fixable yet
-  }
-  
-  // 4. NEW: Detect 404-only build (Homepage renders 404)
-  if (error.includes('Homepage renders 404') || error.includes('This page could not be found')) {
-    console.log('   🔧 [Recovery Agent] Detecting 404-only build...');
-    
-    // Try to find page.tsx files
-    const possiblePagePaths = [
-      path.join(projectRoot, 'src/app/page.tsx'),
-      path.join(projectRoot, 'app/page.tsx'),
-      path.join(projectRoot, 'src/pages/index.tsx'),
-      path.join(projectRoot, 'pages/index.tsx'),
-    ];
-    
-    for (const pagePath of possiblePagePaths) {
-      if (fs.existsSync(pagePath)) {
-        try {
-          let pageContent = await fs.promises.readFile(pagePath, 'utf-8');
-          
-          // Check if already has force-dynamic
-          if (!pageContent.includes("export const dynamic = 'force-dynamic'")) {
-            console.log(`   🔍 Root page found at ${path.relative(projectRoot, pagePath)}`);
-            console.log('   🔧 Adding dynamic rendering config...');
-            
-            // Add after 'use client' directive or at the top
-            const lines = pageContent.split('\n');
-            const useClientIndex = lines.findIndex(l => l.includes("'use client'") || l.includes('"use client"'));
-            
-            if (useClientIndex >= 0) {
-              // Insert after 'use client' directive
-              lines.splice(useClientIndex + 1, 0, '', 
-                '// ✅ Force dynamic rendering for this page',
-                "export const dynamic = 'force-dynamic';",
-                "export const dynamicParams = true;",
-                ''
-              );
-            } else {
-              // No 'use client', add at the top
-              lines.unshift(
-                "// ✅ Force dynamic rendering for this page",
-                "export const dynamic = 'force-dynamic';",
-                "export const dynamicParams = true;",
-                ''
-              );
-            }
-            
-            pageContent = lines.join('\n');
-            await fs.promises.writeFile(pagePath, pageContent, 'utf-8');
-            
-            console.log(`   ✅ Added force-dynamic config to ${path.basename(pagePath)}`);
-            return true; // Successfully fixed
-          } else {
-            console.log(`   ✅ Page already has force-dynamic config`);
-            // Still return true since config is correct
-            return true;
-          }
-        } catch (fileError: any) {
-          console.warn(`   ⚠️ Could not fix page.tsx: ${fileError.message}`);
+  // 2. Try recovery strategies
+  for (const [key, strategy] of Object.entries(RECOVERY_STRATEGIES)) {
+    if (strategy.detect(error)) {
+      console.log(`   🎯 Matched strategy: ${strategy.name}`);
+      try {
+        const fixed = await strategy.fix(projectRoot, pipeline);
+        if (fixed) {
+          console.log(`   ✅ Strategy "${strategy.name}" succeeded`);
+          return true;
         }
+      } catch (strategyError: any) {
+        console.warn(`   ⚠️ Strategy "${strategy.name}" failed: ${strategyError.message}`);
+        // Continue to next strategy
       }
-    }
-    
-    // If no page.tsx found, try AI fix
-    console.log('   🤖 No page.tsx found or fix failed, attempting AI fix...');
-    const pagePath = possiblePagePaths.find(p => fs.existsSync(p));
-    if (pagePath) {
-      return await fixPageWithAI(pagePath, projectRoot, pipeline);
     }
   }
   
@@ -9264,9 +9295,58 @@ async function attemptBuildRecovery(
 }
 
 /**
- * Fix page structure with AI to enable static generation
+ * Add force-dynamic export to page content
  */
-async function fixPageWithAI(
+function addForceDynamic(content: string): string {
+  const lines = content.split('\n');
+  const useClientIndex = lines.findIndex(l => l.trim() === "'use client';" || l.trim() === '"use client";');
+  
+  if (useClientIndex >= 0) {
+    lines.splice(useClientIndex + 1, 0,
+      '',
+      '// Force dynamic rendering',
+      "export const dynamic = 'force-dynamic';",
+      "export const dynamicParams = true;",
+      ''
+    );
+  } else {
+    // No 'use client', add at the top
+    lines.unshift(
+      '',
+      '// Force dynamic rendering',
+      "export const dynamic = 'force-dynamic';",
+      "export const dynamicParams = true;",
+      ''
+    );
+  }
+  
+  return lines.join('\n');
+}
+
+/**
+ * Convert async server component to client component
+ */
+async function convertToClientComponent(content: string): Promise<string> {
+  // Remove async from function declaration
+  let fixed = content.replace(/export\s+default\s+async\s+function/, 'export default function');
+  
+  // Add 'use client' if not present
+  if (!fixed.includes("'use client'") && !fixed.includes('"use client"')) {
+    fixed = "'use client';\n\n" + fixed;
+  }
+  
+  // Add force-dynamic
+  if (!fixed.includes('export const dynamic')) {
+    fixed = addForceDynamic(fixed);
+  }
+  
+  return fixed;
+}
+
+/**
+ * Call AI to fix page structure
+ */
+async function callAIToFixPage(
   pagePath: string,
   projectRoot: string,
   pipeline?: any

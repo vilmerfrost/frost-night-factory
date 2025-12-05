@@ -5726,20 +5726,10 @@ async function runIntelligentBatchFixer(
             // validateAndFixDependencies modifies the object in place and returns void
             const deps = pkg.dependencies || {};
             const devDeps = pkg.devDependencies || {};
-            await validateAndFixDependencies(repoPath); // This validates the entire workspace
-            // The function modifies package.json directly, so we don't need to reassign
-            
-            pkg.dependencies = fixedDeps;
-            pkg.devDependencies = fixedDevDeps;
-            
-            fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
-            
-            if (depCorrections.length > 0 || devCorrections.length > 0) {
-              console.log('   Fixed versions:');
-              [...depCorrections, ...devCorrections].forEach(c => console.log(`     - ${c}`));
-              fixedFiles.push('package.json');
-              fixSuccess = true;
-            }
+            await validateAndFixDependencies(repoPath); // This validates and fixes the entire workspace
+            console.log('   ✅ Dependencies validated and fixed');
+            fixedFiles.push('package.json');
+            fixSuccess = true;
             
             // Re-run npm install
             console.log('   Running npm install with fixed versions...');
@@ -5778,11 +5768,18 @@ async function runIntelligentBatchFixer(
             const pythonFile = pythonFileMatch[1];
             const filePath = path.join(repoPath, pythonFile);
             
-            const fixed = await autoFixPythonError(classified, repoPath);
+            const fixed = await autoFixPythonError({
+              category: errorCategory,
+              originalError: currentError,
+              errorHash: classified.errorSignature,
+              targetFiles: [pythonFile],
+              errorCode: classified.errorCode,
+              confidence: 0.8
+            } as ClassifiedError, repoPath);
             if (fixed) {
               fixedFiles.push(pythonFile);
               fixSuccess = true;
-              console.log(`   ✅ Auto-fixed Python syntax: ${errorType}`);
+              console.log(`   ✅ Auto-fixed Python syntax`);
             } else {
               // Fallback to AI fixer if auto-fix failed
               console.log('   ⚠️ Auto-fix failed, trying AI fixer...');
@@ -5820,7 +5817,7 @@ async function runIntelligentBatchFixer(
           if (filesToFix.length > 0 && currentError.includes('use client')) {
             console.log("💡 Auto-fixing 'use client' directive...");
             
-            const targetFile = classified.targetFiles[0];
+            const targetFile = filesToFix[0];
             const filePath = path.join(repoPath, targetFile);
             
             if (fs.existsSync(filePath)) {
@@ -9143,7 +9140,9 @@ Provide a comprehensive solution that addresses the root cause, not just symptom
       
       try {
         // Starta servern för audit
-        const { process: serverProc, url: devServerUrl } = await startDevServerWithVerification(repoPath, 3002);
+        const serverResult = await startDevServerWithVerification(repoPath, 3002);
+        const serverProc = serverResult.process;
+        const devServerUrl = `http://localhost:3002`; // Port is fixed in function
         
         try {
           // Kör den nya Refinement Loop

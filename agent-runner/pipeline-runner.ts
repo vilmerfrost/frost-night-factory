@@ -2693,6 +2693,24 @@ async function validateAndWriteFile(
 }
 
 /**
+ * Map ErrorClass (from error-classifier.ts) to ErrorCategory (from errorClassifier.ts)
+ */
+function mapErrorClassToErrorCategory(errorClass: string): ErrorCategory {
+  const mapping: Record<string, ErrorCategory> = {
+    'TS_UNUSED': ErrorCategory.IMPORT_ERROR,
+    'TS_SYNTAX': ErrorCategory.SYNTAX_ERROR,
+    'TS_TYPE': ErrorCategory.TYPE_ERROR,
+    'MISSING_MODULE': ErrorCategory.IMPORT_ERROR,
+    'TYPE_DRIFT': ErrorCategory.TYPE_ERROR,
+    'DB_STATE': ErrorCategory.RUNTIME_ERROR,
+    'AI_PLACEHOLDER': ErrorCategory.LAZY_CODE,
+    'RUNTIME': ErrorCategory.RUNTIME_ERROR,
+    'INFRA': ErrorCategory.RUNTIME_ERROR,
+  };
+  return mapping[errorClass] || ErrorCategory.UNKNOWN;
+}
+
+/**
  * Validate and fix import order in generated code
  * Ensures imports come before exports (ES module requirement)
  */

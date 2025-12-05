@@ -2,6 +2,8 @@
 
 import { useState, useRef } from "react";
 import { X, Upload, Image as ImageIcon, Loader2 } from "lucide-react";
+import { StackSelector } from "./StackSelector";
+import type { StackConfig } from "@/lib/types";
 
 interface CreateTaskModalProps {
   isOpen: boolean;
@@ -14,6 +16,12 @@ export default function CreateTaskModal({ isOpen, onClose, onCreated }: CreateTa
   const [prompt, setPrompt] = useState("");
   const [images, setImages] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [stackConfig, setStackConfig] = useState<StackConfig>({
+    frontend: 'nextjs-16',
+    backend: 'none',
+    ui: 'shadcn',
+    features: [],
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
@@ -36,23 +44,48 @@ export default function CreateTaskModal({ isOpen, onClose, onCreated }: CreateTa
     setLoading(true);
 
     try {
-      await fetch("/api/tasks/new", {
+      // Use vision-based API if prompt is provided, otherwise use task API
+      const apiEndpoint = prompt ? "/api/tickets" : "/api/tasks/new";
+      const payload = prompt 
+        ? {
+            vision: prompt,
+            stack_config: stackConfig,
+            priority: 'medium',
+            type: 'feature',
+          }
+        : {
+            title, 
+            prompt, 
+            reference_images: images,
+          };
+
+      const response = await fetch(apiEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          title, 
-          prompt, 
-          reference_images: images // Skickar bilderna som Base64
-        }),
+        body: JSON.stringify(payload),
       });
+
+      if (!response.ok) {
+        throw new Error('Failed to create ticket');
+      }
+
+      const result = await response.json();
       onCreated();
       onClose();
+      
       // Reset form
       setTitle("");
       setPrompt("");
       setImages([]);
+      setStackConfig({
+        frontend: 'nextjs-16',
+        backend: 'none',
+        ui: 'shadcn',
+        features: [],
+      });
     } catch (error) {
       console.error("Failed to create task", error);
+      alert('Failed to create ticket. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -99,6 +132,16 @@ export default function CreateTaskModal({ isOpen, onClose, onCreated }: CreateTa
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
             />
+          </div>
+
+          {/* Tech Stack Selector */}
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-slate-400 uppercase tracking-wider">
+              Tech Stack Configuration
+            </label>
+            <div className="bg-slate-950 border border-slate-800 rounded-lg p-4">
+              <StackSelector value={stackConfig} onChange={setStackConfig} />
+            </div>
           </div>
 
           {/* Image Upload (Vision) */}

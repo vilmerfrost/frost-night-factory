@@ -5,38 +5,65 @@ import { supabase } from "@/lib/supabase-server";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { type, title, description, source, autoHandle, project } = body;
+    const { type, title, description, source, autoHandle, project, vision, stack_config, priority } = body;
 
-    if (!type || !title || !description) {
+    // Support both old format (type/title/description) and new format (vision)
+    if (!vision && (!type || !title || !description)) {
       return NextResponse.json(
-        { error: "Missing required fields: type, title, description" },
+        { error: "Missing required fields: either 'vision' or 'type/title/description'" },
         { status: 400 }
       );
     }
 
-    if (!["bug", "feature"].includes(type)) {
+    // Default stack config if not provided
+    const defaultStackConfig = {
+      frontend: 'nextjs-16',
+      backend: 'none',
+      ui: 'shadcn',
+      features: [],
+    };
+
+    const stackConfig = stack_config || defaultStackConfig;
+
+    // Determine auto_handle and status based on type (or default for vision-based tickets)
+    const ticketType = type || 'feature';
+    if (!["bug", "feature"].includes(ticketType)) {
       return NextResponse.json(
         { error: "Invalid type. Must be 'bug' or 'feature'" },
         { status: 400 }
       );
     }
 
-    // Determine auto_handle and status based on type
-    const auto_handle = autoHandle ?? (type === "bug"); // default: bug = true, feature = false
-    const status = type === "bug" ? "new" : "needs_human_review";
+    const auto_handle = autoHandle ?? (ticketType === "bug");
+    const status = ticketType === "bug" ? "new" : "needs_human_review";
+
+    // Build insert payload
+    const insertPayload: any = {
+      type: ticketType,
+      source: source ?? "user_app",
+      auto_handle: auto_handle,
+      status,
+      project: project ?? "frost-solutions",
+      stack_config: stackConfig, // Store stack config
+    };
+
+    // Use vision if provided, otherwise use title/description
+    if (vision) {
+      insertPayload.title = `Feature: ${vision.substring(0, 100)}`;
+      insertPayload.description = vision;
+    } else {
+      insertPayload.title = title;
+      insertPayload.description = description;
+    }
+
+    // Add priority if provided
+    if (priority) {
+      insertPayload.priority = priority;
+    }
 
     const { data, error } = await supabase
       .from("tickets")
-      .insert({
-        type,
-        title,
-        description,
-        source: source ?? "user_app",
-        auto_handle: auto_handle,
-        status,
-        project: project ?? "frost-solutions",
-        // created_by: user?.id ?? null, // Uncomment when auth is added
-      })
+      .insert(insertPayload)
       .select("*")
       .single();
 

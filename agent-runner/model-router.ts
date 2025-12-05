@@ -37,7 +37,7 @@ const MODELS: Record<string, ModelConfig> = {
   },
   'claude-premium': {
     provider: 'anthropic',
-    model: 'claude-3-5-sonnet-20241022',
+    model: 'claude-sonnet-4-5',
     inputCost: 3.00,
     outputCost: 15.00,
     maxTokens: 200000,
@@ -136,5 +136,49 @@ export function estimateComplexity(
  */
 export function getModelName(config: ModelConfig): string {
   return config.model
+}
+
+/**
+ * Select model based on role (for use with callAI)
+ */
+export function selectModel(config: {
+  role: string;
+  step?: string;
+  difficulty?: string;
+  phase?: string;
+}): { provider: string; model: string } {
+  
+  // PYTHON_FIXER: Use DeepSeek for Python error fixing
+  if (config.role === 'PYTHON_FIXER') {
+    return { provider: 'deepseek', model: 'deepseek-chat' };
+  }
+  
+  // K2 for research synthesis
+  if (config.role === 'RESEARCHER' && config.step === 'synthesis') {
+    return { provider: 'kimi', model: 'moonshot-v1-256k' };
+  }
+  
+  // Planner
+  if (config.role === 'PLANNER') {
+    return { provider: 'deepseek', model: 'deepseek-reasoner' };
+  }
+  
+  // Coder
+  if (config.role === 'CODER') {
+    return { provider: 'anthropic', model: 'claude-sonnet-4-5' };
+  }
+  
+  // Code review
+  if (config.role === 'CODE_REVIEWER') {
+    return { provider: 'groq', model: 'llama-3.3-70b-versatile' };
+  }
+  
+  // Prompt engineer
+  if (config.role === 'PROMPT_ENGINEER') {
+    return { provider: 'google', model: 'gemini-2.0-flash' };
+  }
+  
+  // Fallback
+  return { provider: 'groq', model: 'llama-3.3-70b-versatile' };
 }
 

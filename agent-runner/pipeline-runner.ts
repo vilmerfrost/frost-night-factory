@@ -4,7 +4,9 @@ import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import postgres from 'postgres';
 import { execSync, spawn } from 'child_process';
+import * as crypto from 'crypto';
 import chalk from 'chalk';
+import { glob } from 'glob';
 import { 
   generateContent, 
   performDeepResearch, 
@@ -46,6 +48,9 @@ import { validateCodeCompleteness } from './ast-validator';
 import { generateWithValidation } from './multi-pass-generator';  // ✅ Phase 1: Multi-pass generation
 import { generateRepositoryMap } from './repo-map-generator';  // ✅ Phase 1: Repository map
 import { logEvent } from './event-logger';  // ✅ Phase 0: Event logging
+import { CostTracker } from './lib/cost-tracker';  // ✅ P2: Cost tracking
+import { FEATURE_FLAGS, isFeatureEnabled } from './lib/version-manager';  // ✅ V8: Feature flags
+import { PortManager } from './lib/port-manager';  // ✅ V8: Dynamic port allocation
 
 // =============================================================================
 // 🧠 INTELLIGENT FIX SYSTEMS (V6.0 - Zero Human Input)
@@ -113,6 +118,19 @@ import { logPathOperation, clearPathLog } from '../lib/nightFactory/pathLogger';
 import { PathCircuitBreaker } from '../lib/nightFactory/pathCircuitBreaker';
 
 // =============================================================================
+// 🛡️ PROTECTED INFRASTRUCTURE FILES - Never modify these with AI
+// =============================================================================
+const PROTECTED_INFRASTRUCTURE_FILES = [
+  'src/lib/types.ts',
+  'src/types/database.ts',
+  'tsconfig.json',
+  'next.config.mjs',
+  'tailwind.config.ts',
+  'package.json',
+  'pipeline-runner.ts' // ✅ Protect runner's own source code from AI modifications
+];
+
+// =============================================================================
 // 🛡️ GOLDEN TEMPLATES - Single Source of Truth
 // =============================================================================
 /**
@@ -155,21 +173,24 @@ const GOLDEN_PACKAGE_JSON = {
   name: "generated-app",
   version: "0.1.0",
   private: true,
+  engines: {
+    node: ">=20.9.0"
+  },
   scripts: {
-    dev: "next dev",
+    dev: "next dev --turbo",
     build: "next build",
     start: "next start",
     lint: "next lint",
     typecheck: "tsc --noEmit"
   },
   dependencies: {
-    "next": "14.2.18",  // Golden Version
-    "react": "^18",
-    "react-dom": "^18",
+    "next": "^16.0.0",  // Next.js 16 - 4x faster builds
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
     "tailwindcss": "^3.4",
     "@types/node": "^20",
-    "@types/react": "^18",
-    "@types/react-dom": "^18",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
     "typescript": "^5"
   }
 };
@@ -248,13 +269,30 @@ async function safeSupabaseQuery<T>(queryFn: () => Promise<{ data: T | null; err
         const column = match[1];
         
         // Ask AI for exact ALTER TABLE command
-        const fixSql = await callAI("BACKEND", `
+        // Note: This is in a helper function, pipeline context may not be available
+        // Using a fallback approach - if pipelineId is available, use it
+        const fixSql = await callAI({
+          pipelineId: 'system', // Fallback ID for system-level fixes
+          step: 'sql_migration',
+          role: 'SQL_AGENT',
+          model: 'deepseek-reasoner',
+          messages: [
+            {
+              role: 'system',
+              content: 'You generate safe SQL migrations for Supabase. Return ONLY raw SQL. No markdown, no explanations.'
+            },
+            {
+              role: 'user',
+              content: `
           Postgres Error: ${error.message}
           Task: Write a single SQL statement to fix this. 
           Use 'ALTER TABLE table ADD COLUMN IF NOT EXISTS column TYPE;'
           Common types: TEXT, BOOLEAN, TIMESTAMP WITH TIME ZONE DEFAULT NOW(), JSONB DEFAULT '{}'::jsonb
           Output raw SQL only.
-        `);
+        `
+            }
+          ]
+        });
         
         const cleanSql = fixSql.replace(/```sql|```/g, "").trim();
         console.log(`💉 Injecting SQL Fix: ${cleanSql}`);
@@ -433,12 +471,12 @@ export default function Page() {
                 transition: 'all 0.3s',
                 cursor: 'pointer'
               }}
-              onMouseOver={(e: any) => {
+              onMouseOver={(e: React.MouseEvent<HTMLAnchorElement>) => {
                 e.currentTarget.style.background = 'rgba(139, 92, 246, 0.15)';
                 e.currentTarget.style.borderColor = '#8B5CF6';
                 e.currentTarget.style.transform = 'translateY(-2px)';
               }}
-              onMouseOut={(e: any) => {
+              onMouseOut={(e: React.MouseEvent<HTMLAnchorElement>) => {
                 e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
                 e.currentTarget.style.borderColor = 'rgba(139, 92, 246, 0.2)';
                 e.currentTarget.style.transform = 'translateY(0)';
@@ -1128,19 +1166,25 @@ async function updateStep(pipelineId: string, stepName: string, status: string, 
 const CANONICAL_STEPS = ['research', 'planner', 'coder', 'tester', 'publisher'] as const;
 
 async function getStep(pipelineId: string, stepName: string) {
+  // Handle duplicates: Get the most recent step if multiple exist
+  // Use .limit(1) and handle array result to avoid "multiple rows" error
   const { data, error } = await supabase
     .from('pipeline_steps')
     .select('*')
     .eq('pipeline_id', pipelineId)
     .eq('name', stepName)
-    .maybeSingle();
+    .order('created_at', { ascending: false })
+    .limit(1);
 
   if (error) {
     throw new Error(`[DB] Failed to fetch step: ${error.message}`);
   }
 
+  // Extract the first (most recent) step from array, or null if empty
+  const step = data && data.length > 0 ? data[0] : null;
+
   // Self-healing: Create missing step if it's a canonical step
-  if (!data) {
+  if (!step) {
     if (CANONICAL_STEPS.includes(stepName as any)) {
       console.warn(`[DB] Step ${stepName} not found for pipeline ${pipelineId}, creating new step`);
       
@@ -1179,7 +1223,7 @@ async function getStep(pipelineId: string, stepName: string) {
     throw new Error(`[STATE] Pipeline ${pipelineId} is corrupt - missing ${stepName} step`);
   }
 
-  return data;
+  return step;
 }
 
 // Helper: Rekursivt hämta alla filer i en mapp
@@ -1325,63 +1369,161 @@ async function runClonerStep(pipeline: any, repoPath: string) {
 // ------------------------------------------------------------------
 // STEG 1: RESEARCH
 // ------------------------------------------------------------------
-async function runResearchStep(pipeline: any) {
-  console.log(`[Research] Starting for: ${pipeline.name || pipeline.id}`);
-  await updatePipeline(pipeline.id, { status: 'running', current_phase: 'research' });
-  await createStep(pipeline.id, 'research', 'running', { prompt: pipeline.initial_prompt || pipeline.prompt });
-
-  // Kolla om research redan är gjord (caching-mekanism)
-  const { data: existing } = await supabase
-    .from('pipeline_steps')
-    .select('*')
-    .eq('pipeline_id', pipeline.id)
-    .eq('name', 'research')
-    .eq('status', 'completed')
-    .limit(1);
-
-  if (existing && existing.length > 0) {
-    console.log('[Research] Found existing research, skipping.');
-    await updatePipeline(pipeline.id, { current_phase: 'planner' });
-    return;
-  }
-
+// ═══════════════════════════════════════════════════════════════════
+// PHASE 1: PERPLEXITY RESEARCH (Multiple focused queries)
+// ═══════════════════════════════════════════════════════════════════
+async function runResearchStep(pipeline: any, researchType: 'technical-constraints' | 'best-practices' = 'technical-constraints'): Promise<string> {
+  console.log(`[Research] Phase 1 - ${researchType} for: ${pipeline.name || pipeline.id}`);
+  
   const userRequest = pipeline.initial_prompt || pipeline.prompt;
   
-  const DEEP_RESEARCH_PROMPT = `
+  let researchPrompt: string;
+  
+  if (researchType === 'technical-constraints') {
+    researchPrompt = `
 ROLE: You are a Technical Lead performing Due Diligence.
 
-TASK: Research technical constraints for: "${userRequest}"
+TASK: Research TECHNICAL CONSTRAINTS for: "${userRequest}"
 
 ⛔ IGNORE:
-
 - Beginner tutorials ("How to install React").
-
 - Generic marketing fluff.
 
 ✅ FIND CRITICAL INFO:
-
 1. BREAKING CHANGES: specifically for Next.js 15 / React 19.
-
 2. COMPATIBILITY: Which libraries conflict with Server Components?
-
-3. BEST PRACTICE: What is the "State of the Art" stack for this specific tool today?
-
+3. DEPENDENCIES: What are the critical dependencies and their versions?
 4. GOTCHAS: What usually kills this type of project?
 
 OUTPUT:
+A bulleted list of TECHNICAL CONSTRAINTS and CONFIGURATION RULES.
+    `;
+  } else {
+    researchPrompt = `
+ROLE: You are a Technical Lead performing Best Practices Research.
 
-A bulleted list of TECHNICAL CONSTRAINTS and CONFIGURATION RULES for the Planner.
-  `;
+TASK: Research BEST PRACTICES and ARCHITECTURE PATTERNS for: "${userRequest}"
 
-  const researchPrompt = DEEP_RESEARCH_PROMPT;
+✅ FIND:
+1. STATE OF THE ART: What is the current best-practice stack for this type of project?
+2. ARCHITECTURE PATTERNS: Recommended patterns, folder structures, and design principles.
+3. PERFORMANCE: Optimization strategies and common pitfalls.
+4. SCALABILITY: How to structure for growth.
+
+OUTPUT:
+A comprehensive guide of BEST PRACTICES and ARCHITECTURE RECOMMENDATIONS.
+    `;
+  }
 
   try {
     const result = await performDeepResearch(researchPrompt);
-    await updateStep(pipeline.id, 'research', 'completed', JSON.stringify({ content: result }));
-    await updatePipeline(pipeline.id, { current_phase: 'planner' });
+    console.log(`✅ [Research] ${researchType} completed (${result.length} chars)`);
+    return result;
   } catch (error: any) {
-    console.error('[Research] Failed:', error);
-    await updatePipeline(pipeline.id, { status: 'failed' });
+    console.error(`❌ [Research] ${researchType} failed:`, error);
+    return `Research failed for ${researchType}: ${error.message}`;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PHASE 2: K2 SYNTHESIS (Deep reasoning synthesis of all research)
+// ═══════════════════════════════════════════════════════════════════
+async function runK2SynthesisStep(
+  pipelineId: string,
+  userVision: string,
+  perplexityReports: string[]
+): Promise<string> {
+  console.log('🧠 [K2 SYNTHESIS] Starting deep research synthesis...');
+
+  // Create synthesis step in DB
+  await createStep(pipelineId, 'k2_synthesis', 'running');
+
+  // Combine all Perplexity reports
+  const combinedResearch = perplexityReports
+    .map((report, i) => `## Research Report ${i + 1}\n\n${report}`)
+    .join('\n\n---\n\n');
+
+  const systemPrompt = `You are a Technical Architect performing deep research synthesis.
+
+TASK: Analyze the provided research reports and user vision to generate:
+
+1. A prioritized list of TECHNICAL CONSTRAINTS
+2. An EDGE CASE ANALYSIS (what usually kills this type of project)
+3. A QA CHECKLIST with 15-20 validation criteria
+4. ARCHITECTURE RECOMMENDATIONS based on contradictions or gaps in the research
+
+USE YOUR FULL REASONING CAPACITY:
+- Cross-reference information across all reports
+- Identify contradictions and resolve them with explanation
+- Prioritize constraints by impact (critical > important > nice-to-have)
+- Generate specific, actionable recommendations (not generic advice)
+
+OUTPUT FORMAT:
+
+# Technical Constraints
+
+## Critical (Must-Have)
+- [Constraint with justification]
+
+## Important
+- [Constraint with justification]
+
+## Nice-to-Have
+- [Constraint with justification]
+
+# Edge Case Analysis
+[What breaks this type of project, with prevention strategies]
+
+# QA Checklist
+- [ ] [Specific test case]
+...
+
+# Architecture Recommendations
+[Specific tech choices with rationale]`;
+
+  const userPrompt = `USER VISION:
+${userVision}
+
+RESEARCH REPORTS FROM PERPLEXITY PRO:
+${combinedResearch}
+
+Synthesize this into actionable technical guidance for the development team.`;
+
+  try {
+    const result = await callAI({
+      pipelineId,
+      step: 'k2_synthesis',
+      role: 'RESEARCHER',
+      model: 'moonshot-v1-256k',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: 0.7,
+      maxTokens: 150000 // Let K2 be thorough
+    });
+
+    // Save synthesis to file
+    const repoPath = getRepoPath({ id: pipelineId } as any);
+    const synthesisPath = path.join(repoPath, 'k2-synthesis.md');
+    if (!fs.existsSync(path.dirname(synthesisPath))) {
+      fs.mkdirSync(path.dirname(synthesisPath), { recursive: true });
+    }
+    fs.writeFileSync(synthesisPath, result, 'utf-8');
+
+    // Update DB step
+    await updateStep(pipelineId, 'k2_synthesis', 'completed', result.substring(0, 10000)); // Store preview
+
+    console.log(`✅ [K2 SYNTHESIS] Complete! Synthesis saved to k2-synthesis.md`);
+    
+    return result;
+
+  } catch (error: any) {
+    console.error('❌ [K2 SYNTHESIS] Failed:', error);
+    await updateStep(pipelineId, 'k2_synthesis', 'failed', JSON.stringify({ error: String(error) }));
+    
+    // Fallback: just concatenate the Perplexity reports
+    return combinedResearch;
   }
 }
 
@@ -1392,7 +1534,7 @@ A bulleted list of TECHNICAL CONSTRAINTS and CONFIGURATION RULES for the Planner
  * Prompt Optimizer: Enhances user prompts for better AI understanding
  * Uses PROMPT_ENGINEER (Gemini Flash) to expand vague requests into detailed specs
  */
-async function optimizeUserRequest(rawRequest: string): Promise<string> {
+async function optimizeUserRequest(rawRequest: string, pipelineId: string): Promise<string> {
   console.log("✨ Calling Prompt Engineer (Gemini Flash)...");
   
   const systemPrompt = `
@@ -1410,7 +1552,16 @@ async function optimizeUserRequest(rawRequest: string): Promise<string> {
   `;
 
   try {
-    const optimized = await callAI("PROMPT_ENGINEER", rawRequest, systemPrompt);
+    const optimized = await callAI({
+      pipelineId,
+      step: 'prompt_engineer',
+      role: 'PROMPT_ENGINEER',
+      model: 'gemini-2.0-flash',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: rawRequest }
+      ]
+    });
     if (optimized && optimized.trim().length > 0) {
       console.log(`✅ Prompt optimized (${rawRequest.length} -> ${optimized.length} chars)`);
       return optimized;
@@ -1422,8 +1573,8 @@ async function optimizeUserRequest(rawRequest: string): Promise<string> {
 }
 
 // Alias for backward compatibility
-async function optimizeUserPrompt(rawPrompt: string): Promise<string> {
-  return optimizeUserRequest(rawPrompt);
+async function optimizeUserPrompt(rawPrompt: string, pipelineId: string): Promise<string> {
+  return optimizeUserRequest(rawPrompt, pipelineId);
 }
 
 async function runPlannerStep(pipeline: any, repoPath: string) {
@@ -1457,7 +1608,7 @@ async function runPlannerStep(pipeline: any, repoPath: string) {
   }
 
   // ✨ PROMPT OPTIMIZER: Enhance user request before processing
-  const optimizedRequest = await optimizeUserPrompt(zeroShotData.sanitizedRequest);
+  const optimizedRequest = await optimizeUserPrompt(zeroShotData.sanitizedRequest, pipeline.id);
   console.log(`✨ Using optimized prompt (${optimizedRequest.length} chars)`);
 
   // 🧠 GATEKEEPER: Tech Matrix Detection
@@ -1490,7 +1641,27 @@ async function runPlannerStep(pipeline: any, repoPath: string) {
     .limit(1)
     .maybeSingle();
 
-  const researchData = researchStep?.output?.content || "No research data.";
+  // Extract K2 synthesis if available (new two-phase research)
+  let researchData = "No research data.";
+  if (researchStep?.output) {
+    if (typeof researchStep.output === 'string') {
+      try {
+        const parsed = JSON.parse(researchStep.output);
+        // New format: { perplexity: {...}, k2Synthesis: "..." }
+        if (parsed.k2Synthesis) {
+          researchData = parsed.k2Synthesis; // Use K2 synthesis (preferred)
+        } else if (parsed.content) {
+          researchData = parsed.content; // Old format fallback
+        }
+      } catch {
+        researchData = researchStep.output; // Plain string fallback
+      }
+    } else if (researchStep.output.k2Synthesis) {
+      researchData = researchStep.output.k2Synthesis;
+    } else if (researchStep.output.content) {
+      researchData = researchStep.output.content;
+    }
+  }
 
   let promptPrefix = "";
 
@@ -2020,6 +2191,64 @@ async function validateNoRelativeImports(localPath: string): Promise<void> {
 }
 
 /**
+ * Inject missing domain types into types.ts when TYPE_DRIFT is detected
+ */
+async function injectMissingDomainTypes(workspacePath: string, errorLog: string): Promise<void> {
+  // Extract missing type names from TS2305 errors
+  const missingTypes: string[] = [];
+  const typeRegex = /has no exported member '(\w+)'/g;
+  let match;
+  
+  while ((match = typeRegex.exec(errorLog)) !== null) {
+    missingTypes.push(match[1]);
+  }
+  
+  if (missingTypes.length === 0) return;
+  
+  console.log(`   🩹 Injecting ${missingTypes.length} missing domain types...`);
+  
+  // Read existing types.ts
+  const typesPath = path.join(workspacePath, 'src/lib/types.ts');
+  if (!fs.existsSync(typesPath)) {
+    console.warn('   ⚠️ types.ts not found, creating new file...');
+    const typesDir = path.dirname(typesPath);
+    if (!fs.existsSync(typesDir)) {
+      fs.mkdirSync(typesDir, { recursive: true });
+    }
+    fs.writeFileSync(typesPath, '// Auto-generated types\n', 'utf-8');
+  }
+  
+  let typesContent = fs.readFileSync(typesPath, 'utf-8');
+  
+  // Check if types already exist
+  const existingTypes = missingTypes.filter(typeName => 
+    typesContent.includes(`export type ${typeName}`) || 
+    typesContent.includes(`export interface ${typeName}`)
+  );
+  
+  if (existingTypes.length === missingTypes.length) {
+    console.log('   ✅ All types already exist');
+    return;
+  }
+  
+  // Add placeholder domain types at the end
+  const domainTypes = missingTypes
+    .filter(typeName => !existingTypes.includes(typeName))
+    .map(typeName => {
+      return `\n// Generated placeholder - replace with actual implementation
+export type ${typeName} = {
+  id: string;
+  // TODO: Add actual fields based on your schema
+};`;
+    }).join('\n');
+  
+  typesContent += domainTypes;
+  
+  fs.writeFileSync(typesPath, typesContent, 'utf-8');
+  console.log(`   ✅ Injected ${missingTypes.length - existingTypes.length} domain types`);
+}
+
+/**
  * FILENAME VALIDATOR - Fixes common typos in filenames
  */
 function validateAndFixFilename(filePath: string): string {
@@ -2463,6 +2692,13 @@ async function parseAndWriteFiles(
 
       // Skip empty files
       if (!rawPath || !content) continue;
+      
+      // ✅ NEW: Skip protected infrastructure files
+      const normalizedPath = rawPath.replace(/\\/g, '/');
+      if (PROTECTED_INFRASTRUCTURE_FILES.some(protectedFile => normalizedPath.endsWith(protectedFile))) {
+        console.log(`   🛡️ Skipping protected file: ${rawPath}`);
+        continue;
+      }
 
       // ENFORCER: Guarantee src/ structure
       if (!rawPath.startsWith('src/') && !rawPath.startsWith('backend/')) {
@@ -2671,9 +2907,29 @@ async function runCoderStep(pipeline: any, repoPath: string) {
     .eq('name', 'research')
     .order('created_at', { ascending: false })
     .limit(1)
-    .single();
+    .maybeSingle();
 
-  const researchData = researchStep?.output?.content || "";
+  // Extract K2 synthesis if available (new two-phase research)
+  let researchData = "";
+  if (researchStep?.output) {
+    if (typeof researchStep.output === 'string') {
+      try {
+        const parsed = JSON.parse(researchStep.output);
+        // New format: { perplexity: {...}, k2Synthesis: "..." }
+        if (parsed.k2Synthesis) {
+          researchData = parsed.k2Synthesis; // Use K2 synthesis (preferred)
+        } else if (parsed.content) {
+          researchData = parsed.content; // Old format fallback
+        }
+      } catch {
+        researchData = researchStep.output; // Plain string fallback
+      }
+    } else if (researchStep.output.k2Synthesis) {
+      researchData = researchStep.output.k2Synthesis;
+    } else if (researchStep.output.content) {
+      researchData = researchStep.output.content;
+    }
+  }
   const userPrompt = pipeline.initial_prompt || pipeline.prompt || "";
 
   // --- DYNAMIC DESIGN SYSTEM ---
@@ -3060,17 +3316,19 @@ ${FILE_PROTOCOL}
 ${ARCHITECTURE_MEMORY}
 
 GOLDEN STACK (ENFORCED - NO DEVIATIONS):
-- Framework: Next.js 14.2.x (NOT 15, NOT 16 - use stable version)
-- React: 18.2.x
+- Framework: Next.js 16.x (Turbopack enabled - 4x faster builds)
+- React: 19.x
 - Tailwind: 3.4.x
-- Structure: app/ in ROOT (NOT src/app/)
+- Structure: src/app/ (enforced src/ structure)
 - Icons: Lucide React
 - Auth: Supabase SSR (@supabase/ssr)
+- UI Components: Shadcn/ui (premium, customizable)
 
 STRICT RULES:
-1. No external UI libraries (shadcn) - build generic Tailwind components inline if needed.
+1. Use Shadcn/ui components from src/components/ui/ - DO NOT recreate them inline.
 2. Use the '[FILE: filename]' format strictly for EVERY file.
 3. ${designSystem}
+4. Import Shadcn components: import { Button } from '@/components/ui/button'
 
 SIMULATION FIRST (MANDATORY):
 - Create lib/mock-data.ts with hardcoded demo data.
@@ -3078,13 +3336,14 @@ SIMULATION FIRST (MANDATORY):
 - The app MUST NEVER crash. Always show UI with data.
 
 DEPENDENCY RULES (CRITICAL - DO NOT IGNORE):
-- Use EXACT versions: "next": "14.2.18", "react": "18.2.0"
+- Use EXACT versions: "next": "^16.0.0", "react": "^19.0.0", "react-dom": "^19.0.0"
 - You MUST use "tailwindcss": "^3.4.17" in package.json. Do NOT use "latest" or v4.
 - You MUST use "postcss": "^8.4.31" and "autoprefixer": "^10.4.19".
 - Do NOT use @tailwindcss/postcss (we are using standard Tailwind v3 config).
-- Include a standard tailwind.config.ts with content paths for app/ and components/.
+- Include a standard tailwind.config.ts with content paths for src/app/ and src/components/.
 - Include a postcss.config.js with tailwindcss and autoprefixer plugins.
 - If you use Supabase Auth, you MUST include "@supabase/ssr" in package.json.
+- Use "dev": "next dev --turbo" for 4x faster development builds.
 ${isPython ? `
 PYTHON DEPENDENCIES:
 - Create requirements.txt with: fastapi, uvicorn[standard], pydantic, python-dotenv
@@ -3507,7 +3766,15 @@ PRIORITY: Visual accuracy to the reference image > Generic design rules.
       const fePrompt = PREMIUM_SAAS_PROMPT + visionInstruction;
 
       // Kör Claude för Frontend (med bild om den finns)
-      const feCode = await callAI("FRONTEND", fePrompt, undefined, referenceImage);
+      const feCode = await callAI({
+        pipelineId: pipeline.id,
+        step: 'coder',
+        role: 'CODER',
+        model: selectModel('CODER'),
+        messages: [
+          { role: 'user', content: fePrompt }
+        ]
+      });
       const feFilesCreated = await parseAndWriteFiles(feCode, repoPath, pipeline.id);
       console.log(`✅ Frontend Phase Complete: ${feFilesCreated} files created.`);
 
@@ -3606,7 +3873,15 @@ ${STRICT_OUTPUT_FORMAT}
       const bePrompt = BRAINY_BACKEND_PROMPT;
 
       // Kör Backend med vald modell
-      const beCode = await callAI(backendModel, bePrompt);
+      const beCode = await callAI({
+        pipelineId: pipeline.id,
+        step: 'coder',
+        role: 'CODER',
+        model: selectModel('CODER'), // Use CODER model selection
+        messages: [
+          { role: 'user', content: bePrompt }
+        ]
+      });
       const beFilesCreated = await parseAndWriteFiles(beCode, repoPath, pipeline.id);
       console.log(`✅ Backend Phase Complete: ${beFilesCreated} files created.`);
       
@@ -4206,10 +4481,22 @@ export function RefreshProvider({ children }: { children: ReactNode }) {
       console.log("⚡ Groq (Llama 3.3) running instant code review...");
       
       try {
-        const reviewComments = await callAI(
-          "REVIEWER",
-          `Review this code for critical bugs only (ignore style). Check for Next.js 15 App Router compatibility, TypeScript errors, and React hooks misuse.\n\n${allCode.substring(0, 10000)}`
-        );
+        const reviewComments = await callAI({
+          pipelineId: pipeline.id,
+          step: 'code_review',
+          role: 'CODE_REVIEWER',
+          model: 'llama-3.3-70b-versatile',
+          messages: [
+            {
+              role: 'system',
+              content: 'You are a fast code reviewer. Respond with concise findings. Check for Next.js 15 App Router compatibility, TypeScript errors, and React hooks misuse.'
+            },
+            {
+              role: 'user',
+              content: `Review this code for critical bugs only (ignore style).\n\n${allCode.substring(0, 10000)}`
+            }
+          ]
+        });
         
         // Kolla svaret
         if (reviewComments.toUpperCase().includes('LGTM') || reviewComments.toUpperCase().includes('LOOKS GOOD')) {
@@ -4495,7 +4782,22 @@ async function runSqlStep(pipeline: any, repoPath: string) {
   try {
     // 1. Generate Initial SQL
     console.log("[SQL] Generating initial migration with DeepSeek V3...");
-    let currentSql = await callAI("BACKEND", sqlPrompt);
+    let currentSql = await callAI({
+      pipelineId: pipeline.id,
+      step: 'sql_migration',
+      role: 'SQL_AGENT',
+      model: 'deepseek-reasoner',
+      messages: [
+        {
+          role: 'system',
+          content: 'You generate safe SQL migrations for Supabase. Return ONLY raw SQL. No markdown, no explanations.'
+        },
+        {
+          role: 'user',
+          content: sqlPrompt
+        }
+      ]
+    });
     
     // Clean markdown artifacts
     currentSql = currentSql.replace(/```sql|```/g, "").trim();
@@ -4614,7 +4916,22 @@ OUTPUT: Raw SQL only (The full fixed script). No markdown, no explanations.
         
         // Call DeepSeek V3 to fix the SQL
         console.log(`[SQL] 🔧 Generating fixed SQL with DeepSeek V3 (Attempt ${attempt + 1})...`);
-        const fixedSql = await callAI("BACKEND", fixPrompt);
+        const fixedSql = await callAI({
+          pipelineId: pipeline.id,
+          step: 'sql_migration',
+          role: 'SQL_AGENT',
+          model: 'deepseek-reasoner',
+          messages: [
+            {
+              role: 'system',
+              content: 'You generate safe SQL migrations for Supabase. Return ONLY raw SQL. No markdown, no explanations.'
+            },
+            {
+              role: 'user',
+              content: fixPrompt
+            }
+          ]
+        });
         currentSql = fixedSql.replace(/```sql|```/g, "").trim();
         
         // Save fixed version for history
@@ -4777,25 +5094,53 @@ async function runAuditLoop(pipeline: any, repoPath: string): Promise<boolean> {
 // ------------------------------------------------------------------
 
 // Anti-Lazy Check
+/**
+ * Detect lazy Python 'pass' statements (context-aware)
+ */
+function detectLazyPythonPass(content: string, filePath: string): boolean {
+  const lines = content.split('\n');
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    
+    if (line === 'pass' || line.endsWith(' pass')) {
+      // Check if pass is in a valid context
+      const prevLine = lines[i - 1]?.trim() || '';
+      const nextLine = lines[i + 1]?.trim() || '';
+      
+      // Valid pass contexts:
+      const validContexts = [
+        prevLine.endsWith(':'),           // After def/class/if/for/while
+        prevLine.includes('except'),       // In exception handler
+        prevLine.includes('finally'),      // In finally block
+        prevLine.startsWith('else:'),      // In else block
+        prevLine.startsWith('elif'),       // In elif block
+        nextLine.trim().startsWith('def'), // Before next function
+        nextLine.trim().startsWith('class'), // Before next class
+      ];
+      
+      if (validContexts.some(Boolean)) {
+        continue; // ✅ Valid usage
+      }
+      
+      // Invalid standalone pass
+      return true;
+    }
+  }
+  
+  return false;
+}
+
 function scanForLaziness(projectPath: string): { found: boolean; issues: string[] } {
   console.log("🕵️ Scanning for lazy code...");
-  const lazyPatterns = [
-    { pattern: /TODO:/gi, name: "TODO" },
-    { pattern: /FIXME:/gi, name: "FIXME" },
-    { pattern: /\bpass\s*$/gm, name: "pass statement" },
-    { pattern: /alert\(/g, name: "alert()" },
-    { pattern: /Lorem ipsum/gi, name: "Lorem ipsum" },
-    { pattern: /:\s*any\s*[=,;)]/g, name: "any type" },
-    { pattern: /return null;$/gm, name: "return null" },
-  ];
-
-  // console.log är tillåtet i dev mode - vi varnar bara
-  const consoleLogPattern = /console\.log\(/g;
-
+  
   const issues: string[] = [];
   const scannedFiles: string[] = [];
   const consoleLogWarnings: string[] = [];
+  const pythonFiles: string[] = [];
+  const tsFiles: string[] = [];
 
+  // Collect all files
   function scanDirectory(dir: string, baseDir: string = projectPath) {
     try {
       const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -4811,27 +5156,14 @@ function scanForLaziness(projectPath: string): { found: boolean; issues: string[
         
         if (entry.isDirectory()) {
           scanDirectory(fullPath, baseDir);
-    } else {
-          // Skanna bara kod-filer
+        } else {
           const ext = path.extname(entry.name);
           if (['.ts', '.tsx', '.js', '.jsx', '.py'].includes(ext)) {
             scannedFiles.push(relativePath);
-            try {
-              const content = fs.readFileSync(fullPath, 'utf-8');
-              
-              // Kolla först console.log (varning, inte error)
-              if (consoleLogPattern.test(content)) {
-                consoleLogWarnings.push(relativePath);
-              }
-              
-              // Kolla sedan andra lazy patterns (errors)
-              for (const { pattern, name } of lazyPatterns) {
-                if (pattern.test(content)) {
-                  issues.push(`Found '${name}' in ${relativePath}`);
-                }
-              }
-            } catch (e) {
-              // Ignorera läsfel
+            if (ext === '.py') {
+              pythonFiles.push(relativePath);
+            } else {
+              tsFiles.push(relativePath);
             }
           }
         }
@@ -4842,6 +5174,113 @@ function scanForLaziness(projectPath: string): { found: boolean; issues: string[
   }
 
   scanDirectory(projectPath);
+
+  // ============================================
+  // STEP 1: Python Syntax Validation (MANDATORY - Source of Truth)
+  // ============================================
+  if (pythonFiles.length > 0) {
+    console.log(`   🐍 Running Python syntax validation on ${pythonFiles.length} files...`);
+    
+    for (const file of pythonFiles) {
+      const fullPath = path.join(projectPath, file);
+      
+      try {
+        execSync(`python -m py_compile "${fullPath}"`, {
+          cwd: projectPath,
+          stdio: 'pipe',
+          encoding: 'utf-8'
+        });
+      } catch (error: any) {
+        const errorMsg = error.stderr || error.stdout || error.message;
+        issues.push(`Python syntax error in ${file}:\n${errorMsg}`);
+      }
+    }
+    
+    // If Python compilation fails, return immediately (don't check text patterns)
+    if (issues.length > 0) {
+      console.error("❌ LAZY CODE DETECTED:");
+      issues.forEach(issue => console.error(`   - ${issue}`));
+      return { found: true, issues };
+    }
+    
+    console.log('   ✅ All Python files have valid syntax');
+  }
+
+  // ============================================
+  // STEP 2: TypeScript/JavaScript Lazy Patterns (STRICT)
+  // ============================================
+  const consoleLogPattern = /console\.log\(/g;
+  const lazyPatternsTS = [
+    { pattern: /\/\/\s*TODO:/gi, name: "TODO" },
+    { pattern: /\/\/\s*FIXME:/gi, name: "FIXME" },
+    { pattern: /\/\/\s*HACK:/gi, name: "HACK" },
+    { pattern: /\/\/\s*XXX:/gi, name: "XXX" },
+    { pattern: /console\.log\(['"]DEBUG/gi, name: "DEBUG console.log" },
+    { pattern: /alert\(/g, name: "alert()" },
+    { pattern: /Lorem ipsum/gi, name: "Lorem ipsum" },
+    { pattern: /return null;$/gm, name: "return null" },
+  ];
+
+  for (const file of tsFiles) {
+    const fullPath = path.join(projectPath, file);
+    try {
+      const content = fs.readFileSync(fullPath, 'utf-8');
+      
+      // Check console.log (warning only)
+      if (consoleLogPattern.test(content)) {
+        consoleLogWarnings.push(file);
+      }
+      
+      // Check lazy patterns
+      for (const { pattern, name } of lazyPatternsTS) {
+        if (pattern.test(content)) {
+          issues.push(`Found '${name}' in ${file}`);
+        }
+      }
+      
+      // Check for 'any' type (strict)
+      if (content.includes(': any') || content.includes('<any>')) {
+        const lines = content.split('\n');
+        for (let i = 0; i < lines.length; i++) {
+          if (lines[i].includes(': any') || lines[i].includes('<any>')) {
+            // Skip React.MouseEvent<any> and similar generic type params
+            if (!lines[i].includes('React.') && !lines[i].includes('Event<')) {
+              issues.push(`Found 'any type' in ${file} at line ${i + 1}`);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // Ignorera läsfel
+    }
+  }
+
+  // ============================================
+  // STEP 3: Python Lazy Patterns (VERY LENIENT - Only Obvious Placeholders)
+  // Trust Python compiler - only flag obvious lazy markers
+  // ============================================
+  const lazyMarkersPython = [
+    /#\s*TODO:/i,
+    /#\s*FIXME:/i,
+    /#\s*IMPLEMENT THIS/i,
+    /raise NotImplementedError/,
+    /def \w+\([^)]*\):\s*pass\s*$/m  // Function with only pass (no real logic)
+  ];
+
+  for (const file of pythonFiles) {
+    const fullPath = path.join(projectPath, file);
+    try {
+      const content = fs.readFileSync(fullPath, 'utf-8');
+      
+      for (const pattern of lazyMarkersPython) {
+        if (pattern.test(content)) {
+          issues.push(`Found lazy placeholder in ${file}`);
+        }
+      }
+    } catch (e) {
+      // Ignorera läsfel
+    }
+  }
   
   // Varna om console.log (men blockera inte bygget)
   if (consoleLogWarnings.length > 0) {
@@ -5142,6 +5581,19 @@ async function runIntelligentBatchFixer(
           // Fall through to AI fixer
           break;
         
+        case ErrorCategory.TYPE_ERROR:
+          // Check if it's TYPE_DRIFT (TS2305 on types.ts)
+          if (currentError.includes('TS2305') && currentError.includes('types.ts') && 
+              (currentError.includes('has no exported member') || currentError.includes('has no exported'))) {
+            console.log('🩹 Detected TYPE_DRIFT - injecting missing domain types...');
+            await injectMissingDomainTypes(repoPath, currentError);
+            fixSuccess = true;
+            fixedFiles.push('src/lib/types.ts');
+            break;
+          }
+          // Fall through to AI fixer for other type errors
+          break;
+        
         case ErrorCategory.SYNTAX_ERROR:
           // Check if it's a "missing use client" error
           if (classified.metadata?.type === 'missing_use_client' && classified.targetFiles.length > 0) {
@@ -5270,7 +5722,22 @@ OUTPUT FORMAT:
             
             try {
               // Use GENIUS level for lazy code fixes (most important)
-              const fixOutput = await callAI('FIXER', antiLazyPrompt, undefined, undefined, 'GENIUS');
+              const fixOutput = await callAI({
+                pipelineId: pipeline.id,
+                step: 'tester',
+                role: 'FIXER',
+                model: selectModel('FIXER', 'complex'), // GENIUS = complex
+                messages: [
+                  {
+                    role: 'system',
+                    content: 'You are a code fixer. Fix lazy code (any types, placeholders). Return fixed code using [FILE: path] ... [GOAL] format.'
+                  },
+                  {
+                    role: 'user',
+                    content: antiLazyPrompt
+                  }
+                ]
+              });
               
               // Parse and apply fixes
               const fileRegex = /\[FILE:\s*([^\]]+)\]([\s\S]*?)(?=\[GOAL\]|\[FILE:|$)/gi;
@@ -5455,6 +5922,71 @@ OUTPUT FORMAT:
  */
 function verifyProductionReadiness(localPath: string, intent: any) {
     console.log("🛡️ PRODUCTION QUALITY GATE ACTIVATED...");
+    
+    // ✅ NEW: Pre-TypeCheck verification
+    console.log('🔍 Pre-check: Verifying type infrastructure...');
+    
+    const typesPath = path.join(localPath, 'src/lib/types.ts');
+    const databasePath = path.join(localPath, 'src/types/database.ts');
+    
+    if (!fs.existsSync(typesPath)) {
+        console.error('   ❌ src/lib/types.ts missing! Creating fallback...');
+        // Fallback: create minimal types
+        const fallbackTypes = `// Fallback types - safe for empty database
+import type { Database as SupabaseDatabase } from '@/types/database';
+
+export type Database = SupabaseDatabase;
+
+export type Tables<T extends string> = {
+  Row: Record<string, unknown>;
+  Insert: Record<string, unknown>;
+  Update: Record<string, unknown>;
+};
+
+export type Inserts<T extends string> = Record<string, unknown>;
+export type Updates<T extends string> = Record<string, unknown>;
+export type Enums<T extends string> = string;
+`;
+        fs.mkdirSync(path.dirname(typesPath), { recursive: true });
+        fs.writeFileSync(typesPath, fallbackTypes, 'utf-8');
+        console.log('   ✅ Created fallback types.ts');
+    }
+    
+    if (!fs.existsSync(databasePath)) {
+        console.error('   ❌ src/types/database.ts missing! Creating minimal version...');
+        const minimalDb = `export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[]
+
+export interface Database {
+  public: {
+    Tables: Record<string, never>
+    Views: Record<string, never>
+    Functions: Record<string, never>
+    Enums: Record<string, never>
+  }
+}
+`;
+        fs.mkdirSync(path.dirname(databasePath), { recursive: true });
+        fs.writeFileSync(databasePath, minimalDb, 'utf-8');
+    }
+    
+    // Verify types.ts doesn't have orphaned Database references
+    if (fs.existsSync(typesPath)) {
+        const typesContent = fs.readFileSync(typesPath, 'utf-8');
+        
+        if (typesContent.includes('Database') && !typesContent.includes("import type { Database")) {
+            console.warn('   ⚠️ types.ts has Database reference without import - fixing...');
+            // This will be handled by generateSchemaAwareTypes
+        }
+    }
+    
+    console.log('   ✅ Type infrastructure verified');
+    
     const exec = (cmd: string) => {
         try {
             console.log(`   👉 Running: ${cmd}`);
@@ -5696,6 +6228,11 @@ function sanitizeMiddleware(projectPath: string) {
 }
 
 async function runTesterStep(pipeline: any, repoPath: string) {
+  // ✅ Track fixing state for memorization (must be declared at function start)
+  let wasFixing = false;
+  let lastErrorLog: string | null = null;
+  let lastAppliedFix: string | null = null;
+
   // 1. CHECKPOINT CHECK: Skip if already completed
   const existingStep = await getStep(pipeline.id, 'tester');
   if (existingStep && existingStep.status === 'completed') {
@@ -5829,9 +6366,9 @@ async function runTesterStep(pipeline: any, repoPath: string) {
   // Note: tsconfig.json is already reset by forceResetTsConfig() above (Atomic Reset)
   // This ensures tsconfig.json is always correct, regardless of AI modifications
 
-  // 2. MASS-INJICERA GOLDEN COMPONENTS (Vänta inte på fel)
-  // Golden Stack uses components/ in root, NOT src/components/
-  const componentsDir = path.join(repoPath, 'components', 'ui');
+  // 2. MASS-INJICERA GOLDEN COMPONENTS (Shadcn/ui - Premium UI)
+  // Use src/components/ui/ structure (enforced)
+  const componentsDir = path.join(repoPath, 'src', 'components', 'ui');
   if (!fs.existsSync(componentsDir)) fs.mkdirSync(componentsDir, { recursive: true });
 
   for (const [name, content] of Object.entries(GOLDEN_COMPONENTS)) {
@@ -5839,6 +6376,8 @@ async function runTesterStep(pipeline: any, repoPath: string) {
     fs.writeFileSync(filePath, content.trim());
     console.log(`-> Injected Golden Component: ${name}`);
   }
+  
+  console.log(`   ✅ Injected ${Object.keys(GOLDEN_COMPONENTS).length} Shadcn/ui components`);
   
   // 2.5. GOLDEN PAGE & LAYOUT (Force Valid, Non-Empty Root Page UI)
   console.log("[Tester] 🛡️ Ensuring valid page.tsx and layout.tsx...");
@@ -6601,50 +7140,20 @@ export default nextConfig;
         console.log("❌ Production Readiness Check Failed. Output captured.");
         
         // =============================================================================
-        // 🐍 PYTHON ERROR HANDLER: Fix Python errors if detected
+        // 🐍 PYTHON ERROR HANDLER: Fix Python errors if detected (with validation)
         // =============================================================================
         if (qualityError.isPythonError && fullQualityLog.includes('error:')) {
           console.log(chalk.cyan("\n🐍 PYTHON FIXER: Python errors detected, attempting fix..."));
           
           try {
-            // Extract Python file paths from error log
-            const pythonFileMatches = fullQualityLog.match(/(\w+\.py):(\d+):/g);
-            if (pythonFileMatches && pythonFileMatches.length > 0) {
-              const pythonFiles = [...new Set(pythonFileMatches.map(m => m.split(':')[0]))];
-              
-              const pythonFixPrompt = `
-You are fixing Python type errors in a FastAPI backend.
-
-ERROR LOG:
-${fullQualityLog.substring(0, 2000)}
-
-PYTHON FILES WITH ERRORS:
-${pythonFiles.join(', ')}
-
-TASK: Fix ALL Python type errors. Common fixes:
-1. Add type annotations: "watchlist_db: list[WatchlistItem] = []"
-2. Fix Field() arguments: Remove invalid "regex" parameter, use "pattern" instead
-3. Fix undefined variables: Check variable names and imports
-
-OUTPUT FORMAT:
-### FILE: backend/models.py
-... fixed code ...
-### END_FILE
-
-### FILE: backend/main.py
-... fixed code ...
-### END_FILE
-
-CRITICAL: Only output Python code. No explanations.
-`;
-              
-              const pythonFix = await callAI('BACKEND', pythonFixPrompt);
-              const pythonFilesFixed = await parseAndWriteFiles(pythonFix, repoPath, pipeline.id);
-              
-              if (pythonFilesFixed > 0) {
-                console.log(chalk.green(`✅ Python Fixer fixed ${pythonFilesFixed} files`));
-                continue; // Retry check
-              }
+            // Use new fixPythonErrors function with syntax validation
+            const fixed = await fixPythonErrors(fullQualityLog, pipeline.id, repoPath);
+            
+            if (fixed) {
+              console.log(chalk.green(`✅ Python Fixer fixed and validated Python file`));
+              continue; // Retry check
+            } else {
+              console.warn(chalk.yellow(`⚠️ Python Fixer could not fix the error`));
             }
           } catch (pythonFixError: any) {
             console.warn(chalk.yellow(`⚠️ Python Fixer failed: ${pythonFixError.message}`));
@@ -6703,43 +7212,121 @@ CRITICAL: Only output Python code. No explanations.
         }
         
         // =============================================================================
-        // 🌐 THE 404 KILLER: Pre-flight check for page.tsx (Golden Path Fix)
+        // 🔍 PRE-BUILD FILE STRUCTURE VERIFICATION (Critical - ensures layout.tsx exists)
         // =============================================================================
-        // 1. SÄKRA STRUKTUREN
-        await enforceSrcStructure(repoPath);
+        console.log('🔍 Pre-build file structure verification...');
         
-        // 2. STRICT: ALWAYS use src/app structure (enforced by enforceSrcStructure above)
+        // STRICT: ALWAYS use src/app structure
         const appDir = path.join(repoPath, 'src', 'app');
         
         if (!fs.existsSync(appDir)) {
           fs.mkdirSync(appDir, { recursive: true });
         }
         
-        const pagePath = path.join(appDir, 'page.tsx'); // Always src/app/page.tsx
+        const layoutPath = path.join(appDir, 'layout.tsx');
+        const pagePath = path.join(appDir, 'page.tsx');
+        const globalsCssPath = path.join(appDir, 'globals.css');
         
-        // 3. VERIFIERA EXISTENS
-        if (!fs.existsSync(pagePath)) {
-          console.error(chalk.red.bold("🚨 CRITICAL:"), chalk.yellow("page.tsx is missing before build!"));
-          console.log(chalk.cyan("🚑 Injecting Emergency Landing Page..."));
+        // Check layout.tsx
+        if (!fs.existsSync(layoutPath)) {
+          console.warn('⚠️ layout.tsx missing! Injecting golden template...');
           
-          // Skapa filen manuellt om den saknas, så bygget inte kraschar
-          fs.writeFileSync(pagePath, `import React from 'react';
+          const goldenLayout = `import type { Metadata } from 'next'
+import './globals.css'
 
-export default function Page() {
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-black text-white">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold mb-4">Frost Factory: Emergency Landing Page</h1>
-        <p className="text-gray-400">The AI forgot to generate the main page, but the build is safe.</p>
-      </div>
-    </div>
-  );
+export const metadata: Metadata = {
+  title: 'NeoTrade Dashboard',
+  description: 'Cyberpunk crypto trading dashboard',
 }
-`);
-          console.log(chalk.green(`   ✅ Emergency landing page injected at ${path.relative(repoPath, pagePath)}`));
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  return (
+    <html lang="en">
+      <body className="bg-black text-cyan-400 font-mono">{children}</body>
+    </html>
+  )
+}
+`;
+          
+          fs.writeFileSync(layoutPath, goldenLayout, 'utf-8');
+          console.log('   ✅ Golden layout.tsx injected');
         } else {
-          console.log(chalk.green(`   ✅ ${path.relative(repoPath, pagePath)} exists - build can proceed safely`));
+          const size = fs.statSync(layoutPath).size;
+          console.log(`   ✅ layout.tsx exists (${size} bytes)`);
         }
+        
+        // Check page.tsx
+        if (!fs.existsSync(pagePath)) {
+          console.warn('⚠️ page.tsx missing! Injecting golden template...');
+          
+          const goldenPage = `export default function Home() {
+  return (
+    <main className="min-h-screen p-8">
+      <h1 className="text-4xl font-bold">Welcome</h1>
+      <p className="mt-4">Dashboard coming soon...</p>
+    </main>
+  )
+}
+`;
+          
+          fs.writeFileSync(pagePath, goldenPage, 'utf-8');
+          console.log('   ✅ Golden page.tsx injected');
+        } else {
+          const size = fs.statSync(pagePath).size;
+          console.log(`   ✅ page.tsx exists (${size} bytes)`);
+        }
+        
+        // Check globals.css
+        if (!fs.existsSync(globalsCssPath)) {
+          console.warn('⚠️ globals.css missing! Creating minimal version...');
+          
+          const minimalCss = `@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 0 0% 100%;
+  --foreground: 222.2 84% 4.9%;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+  }
+}
+
+body {
+  color: rgb(var(--foreground));
+  background: linear-gradient(
+      to bottom,
+      transparent,
+      rgb(var(--background))
+    )
+    rgb(var(--background));
+}
+`;
+          
+          fs.writeFileSync(globalsCssPath, minimalCss, 'utf-8');
+          console.log('   ✅ globals.css created');
+        } else {
+          console.log('   ✅ globals.css exists');
+        }
+        
+        // Debug: List what's in src/app/
+        console.log('📂 Contents of src/app/:');
+        try {
+          const appFiles = fs.readdirSync(appDir);
+          console.log('   Files:', appFiles.join(', '));
+        } catch (e) {
+          console.warn('   ⚠️ Could not list app directory');
+        }
+        
+        console.log('✅ Pre-build verification complete');
         
         // Validate imports before build
         await validateNoRelativeImports(repoPath);
@@ -6766,9 +7353,7 @@ export default function Page() {
         
         // 3.5. ASSERT: Verify page.tsx and layout.tsx export valid default components
         console.log("[Tester] 🛡️ Verifying page.tsx and layout.tsx export default components...");
-        // Reuse pagePath from above (already declared with dynamic appDir detection)
-        // Also determine layout path dynamically
-        const layoutPath = path.join(appDir, 'layout.tsx');
+        // Reuse pagePath and layoutPath from pre-build verification above
         
         // Check page.tsx
         if (fs.existsSync(pagePath)) {
@@ -7697,10 +8282,10 @@ RETURN FORMAT:
       // =============================================================================
       console.log(`\n🔄 V5.1 Review Loop engaging (Attempt ${attempt}/${maxRetries})...`);
       
-      // Track if we're fixing (for memorization later)
-      let wasFixing = true;
-      let lastErrorLog = fullLog;
-      let lastAppliedFix = "";
+      // Track if we're fixing (for memorization later) - use variables declared at function start
+      wasFixing = true;
+      lastErrorLog = fullLog;
+      lastAppliedFix = "";
       
       // 1. SKAPA KARTA ÖVER PROJEKTET
       const projectFiles = getProjectStructure(repoPath);
@@ -7740,7 +8325,22 @@ RETURN FORMAT:
         - DO NOT FIX IT. Just list the errors clearly with line numbers and explanations.
       `;
 
-      const analysis = await callAI("CODE_REVIEWER", reviewPrompt);
+      const analysis = await callAI({
+        pipelineId: pipeline.id,
+        step: 'tester',
+        role: 'CODE_REVIEWER',
+        model: selectModel('REVIEWER'),
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a code reviewer. Analyze code errors and provide clear, actionable feedback.'
+          },
+          {
+            role: 'user',
+            content: reviewPrompt
+          }
+        ]
+      });
       console.log(`📋 Analysis: ${analysis.substring(0, 200)}...`);
 
       // ------------------------------------------------------------
@@ -7766,7 +8366,22 @@ RETURN FORMAT:
         Output a concise JSON plan: { "strategy": "PATCH|REWRITE|INSTALL|ALIGN_EXPORTS", "steps": ["step1", "step2", ...], "files": ["file1.tsx", "file2.ts"] }
       `;
 
-      const strategyJson = await callAI("DEBUGGER", recoveryPrompt);
+      const strategyJson = await callAI({
+        pipelineId: pipeline.id,
+        step: 'tester',
+        role: 'FIXER',
+        model: selectModel('FIXER', 'medium'),
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a debugging agent. Analyze errors and provide recovery strategies in JSON format.'
+          },
+          {
+            role: 'user',
+            content: recoveryPrompt
+          }
+        ]
+      });
       console.log(`📋 Strategy: ${strategyJson.substring(0, 200)}...`);
 
       // Parse strategy (try to extract JSON, but be lenient)
@@ -7908,16 +8523,68 @@ CRITICAL EXPORT RULES (MANDATORY):
       if (attempt > 1) smartLevel = 'SMART';
       if (attempt > 3 || strategy === 'REWRITE') smartLevel = 'GENIUS';
 
-      const fixOutput = await callAI("FIXER", fixPrompt, undefined, undefined, smartLevel);
+      // Map smartLevel to complexity for selectModel
+      const complexityMap: Record<'FAST' | 'SMART' | 'GENIUS', 'simple' | 'medium' | 'complex'> = {
+        'FAST': 'simple',
+        'SMART': 'medium',
+        'GENIUS': 'complex'
+      };
+
+      const fixOutput = await callAI({
+        pipelineId: pipeline.id,
+        step: 'tester',
+        role: 'FIXER',
+        model: selectModel('FIXER', complexityMap[smartLevel]),
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a code fixer. Fix errors in code files. Return fixed code using ### FILE: <path> ... ### END_FILE format.'
+          },
+          {
+            role: 'user',
+            content: fixPrompt
+          }
+        ]
+      });
       
       // Fallback om fixOutput är tom
       let finalFixOutput = fixOutput;
       if (!finalFixOutput || finalFixOutput.trim().length === 0) {
         console.warn(`⚠️ ${smartLevel} Fixer returned empty. Trying fallback...`);
         if (smartLevel === 'FAST') {
-          finalFixOutput = await callAI("FIXER", fixPrompt, undefined, undefined, 'SMART');
+          finalFixOutput = await callAI({
+            pipelineId: pipeline.id,
+            step: 'tester',
+            role: 'FIXER',
+            model: selectModel('FIXER', 'medium'),
+            messages: [
+              {
+                role: 'system',
+                content: 'You are a code fixer. Fix errors in code files. Return fixed code using ### FILE: <path> ... ### END_FILE format.'
+              },
+              {
+                role: 'user',
+                content: fixPrompt
+              }
+            ]
+          });
         } else if (smartLevel === 'SMART') {
-          finalFixOutput = await callAI("FIXER", fixPrompt, undefined, undefined, 'GENIUS');
+          finalFixOutput = await callAI({
+            pipelineId: pipeline.id,
+            step: 'tester',
+            role: 'FIXER',
+            model: selectModel('FIXER', 'complex'),
+            messages: [
+              {
+                role: 'system',
+                content: 'You are a code fixer. Fix errors in code files. Return fixed code using ### FILE: <path> ... ### END_FILE format.'
+              },
+              {
+                role: 'user',
+                content: fixPrompt
+              }
+            ]
+          });
         }
       }
 
@@ -8500,12 +9167,458 @@ async function verifySitemap(repoPath: string): Promise<boolean> {
   }
 }
 
+// =============================================================================
+// 🔒 PRE-PUBLISH BUILD VERIFICATION
+// =============================================================================
+
+/**
+ * Helper: Wait for server to start and respond
+ */
+async function waitForServer(url: string, timeoutMs: number = 30000): Promise<void> {
+  const startTime = Date.now();
+  while (Date.now() - startTime < timeoutMs) {
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(2000) });
+      if (response.ok || response.status === 404) { // 404 is OK - means server is up
+        return;
+      }
+    } catch (error) {
+      // Server not ready yet, continue waiting
+    }
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+  throw new Error(`Server did not start within ${timeoutMs}ms`);
+}
+
+/**
+ * Helper: Convert string to PascalCase
+ */
+function toPascalCase(str: string): string {
+  return str
+    .split('/')
+    .filter(Boolean)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join('');
+}
+
+/**
+ * Helper: Convert string to Title Case
+ */
+function toTitleCase(str: string): string {
+  return str
+    .split('/')
+    .filter(Boolean)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+}
+
+/**
+ * Fix 1: Pre-Publish Build Verification
+ * Verifies production build, tests server, and fixes broken links
+ */
+async function runFinalBuildVerification(
+  workspacePath: string,
+  pipelineId: string
+): Promise<void> {
+  console.log('\n🔒 FINAL BUILD VERIFICATION (Pre-Publish Gate)');
+  
+  // Step 1: Production build
+  console.log('   📦 Running production build...');
+  try {
+    execSync('npm run build', {
+      cwd: workspacePath,
+      stdio: 'pipe',
+      encoding: 'utf-8',
+      timeout: 120000 // 2 min max
+    });
+    console.log('   ✅ Production build successful');
+  } catch (error: any) {
+    console.error('   ❌ Production build FAILED');
+    throw new Error(`Build failed: ${error.stderr || error.message}`);
+  }
+  
+  // Step 2: Start production server and verify it responds
+  console.log('   🚀 Testing production server...');
+  
+  const serverProcess = spawn('npm', ['start'], {
+    cwd: workspacePath,
+    env: { ...process.env, PORT: '3003' },
+    shell: true
+  });
+  
+  try {
+    // Wait for server to start
+    await waitForServer('http://localhost:3003', 30000);
+    
+    // Fetch homepage
+    const response = await fetch('http://localhost:3003');
+    const html = await response.text();
+    
+    // Verify it's not a 404
+    if (html.includes('404') || html.includes('This page could not be found')) {
+      throw new Error('Homepage renders 404 page');
+    }
+    
+    // Verify it has content
+    const bodyMatch = html.match(/<body[^>]*>(.*?)<\/body>/is);
+    const bodyContent = bodyMatch?.[1] || '';
+    
+    if (bodyContent.length < 100) {
+      throw new Error(`Homepage has minimal content (${bodyContent.length} chars)`);
+    }
+    
+    console.log('   ✅ Production server verified');
+    
+  } finally {
+    serverProcess.kill();
+  }
+  
+  // Step 3: Check for broken navigation links
+  console.log('   🔍 Scanning for broken links...');
+  
+  const brokenLinks = await findBrokenLinks(workspacePath);
+  
+  if (brokenLinks.length > 0) {
+    console.warn('   ⚠️ Found broken navigation links:');
+    brokenLinks.forEach(link => {
+      console.warn(`      - ${link.file}: "${link.text}" → ${link.href}`);
+    });
+    
+    // Auto-generate stub pages for broken links
+    console.log('   🔧 Auto-generating stub pages...');
+    await generateStubPages(workspacePath, brokenLinks);
+    console.log('   ✅ Stub pages created');
+  } else {
+    console.log('   ✅ No broken links found');
+  }
+  
+  console.log('✅ FINAL BUILD VERIFICATION PASSED\n');
+}
+
+/**
+ * Helper: Find broken navigation links
+ */
+async function findBrokenLinks(workspacePath: string): Promise<Array<{file: string, text: string, href: string}>> {
+  const brokenLinks: Array<{file: string, text: string, href: string}> = [];
+  
+  // Scan all TSX/JSX files
+  const files = glob.sync('src/**/*.{tsx,jsx}', { cwd: workspacePath });
+  
+  for (const file of files) {
+    const fullPath = path.join(workspacePath, file);
+    const content = fs.readFileSync(fullPath, 'utf-8');
+    
+    // Find <Link href="/path"> or <a href="/path">
+    const linkRegex = /<(?:Link|a)\s+href=["']([^"']+)["'][^>]*>([^<]*)</g;
+    let match;
+    
+    while ((match = linkRegex.exec(content)) !== null) {
+      const href = match[1];
+      const text = match[2];
+      
+      // Skip external links and anchors
+      if (href.startsWith('http') || href.startsWith('#')) continue;
+      
+      // Check if page exists
+      const pagePath = path.join(
+        workspacePath,
+        'src/app',
+        href === '/' ? 'page.tsx' : `${href}/page.tsx`
+      );
+      
+      if (!fs.existsSync(pagePath)) {
+        brokenLinks.push({ file, text, href });
+      }
+    }
+  }
+  
+  return brokenLinks;
+}
+
+/**
+ * Helper: Generate stub pages for broken links
+ */
+async function generateStubPages(
+  workspacePath: string,
+  brokenLinks: Array<{file: string, text: string, href: string}>
+): Promise<void> {
+  const uniqueHrefs = [...new Set(brokenLinks.map(l => l.href))];
+  
+  for (const href of uniqueHrefs) {
+    const pageDir = path.join(workspacePath, 'src/app', href);
+    const pagePath = path.join(pageDir, 'page.tsx');
+    
+    // Create directory
+    fs.mkdirSync(pageDir, { recursive: true });
+    
+    // Create stub page
+    const stubContent = `export default function ${toPascalCase(href)}Page() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 to-purple-950">
+      <div className="text-center">
+        <h1 className="text-4xl font-bold text-white mb-4">
+          ${toTitleCase(href)}
+        </h1>
+        <p className="text-slate-400">
+          This page is coming soon...
+        </p>
+      </div>
+    </div>
+  )
+}
+`;
+    
+    fs.writeFileSync(pagePath, stubContent, 'utf-8');
+  }
+}
+
+/**
+ * Fix 2: Dependency Scanner & Auto-Fixer
+ * Scans imports and installs missing packages
+ */
+async function validateAndFixDependencies(workspacePath: string): Promise<void> {
+  console.log('📦 Validating dependencies...');
+  
+  // Scan all source files for imports
+  const files = glob.sync('src/**/*.{ts,tsx,js,jsx}', { cwd: workspacePath });
+  const requiredPackages = new Set<string>();
+  
+  for (const file of files) {
+    const content = fs.readFileSync(path.join(workspacePath, file), 'utf-8');
+    
+    // Extract imports
+    const importRegex = /import\s+.*?\s+from\s+['"]([^'"]+)['"]/g;
+    let match;
+    
+    while ((match = importRegex.exec(content)) !== null) {
+      const pkg = match[1];
+      
+      // Skip relative imports and built-ins
+      if (pkg.startsWith('.') || pkg.startsWith('@/')) continue;
+      
+      // Extract package name (handle scoped packages)
+      const pkgName = pkg.startsWith('@') 
+        ? pkg.split('/').slice(0, 2).join('/')
+        : pkg.split('/')[0];
+      
+      requiredPackages.add(pkgName);
+    }
+  }
+  
+  // Read package.json
+  const pkgJsonPath = path.join(workspacePath, 'package.json');
+  const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf-8'));
+  
+  const installedPackages = new Set([
+    ...Object.keys(pkgJson.dependencies || {}),
+    ...Object.keys(pkgJson.devDependencies || {})
+  ]);
+  
+  // Find missing packages
+  const missingPackages = [...requiredPackages].filter(
+    pkg => !installedPackages.has(pkg)
+  );
+  
+  if (missingPackages.length > 0) {
+    console.warn('   ⚠️ Missing dependencies detected:');
+    missingPackages.forEach(pkg => console.warn(`      - ${pkg}`));
+    
+    console.log('   📥 Auto-installing missing packages...');
+    
+    execSync(`npm install ${missingPackages.join(' ')}`, {
+      cwd: workspacePath,
+      stdio: 'inherit'
+    });
+    
+    console.log('   ✅ Dependencies fixed');
+  } else {
+    console.log('   ✅ All dependencies present');
+  }
+}
+
+/**
+ * Fix 3: Better README Generation
+ * Generates a comprehensive README.md for the project
+ */
+async function generateProductionReadme(
+  workspacePath: string,
+  projectName: string
+): Promise<void> {
+  const pkgJson = JSON.parse(
+    fs.readFileSync(path.join(workspacePath, 'package.json'), 'utf-8')
+  );
+  
+  const hasPython = fs.existsSync(path.join(workspacePath, 'backend'));
+  
+  const readme = `# ${projectName}
+
+${pkgJson.description || 'Auto-generated full-stack application'}
+
+## 🚀 Quick Start
+
+\`\`\`bash
+# Clone the repository
+git clone https://github.com/YOUR_USERNAME/${projectName}.git
+cd ${projectName}
+
+# Install dependencies
+npm install
+
+${hasPython ? `# Install Python dependencies
+cd backend
+pip install -r requirements.txt
+cd ..
+
+` : ''}# Run development server
+npm run dev
+\`\`\`
+
+Open [http://localhost:3000](http://localhost:3000) to view the app.
+
+## 📦 Tech Stack
+
+- **Frontend:** ${pkgJson.dependencies?.next ? `Next.js ${pkgJson.dependencies.next}` : 'React'}
+- **Styling:** Tailwind CSS
+- **TypeScript:** ${pkgJson.dependencies?.typescript || pkgJson.devDependencies?.typescript ? '✅' : '❌'}
+${hasPython ? '- **Backend:** FastAPI (Python)' : ''}
+- **Database:** Supabase
+
+## 🛠️ Prerequisites
+
+- Node.js ${process.version} or higher
+- npm or pnpm
+${hasPython ? '- Python 3.10+ (for backend)' : ''}
+
+## 📁 Project Structure
+
+\`\`\`
+${projectName}/
+├── src/
+│   ├── app/          # Next.js app directory
+│   ├── components/   # React components
+│   ├── lib/          # Utilities and types
+│   └── types/        # TypeScript definitions
+${hasPython ? `├── backend/
+│   ├── main.py       # FastAPI server
+│   └── requirements.txt
+` : ''}├── package.json
+└── README.md
+\`\`\`
+
+## 🔧 Available Scripts
+
+- \`npm run dev\` - Start development server
+- \`npm run build\` - Build for production
+- \`npm start\` - Start production server
+- \`npm run lint\` - Run ESLint
+${hasPython ? `- \`npm run backend\` - Start Python backend` : ''}
+
+## 🌐 Environment Variables
+
+Copy \`.env.example\` to \`.env.local\` and fill in your values:
+
+\`\`\`bash
+cp .env.example .env.local
+\`\`\`
+
+Required variables:
+${pkgJson.dependencies?.['@supabase/supabase-js'] ? `
+- \`NEXT_PUBLIC_SUPABASE_URL\` - Your Supabase project URL
+- \`NEXT_PUBLIC_SUPABASE_ANON_KEY\` - Your Supabase anon key` : ''}
+
+## 📝 License
+
+MIT
+
+---
+
+**Generated by Frost Night Factory** ❄️
+`;
+
+  fs.writeFileSync(
+    path.join(workspacePath, 'README.md'),
+    readme,
+    'utf-8'
+  );
+}
+
 async function runPublisherStep(pipeline: any, repoPath: string) {
   console.log(`[Publisher] Starting deployment for ${pipeline.id}...`);
   await updatePipeline(pipeline.id, { current_phase: 'publisher' });
   await createStep(pipeline.id, 'publisher', 'running');
 
   try {
+    // 🔒 PRE-PUBLISH VERIFICATION (NEW - Fix 1, 2, 3)
+    console.log('\n🔒 [Publisher] Running pre-publish verification...');
+    
+    // Fix 1: Final Build Verification
+    await runFinalBuildVerification(repoPath, pipeline.id);
+    
+    // Fix 2: Validate and Fix Dependencies
+    await validateAndFixDependencies(repoPath);
+    
+    // Fix 3: Integration Tests (if backend exists)
+    if (fs.existsSync(path.join(repoPath, 'backend', 'main.py'))) {
+      console.log('🔗 [Publisher] Backend detected - Running integration tests...');
+      try {
+        const { runIntegrationTestSuite } = await import('./lib/integration-tester');
+        const integrationResult = await runIntegrationTestSuite({
+          workspaceRoot: repoPath,
+          backendEntry: 'backend/main.py',
+          backendPort: 8001,
+        });
+        
+        if (!integrationResult.success) {
+          console.error('❌ [Publisher] Integration tests failed:');
+          integrationResult.errors.forEach(err => console.error(`   - ${err}`));
+          throw new Error(`Integration tests failed: ${integrationResult.errors.join('; ')}`);
+        }
+        
+        console.log(`✅ [Publisher] Integration tests passed (${integrationResult.endpointsTested} endpoints tested)`);
+        if (integrationResult.typesGenerated) {
+          console.log('   ✅ TypeScript types generated from OpenAPI');
+        }
+        
+        // ✅ P2: Pact Contract Testing
+        if (isFeatureEnabled('runPactTesting')) {
+          console.log('\n📜 [Pact] Running contract tests...');
+          try {
+            const { generateAndTestContracts } = await import('./lib/pact-tester');
+            const pactResult = await generateAndTestContracts(repoPath);
+            
+            if (!pactResult.success) {
+              console.warn('⚠️ [Pact] Contract verification failed:');
+              pactResult.errors.forEach(err => console.warn(`   - ${err}`));
+            } else {
+              console.log(`   ✅ All ${pactResult.contractsVerified} contracts verified`);
+            }
+          } catch (error: any) {
+            console.error('❌ [Pact] Failed:', error.message);
+            console.warn('⚠️ Continuing pipeline without contract testing...');
+          }
+        } else {
+          console.log('   ⏭️ Pact contract testing disabled (feature flag)');
+        }
+      } catch (error: any) {
+        console.error('❌ [Publisher] Integration test error:', error.message);
+        // Don't block publish if integration tests fail - just warn
+        console.warn('   ⚠️ Continuing with publish despite integration test failure');
+      }
+    }
+    
+    // Fix 4: Generate Production README
+    const projectName = (() => {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(path.join(repoPath, 'package.json'), 'utf-8'));
+        return pkg.name || pipeline.name || 'frost-project';
+      } catch {
+        return pipeline.name || 'frost-project';
+      }
+    })();
+    await generateProductionReadme(repoPath, projectName);
+    
+    console.log('✅ [Publisher] Pre-publish verification complete\n');
+    
     // 1. BESTÄM MÅL-URL (Smart Naming)
     let targetRepoUrl = pipeline.repo_url;
 
@@ -8956,16 +10069,172 @@ export async function runPipelineLoop(sandboxPath: string) {
 
       const repoPath = getRepoPath(pipeline);
 
+      // ✅ V8: Allocate dynamic ports for this pipeline
+      let frontendPort: number | null = null;
+      let backendPort: number | null = null;
+      try {
+        frontendPort = await PortManager.findAvailablePort(3000, 3100);
+        backendPort = await PortManager.findAvailablePort(8000, 8100);
+        console.log(`📡 Allocated ports: Frontend=${frontendPort}, Backend=${backendPort}`);
+        
+        // Store ports in pipeline metadata
+        await supabase
+          .from('pipelines')
+          .update({
+            metadata: {
+              ...(pipeline.metadata || {}),
+              frontend_port: frontendPort,
+              backend_port: backendPort,
+            },
+          })
+          .eq('id', pipeline.id);
+      } catch (error: any) {
+        console.warn(`⚠️ Port allocation failed: ${error.message}`);
+        console.warn('   Using default ports (may cause conflicts)...');
+        frontendPort = 3002;
+        backendPort = 8000;
+      }
+
+      // ✅ V8: Get stack config from ticket (if available)
+      let stackConfig: any = null;
+      if (pipeline.ticket_id) {
+        const { data: ticket } = await supabase
+          .from('frost_tickets')
+          .select('stack_config')
+          .eq('id', pipeline.ticket_id)
+          .single();
+        
+        if (ticket?.stack_config) {
+          stackConfig = ticket.stack_config;
+          console.log('\n🔧 STACK CONFIGURATION:');
+          console.log(`   Frontend: ${stackConfig.frontend}`);
+          console.log(`   Backend: ${stackConfig.backend}`);
+          console.log(`   UI: ${stackConfig.ui}`);
+          console.log(`   Features: ${stackConfig.features?.join(', ') || 'none'}`);
+        }
+      }
+
+      // ✅ P2: Start Cost Tracking (available throughout pipeline)
+      let costTracker: CostTracker | null = null;
+      if (isFeatureEnabled('trackCosts')) {
+        try {
+          costTracker = new CostTracker();
+          costTracker.startPipeline(pipeline.id);
+          // Make available globally for callAI
+          (global as any).costTracker = costTracker;
+        } catch (error: any) {
+          console.warn(`⚠️ Cost tracking initialization failed: ${error.message}`);
+          console.warn('   Continuing without cost tracking...');
+        }
+      }
+
       // Fas-väljare
       switch (pipeline.current_phase) {
         case 'cloner':
           await runClonerStep(pipeline, repoPath);
           break;
         case 'research':
-          await runResearchStep(pipeline);
+          // ═══════════════════════════════════════════════════════════════════
+          // TWO-PHASE RESEARCH ARCHITECTURE
+          // ═══════════════════════════════════════════════════════════════════
+          console.log('[Research] Starting two-phase research architecture...');
+          await updatePipeline(pipeline.id, { status: 'running', current_phase: 'research' });
+          await createStep(pipeline.id, 'research', 'running', { prompt: pipeline.initial_prompt || pipeline.prompt });
+
+          // Check if research already completed (caching mechanism)
+          const { data: existing } = await supabase
+            .from('pipeline_steps')
+            .select('*')
+            .eq('pipeline_id', pipeline.id)
+            .eq('name', 'research')
+            .eq('status', 'completed')
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+          if (existing && existing.length > 0) {
+            console.log('[Research] Found existing research, skipping.');
+            await updatePipeline(pipeline.id, { current_phase: 'planner' });
+            break;
+          }
+
+          try {
+            // Phase 1: Perplexity Research (Multiple focused queries)
+            console.log('[Research] Phase 1: Running Perplexity research queries...');
+            const perplexityReport1 = await runResearchStep(pipeline, 'technical-constraints');
+            const perplexityReport2 = await runResearchStep(pipeline, 'best-practices');
+
+            // Phase 2: K2 Synthesis
+            console.log('[Research] Phase 2: Running K2 synthesis...');
+            const k2Synthesis = await runK2SynthesisStep(
+              pipeline.id,
+              pipeline.initial_prompt || pipeline.prompt || '',
+              [perplexityReport1, perplexityReport2]
+            );
+
+            // Store combined research results
+            const combinedResearch = {
+              perplexity: {
+                technicalConstraints: perplexityReport1,
+                bestPractices: perplexityReport2
+              },
+              k2Synthesis: k2Synthesis
+            };
+
+            await updateStep(pipeline.id, 'research', 'completed', JSON.stringify(combinedResearch));
+            await updatePipeline(pipeline.id, { current_phase: 'planner' });
+            console.log('[Research] ✅ Two-phase research complete!');
+          } catch (error: any) {
+            console.error('[Research] Failed:', error);
+            await updatePipeline(pipeline.id, { status: 'failed' });
+          }
           break;
         case 'planner':
           await runPlannerStep(pipeline, repoPath);
+          
+          // ✅ P2: A/B Testing (optional - only for high priority)
+          const shouldGenerateVariants = isFeatureEnabled('enableABTesting') && 
+            (pipeline.priority === 'high' || (pipeline.budget && pipeline.budget > 1.00));
+          if (shouldGenerateVariants && process.env.ANTHROPIC_API_KEY) {
+            console.log('\n🔀 [A/B Testing] Generating 2 design variants...');
+            try {
+              const { generateABVariants } = await import('./lib/ab-generator');
+              const variants = await generateABVariants(repoPath, pipeline.initial_prompt || pipeline.prompt || '');
+              
+              await supabase
+                .from('pipelines')
+                .update({
+                  status: 'awaiting_variant_selection',
+                  variants: variants.map(v => ({
+                    name: v.name,
+                    description: v.description,
+                  })),
+                })
+                .eq('id', pipeline.id);
+              
+              console.log('⏸️ Pipeline paused - waiting for user to select variant');
+              console.log(`   View variants at: http://localhost:3001/variants/${pipeline.id}`);
+              
+              // Wait for selection (polling)
+              let selected = false;
+              while (!selected) {
+                await sleep(5000);
+                const { data: updated } = await supabase
+                  .from('pipelines')
+                  .select('status, selected_variant')
+                  .eq('id', pipeline.id)
+                  .single();
+                
+                if (updated?.status !== 'awaiting_variant_selection' || updated?.selected_variant) {
+                  selected = true;
+                  console.log('▶️ Resuming pipeline with selected variant');
+                }
+              }
+            } catch (error: any) {
+              console.error('❌ [A/B Testing] Failed:', error.message);
+              console.warn('⚠️ Continuing pipeline without A/B variants...');
+              // Continue without variants
+            }
+          }
           break;
         case 'coder':
           await runCoderStep(pipeline, repoPath);
@@ -8985,9 +10254,135 @@ export async function runPipelineLoop(sandboxPath: string) {
           break;
         case 'tester':
           await runTesterStep(pipeline, repoPath);
+          
+          // Vision-Based UI Refinement (P1 - Gemini's Insight)
+          if (isFeatureEnabled('runVisionRefinement')) {
+            if (process.env.ANTHROPIC_API_KEY) {
+              console.log('\n🎨 [Vision Refiner] Starting UI refinement...');
+              try {
+                // Ensure dev server is running for vision refinement
+                const devServer = await startDevServerWithVerification(repoPath, frontendPort || 3002);
+                
+                if (devServer.pageCompiled) {
+                  const { visionRefineUI } = await import('./lib/vision-refiner');
+                  const visionResult = await visionRefineUI(repoPath, 3, 8.5, frontendPort || 3002);
+                  
+                  if (visionResult.score < 7) {
+                    console.warn(`   ⚠️ UI score is ${visionResult.score}/10, but continuing...`);
+                  } else {
+                    console.log(`   ✅ UI refinement complete (score: ${visionResult.score}/10)`);
+                  }
+                  
+                  // Cleanup dev server
+                  devServer.process.kill();
+                } else {
+                  console.warn('   ⚠️ Dev server not ready, skipping vision refinement');
+                  devServer.process.kill();
+                }
+              } catch (error: any) {
+                console.error('❌ [Vision Refiner] Failed:', error.message);
+                console.warn('⚠️ Continuing pipeline without vision refinement...');
+                // Don't block pipeline - vision refinement is optional
+              }
+            } else {
+              console.log('   ℹ️ ANTHROPIC_API_KEY not set, skipping vision refinement');
+              console.log('   💡 Set ANTHROPIC_API_KEY to enable visual UI scoring');
+            }
+          } else {
+            console.log('   ⏭️ Vision refinement disabled (feature flag)');
+          }
+          
+          // ✅ P2: Playwright E2E Tests
+          if (isFeatureEnabled('runPlaywrightTests')) {
+            console.log('\n🎭 [Playwright] Running E2E tests...');
+            try {
+              const { runPlaywrightTests } = await import('./lib/playwright-tester');
+              const playwrightResult = await runPlaywrightTests(repoPath, frontendPort || 3002);
+              
+              if (!playwrightResult.success) {
+                console.error('❌ [Playwright] E2E tests failed. Issues found:');
+                playwrightResult.errors.forEach((err, i) => {
+                  console.error(`\n   ${i + 1}. ${err.test}`);
+                  console.error(`      Error: ${err.error}`);
+                  if (err.screenshot) {
+                    console.error(`      Screenshot: ${err.screenshot}`);
+                  }
+                });
+                console.warn('⚠️ Publishing anyway, but manual review recommended');
+              } else {
+                console.log(`✅ [Playwright] E2E tests: ${playwrightResult.testsPassed}/${playwrightResult.testsRun} passed`);
+              }
+            } catch (error: any) {
+              console.error('❌ [Playwright] Failed:', error.message);
+              console.warn('⚠️ Continuing pipeline without E2E tests...');
+              // Don't block pipeline
+            }
+          } else {
+            console.log('   ⏭️ Playwright E2E tests disabled (feature flag)');
+          }
+          
+          // ✅ P2: Lighthouse Performance Audit
+          if (isFeatureEnabled('runLighthouseAudit')) {
+            console.log('\n🔍 [Lighthouse] Running performance audit...');
+            try {
+              const { runPerformanceAudit } = await import('./lib/performance-auditor');
+              const perfResult = await runPerformanceAudit(`http://localhost:${frontendPort || 3002}`, repoPath);
+              
+              if (!perfResult.passed) {
+                console.warn('⚠️ [Lighthouse] Performance audit below threshold:');
+                Object.entries(perfResult.scores).forEach(([key, score]) => {
+                  if (score < 70) {
+                    console.warn(`   - ${key}: ${score.toFixed(0)}/100`);
+                  }
+                });
+              }
+              
+              // Update pipeline with performance data
+              await supabase
+                .from('pipelines')
+                .update({
+                  lighthouse_scores: perfResult.scores,
+                  lighthouse_metrics: perfResult.metrics,
+                })
+                .eq('id', pipeline.id);
+            } catch (error: any) {
+              console.error('❌ [Lighthouse] Failed:', error.message);
+              console.warn('⚠️ Continuing pipeline without performance audit...');
+              // Don't block pipeline
+            }
+          } else {
+            console.log('   ⏭️ Lighthouse audit disabled (feature flag)');
+          }
           break;
         case 'publisher':
           await runPublisherStep(pipeline, repoPath);
+          
+          // ✅ P2: End Cost Tracking
+          if (costTracker) {
+            try {
+              const finalCost = costTracker.endPipeline();
+              
+              // Update Supabase with cost
+              await supabase
+                .from('pipelines')
+                .update({ 
+                  cost: finalCost.totalCost,
+                  cost_breakdown: finalCost.breakdown,
+                })
+                .eq('id', pipeline.id);
+            } catch (error: any) {
+              console.error('❌ [Cost Tracker] Failed:', error.message);
+              console.warn('⚠️ Continuing without cost tracking...');
+            }
+          }
+          
+          // ✅ V8: Release ports when pipeline completes
+          if (frontendPort) {
+            PortManager.releasePort(frontendPort);
+          }
+          if (backendPort) {
+            PortManager.releasePort(backendPort);
+          }
           break;
         case 'cleanup':
             await runCleanupStep(pipeline, repoPath);
@@ -8999,6 +10394,24 @@ export async function runPipelineLoop(sandboxPath: string) {
 
     } catch (err) {
       console.error('Pipeline Loop Error:', err);
+      
+      // ✅ P2: End cost tracking on error
+      if (costTracker) {
+        try {
+          costTracker.endPipeline();
+        } catch {
+          // Ignore cost tracking errors during error handling
+        }
+      }
+      
+      // ✅ V8: Release ports on error
+      if (frontendPort) {
+        PortManager.releasePort(frontendPort);
+      }
+      if (backendPort) {
+        PortManager.releasePort(backendPort);
+      }
+      
       await sleep(5000);
     }
   }

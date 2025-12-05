@@ -10,16 +10,16 @@ import { execSync } from 'child_process';
  * AI models often hallucinate non-existent versions (e.g., tailwindcss@^3.5.7)
  */
 export const GOLDEN_VERSIONS = {
-  // Core Framework (Next.js 14 Golden Stack)
-  "next": "14.2.18",
-  "react": "18.2.0",
-  "react-dom": "18.2.0",
+  // Core Framework (Next.js 16 Golden Stack - 4x faster builds)
+  "next": "^16.0.0",
+  "react": "^19.0.0",
+  "react-dom": "^19.0.0",
   
   // TypeScript
   "typescript": "^5.3.3",
   "@types/node": "^20.10.0",
-  "@types/react": "^18.2.0",
-  "@types/react-dom": "^18.2.0",
+  "@types/react": "^19.0.0",
+  "@types/react-dom": "^19.0.0",
   
   // Styling
   "tailwindcss": "^3.4.15",
@@ -67,16 +67,15 @@ export const VERSION_ALIASES: Record<string, string> = {
   "tailwindcss@^4.0.0": "tailwindcss@^3.4.15",
   "tailwindcss@latest": "tailwindcss@^3.4.15",
   
-  // Next.js hallucinations
-  "next@15.0.0": "next@14.2.18",
-  "next@15.1.0": "next@14.2.18",
-  "next@16.0.0": "next@14.2.18",
-  "next@latest": "next@14.2.18",
+  // Next.js hallucinations (now allow Next.js 16)
+  "next@15.0.0": "next@^16.0.0",
+  "next@15.1.0": "next@^16.0.0",
+  "next@latest": "next@^16.0.0",
   
-  // React hallucinations
-  "react@19.0.0": "react@18.2.0",
-  "react@^19.0.0": "react@18.2.0",
-  "react@latest": "react@18.2.0",
+  // React hallucinations (now allow React 19)
+  "react@18.0.0": "react@^19.0.0",
+  "react@^18.0.0": "react@^19.0.0",
+  "react@latest": "react@^19.0.0",
   
   // TypeScript hallucinations
   "typescript@^6.0.0": "typescript@^5.3.3",

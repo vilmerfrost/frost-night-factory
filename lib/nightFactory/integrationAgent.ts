@@ -3,6 +3,154 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 
+/**
+ * Generate schema-aware types.ts that matches actual Supabase schema
+ */
+async function generateSchemaAwareTypes(workspacePath: string, databaseTsPath: string): Promise<void> {
+  try {
+    // ✅ CRITICAL: Handle missing database.ts file
+    if (!fs.existsSync(databaseTsPath)) {
+      console.warn('   ⚠️ database.ts not found, creating minimal version');
+      
+      // Create minimal database.ts if Supabase CLI failed
+      const minimalDb = `export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[]
+
+export interface Database {
+  public: {
+    Tables: Record<string, never>
+    Views: Record<string, never>
+    Functions: Record<string, never>
+    Enums: Record<string, never>
+  }
+}
+`;
+      
+      fs.mkdirSync(path.dirname(databaseTsPath), { recursive: true });
+      fs.writeFileSync(databaseTsPath, minimalDb, 'utf-8');
+    }
+    
+    const databaseContent = fs.readFileSync(databaseTsPath, 'utf-8');
+    
+    // Extract actual table names from generated types
+    // Pattern: "table_name": { Row: ... }
+    const tableRegex = /['"](\w+)['"]\s*:\s*\{[^}]*Row:/g;
+    const actualTables: string[] = [];
+    let match;
+    
+    while ((match = tableRegex.exec(databaseContent)) !== null) {
+      actualTables.push(match[1]);
+    }
+    
+    console.log(`   📊 Detected ${actualTables.length} real tables:`, actualTables.join(', ') || 'none');
+    
+    let typesContent: string;
+    
+    // ✅ CRITICAL: Handle empty database case
+    if (actualTables.length === 0) {
+      console.log('   ⚠️ Empty database detected - creating safe minimal types');
+      
+      typesContent = `// Minimal types for empty Supabase database
+// This file will be auto-regenerated when you add tables to Supabase
+
+import type { Database as SupabaseDatabase } from '@/types/database';
+
+// Re-export the Database type
+export type Database = SupabaseDatabase;
+
+// Safe placeholder types that won't cause TypeScript errors
+export type Tables<T extends string> = {
+  Row: Record<string, never>;
+  Insert: Record<string, never>;
+  Update: Record<string, never>;
+};
+
+export type Inserts<T extends string> = Record<string, never>;
+export type Updates<T extends string> = Record<string, never>;
+export type Enums<T extends string> = never;
+
+// When you add tables to Supabase, run the pipeline again
+// to generate proper type-safe table accessors
+`;
+    } else {
+      // ✅ Populated database - create full type-safe accessors
+      console.log('   ✅ Generating full type-safe accessors for', actualTables.length, 'tables');
+      
+      typesContent = `// Auto-generated from your Supabase schema
+// ${actualTables.length} table(s) detected: ${actualTables.join(', ')}
+
+import type { Database as SupabaseDatabase } from '@/types/database';
+
+// Re-export Database type
+export type Database = SupabaseDatabase;
+
+// Helper types for type-safe database access
+export type Tables<T extends keyof Database['public']['Tables']> = 
+  Database['public']['Tables'][T]['Row'];
+
+export type Inserts<T extends keyof Database['public']['Tables']> = 
+  Database['public']['Tables'][T]['Insert'];
+
+export type Updates<T extends keyof Database['public']['Tables']> = 
+  Database['public']['Tables'][T]['Update'];
+
+export type Enums<T extends keyof Database['public']['Enums']> = 
+  Database['public']['Enums'][T];
+
+// Convenience type exports for each table:
+${actualTables.map(table => {
+  const typeName = table
+    .split('_')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join('');
+  return `export type ${typeName} = Tables<'${table}'>;`;
+}).join('\n')}
+
+`;
+    }
+
+    const libTypesPath = path.join(workspacePath, 'src', 'lib', 'types.ts');
+    const libTypesDir = path.dirname(libTypesPath);
+    if (!fs.existsSync(libTypesDir)) {
+      fs.mkdirSync(libTypesDir, { recursive: true });
+    }
+    
+    fs.writeFileSync(libTypesPath, typesContent, 'utf-8');
+    console.log('   ✅ Generated schema-aware types.ts');
+  } catch (error: any) {
+    console.warn('   ⚠️ Failed to generate schema-aware types:', error.message);
+    // Fallback to safe minimal types
+    const libTypesPath = path.join(workspacePath, 'src', 'lib', 'types.ts');
+    const libTypesDir = path.dirname(libTypesPath);
+    if (!fs.existsSync(libTypesDir)) {
+      fs.mkdirSync(libTypesDir, { recursive: true });
+    }
+    
+    // Use safe fallback that won't cause TypeScript errors
+    const fallbackTypes = `// Fallback types - safe for empty database
+import type { Database as SupabaseDatabase } from '@/types/database';
+
+export type Database = SupabaseDatabase;
+
+export type Tables<T extends string> = {
+  Row: Record<string, unknown>;
+  Insert: Record<string, unknown>;
+  Update: Record<string, unknown>;
+};
+
+export type Inserts<T extends string> = Record<string, unknown>;
+export type Updates<T extends string> = Record<string, unknown>;
+export type Enums<T extends string> = string;
+`;
+    fs.writeFileSync(libTypesPath, fallbackTypes, 'utf-8');
+  }
+}
+
 const FILE_PROTOCOL = `
 IMPORTANT - OUTPUT FORMAT: You must provide the full file content for every file you generate. Use this exact format for every file:
 [FILE: path/to/filename.ext]
@@ -50,12 +198,8 @@ export async function runIntegrationStep(localPath: string, backendType: string)
                     fs.mkdirSync(libTypesDir, { recursive: true });
                 }
                 
-                // Re-export Supabase types for easier imports
-                const reExportContent = `// Re-export Supabase database types
-export type { Database } from '../types/database';
-`;
-                fs.writeFileSync(libTypesPath, reExportContent);
-                console.log("✅ Created re-export: src/lib/types.ts");
+                // ✅ Generate schema-aware types.ts
+                await generateSchemaAwareTypes(localPath, databaseTypesPath);
                 
                 return; // Success! Exit early
             } else {

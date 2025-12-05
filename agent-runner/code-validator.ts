@@ -203,14 +203,26 @@ export function validateCode(
 // ═══════════════════════════════════════════════════════════════════
 
 export function autoFixFileExtension(code: string, fileName: string): { code: string; newFileName: string } {
+  // ✅ NEVER rename type-only files
+  if (
+    fileName.includes('/types.ts') ||
+    fileName.includes('\\types.ts') ||
+    fileName.endsWith('database.ts')
+  ) {
+    return { code, newFileName: fileName };
+  }
+  
   // If .ts file has JSX, rename to .tsx
   if (fileName.endsWith('.ts') && !fileName.endsWith('.d.ts')) {
-    for (const pattern of JSX_PATTERNS) {
-      if (pattern.test(code)) {
-        const newFileName = fileName.replace(/\.ts$/, '.tsx')
-        console.log(`🔧 Auto-fixing: Renamed ${fileName} → ${newFileName} (JSX detected)`)
-        return { code, newFileName }
-      }
+    // Only rename if ACTUAL JSX is present (not just imports)
+    const hasJSX = /<[a-zA-Z][a-zA-Z0-9]*[\s>]/.test(code) ||  // <div>, <Component>
+                   /<>/.test(code) ||                          // <>
+                   /React\.createElement/.test(code);
+    
+    if (hasJSX) {
+      const newFileName = fileName.replace(/\.ts$/, '.tsx')
+      console.log(`🔧 Auto-fixing: Renamed ${fileName} → ${newFileName} (JSX detected)`)
+      return { code, newFileName }
     }
   }
   

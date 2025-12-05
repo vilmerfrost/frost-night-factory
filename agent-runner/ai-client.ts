@@ -28,12 +28,21 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!
 })
 
+// ✅ Kimi K2 (Moonshot) client for research synthesis
+let kimiClient: OpenAI | null = null
+if (process.env.MOONSHOT_API_KEY) {
+  kimiClient = new OpenAI({
+    apiKey: process.env.MOONSHOT_API_KEY,
+    baseURL: 'https://api.moonshot.cn/v1'
+  })
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // COST ESTIMATES (as of Dec 2024)
 // ═══════════════════════════════════════════════════════════════════
 const COST_PER_1M_TOKENS = {
   // Claude
-  'claude-3-5-sonnet-20241022': { input: 300, output: 1500, cacheWrite: 375, cacheRead: 30 }, // $3/$15/$3.75/$0.30 per 1M
+  'claude-sonnet-4-5': { input: 300, output: 1500, cacheWrite: 375, cacheRead: 30 }, // $3/$15/$3.75/$0.30 per 1M
   'claude-3-5-haiku-20241022': { input: 80, output: 400, cacheWrite: 100, cacheRead: 8 },    // $0.80/$4/$1/$0.08 per 1M
   
   // OpenAI
@@ -45,7 +54,11 @@ const COST_PER_1M_TOKENS = {
   'deepseek-reasoner': { input: 55, output: 219, cacheWrite: 55, cacheRead: 5.5 },
   
   // Groq (practically free)
-  'llama-3.3-70b-versatile': { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 }
+  'llama-3.3-70b-versatile': { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 },
+  
+  // Kimi K2 (Moonshot) - for research synthesis
+  'moonshot-v1-256k': { input: 500, output: 600, cacheWrite: 0, cacheRead: 0 }, // $0.50/$0.60 per 1M
+  'moonshot-v1-8k': { input: 500, output: 600, cacheWrite: 0, cacheRead: 0 }
 }
 
 function estimateCostCents(
@@ -107,11 +120,12 @@ const FORBIDDEN_TOKENS: Record<string, number> = {
 export interface AICallOptions {
   pipelineId: string
   step: string
-  role: 'PLANNER' | 'CODER' | 'FIXER' | 'REVIEWER'
+  role: 'PLANNER' | 'CODER' | 'FIXER' | 'REVIEWER' | 'RESEARCHER' | 'PROMPT_ENGINEER' | 'CODE_REVIEWER' | 'SQL_AGENT' | 'PYTHON_FIXER'
   model: string
   messages: Array<{ role: string; content: string }>
   errorSignature?: string
   temperature?: number
+  maxTokens?: number  // For K2 and other models that support long outputs
   // ✅ Phase 1: Prompt caching
   cacheableBlocks?: Array<{ type: 'text'; text: string }>  // Static content to cache
 }
@@ -119,9 +133,26 @@ export interface AICallOptions {
 export async function callAI(opts: AICallOptions): Promise<string> {
   const { pipelineId, step, role, model, messages, errorSignature, temperature = 0.7 } = opts
   
+  // ✅ CRITICAL: Guard against undefined model/role
+  if (!model) {
+    throw new Error(`callAI: model is required but was undefined. Role: ${role}, Step: ${step}, PipelineId: ${pipelineId}`)
+  }
+  
+  if (!role) {
+    throw new Error(`callAI: role is required but was undefined. Model: ${model}, Step: ${step}, PipelineId: ${pipelineId}`)
+  }
+  
   const promptSig = generatePromptSignature(pipelineId, step, model, errorSignature)
   
-  console.log(`🤖 [AI] ${role} using ${model} (pipeline: ${pipelineId.slice(0, 8)})`)
+  // Safe string helper to prevent undefined.slice() errors
+  const safe = (value?: string) => value ?? ''
+  
+  // Safe model/role for logging
+  const safeModel = model ?? 'unknown'
+  const safeRole = role ?? 'UNKNOWN'
+  const pipelineShort = safe(pipelineId).slice(0, 8)
+  
+  console.log(`🤖 [AI] ${safeRole} using ${safeModel} (pipeline: ${pipelineShort})`)
   
   // Check cache for this exact error pattern
   if (errorSignature && role === 'FIXER') {
@@ -132,7 +163,7 @@ export async function callAI(opts: AICallOptions): Promise<string> {
       .maybeSingle()
     
     if (cached?.golden_patch) {
-      console.log(`💾 [CACHE HIT] Using cached fix for ${errorSignature.slice(0, 8)}`)
+      console.log(`💾 [CACHE HIT] Using cached fix for ${safe(errorSignature).slice(0, 8)}`)
       return typeof cached.golden_patch === 'string' 
         ? cached.golden_patch 
         : JSON.stringify(cached.golden_patch)
@@ -147,8 +178,31 @@ export async function callAI(opts: AICallOptions): Promise<string> {
   let cacheReadTokens = 0
   
   try {
-    // Route to correct API
-    if (model.startsWith('claude')) {
+    // Route to correct API - use safeModel to prevent undefined.startsWith()
+    if (safeModel.startsWith('claude')) {
+      
+      // ═══════════════════════════════════════════════════════════════════
+      // 🔴 CRITICAL: Anthropic API Format Difference
+      // ═══════════════════════════════════════════════════════════════════
+      // Anthropic's Messages API does NOT accept 'system' role in messages array.
+      // Instead, system messages MUST be passed as a top-level `system` parameter.
+      // 
+      // ❌ WRONG: messages: [{ role: 'system', content: '...' }, { role: 'user', content: '...' }]
+      // ✅ CORRECT: system: '...', messages: [{ role: 'user', content: '...' }]
+      //
+      // This prevents: "messages: Unexpected role 'system'" error
+      // ═══════════════════════════════════════════════════════════════════
+      
+      // Extract system messages and filter them out from messages array
+      const systemMessages = messages.filter(m => m.role === 'system').map(m => m.content)
+      const nonSystemMessages = messages.filter(m => m.role !== 'system')
+      
+      // Convert system messages to Anthropic format (string or array of text blocks)
+      const systemParam = systemMessages.length > 0 
+        ? systemMessages.length === 1 
+          ? systemMessages[0] // Single string
+          : systemMessages.map(text => ({ type: 'text' as const, text })) // Array of text blocks
+        : undefined
       
       // ✅ Phase 1: Use prompt caching if cacheable blocks provided
       let result: any
@@ -161,22 +215,23 @@ export async function callAI(opts: AICallOptions): Promise<string> {
         }))
         
         // Extract user message (dynamic part)
-        const userMessage = messages.find(m => m.role === 'user')
+        const userMessage = nonSystemMessages.find(m => m.role === 'user')
         
         result = await anthropic.messages.create({
-          model,
+          model: safeModel,
           max_tokens: 8000,
           temperature,
-          system: systemBlocks,
+          system: systemBlocks, // Use cacheable blocks if available
           messages: userMessage ? [{ role: 'user', content: userMessage.content }] : []
         })
       } else {
-        // Fallback to regular call
+        // Regular call: use extracted system messages
         result = await anthropic.messages.create({
-          model,
+          model: safeModel,
           max_tokens: 8000,
           temperature,
-          messages: messages as any
+          ...(systemParam && { system: systemParam }), // Only include if system messages exist
+          messages: nonSystemMessages as any // Only non-system messages (no 'system' role!)
         })
       }
       
@@ -189,14 +244,14 @@ export async function callAI(opts: AICallOptions): Promise<string> {
       cacheReadTokens = (result.usage as any).cache_read_input_tokens || 0
       
       if (cacheReadTokens > 0) {
-        const savings = calculateCacheSavings(cacheReadTokens, model)
+        const savings = calculateCacheSavings(cacheReadTokens, safeModel)
         console.log(`💰 [CACHE] Saved $${(savings / 100).toFixed(4)} (${cacheReadTokens} tokens cached)`)
       }
       
-    } else if (model.startsWith('gpt')) {
+    } else if (safeModel.startsWith('gpt')) {
       // Apply logit bias for OpenAI models (Gemini's brilliant idea)
       const result = await openai.chat.completions.create({
-        model,
+        model: safeModel,
         temperature,
         messages: messages as any,
         logit_bias: FORBIDDEN_TOKENS // ← Model physically can't write these
@@ -206,13 +261,13 @@ export async function callAI(opts: AICallOptions): Promise<string> {
       tokensIn = result.usage?.prompt_tokens || 0
       tokensOut = result.usage?.completion_tokens || 0
       
-    } else if (model.startsWith('llama') || model.includes('groq') || model.includes('llama-3')) {
+    } else if (safeModel.startsWith('llama') || safeModel.includes('groq') || safeModel.includes('llama-3')) {
       // ✅ Phase 3: Groq API
       const systemMessage = messages.find(m => m.role === 'system')
       const userMessages = messages.filter(m => m.role !== 'system')
       
       // Map model name to Groq's format
-      const groqModel = model.includes('llama-3.3') 
+      const groqModel = safeModel.includes('llama-3.3') 
         ? 'llama-3.3-70b-versatile'
         : 'llama-3.3-70b-versatile' // Default
       
@@ -230,13 +285,13 @@ export async function callAI(opts: AICallOptions): Promise<string> {
       tokensIn = result.usage?.prompt_tokens || 0
       tokensOut = result.usage?.completion_tokens || 0
       
-    } else if (model.startsWith('deepseek')) {
+    } else if (safeModel.startsWith('deepseek')) {
       // ✅ Phase 3: DeepSeek API
       const systemMessage = messages.find(m => m.role === 'system')
       const userMessages = messages.filter(m => m.role !== 'system')
       
       const result = await deepseek.chat.completions.create({
-        model: model.includes('reasoner') ? 'deepseek-reasoner' : 'deepseek-chat',
+        model: safeModel.includes('reasoner') ? 'deepseek-reasoner' : 'deepseek-chat',
         messages: [
           ...(systemMessage ? [{ role: 'system', content: systemMessage.content }] : []),
           ...userMessages.map(m => ({ role: m.role as any, content: m.content }))
@@ -249,12 +304,36 @@ export async function callAI(opts: AICallOptions): Promise<string> {
       tokensIn = result.usage?.prompt_tokens || 0
       tokensOut = result.usage?.completion_tokens || 0
       
+    } else if (safeModel.includes('moonshot') || safeModel.includes('kimi')) {
+      // ✅ Kimi K2 (Moonshot) API for research synthesis
+      if (!kimiClient) {
+        throw new Error('Kimi/Moonshot API key not configured')
+      }
+      
+      // Extract system messages (Kimi uses standard OpenAI format)
+      const systemMessages = messages.filter(m => m.role === 'system').map(m => m.content)
+      const nonSystemMessages = messages.filter(m => m.role !== 'system')
+      
+      const result = await kimiClient.chat.completions.create({
+        model: safeModel.includes('256k') ? 'moonshot-v1-256k' : 'moonshot-v1-8k',
+        messages: [
+          ...(systemMessages.length > 0 ? [{ role: 'system', content: systemMessages.join('\n\n') }] : []),
+          ...nonSystemMessages.map(m => ({ role: m.role as any, content: m.content }))
+        ],
+        temperature,
+        max_tokens: opts.maxTokens || 150000 // Leverage K2's long output capacity
+      })
+      
+      response = result.choices[0]?.message?.content || ''
+      tokensIn = result.usage?.prompt_tokens || 0
+      tokensOut = result.usage?.completion_tokens || 0
+      
     } else {
-      throw new Error(`Unknown model: ${model}`)
+      throw new Error(`Unknown model: ${safeModel}`)
     }
     
     const duration = Date.now() - startTime
-    const costCents = estimateCostCents(model, tokensIn, tokensOut, cacheWriteTokens, cacheReadTokens)
+    const costCents = estimateCostCents(safeModel, tokensIn, tokensOut, cacheWriteTokens, cacheReadTokens)
     
     // Log to database
     await Promise.all([
@@ -262,8 +341,8 @@ export async function callAI(opts: AICallOptions): Promise<string> {
       supabase.from('ai_calls').insert({
         pipeline_id: pipelineId,
         step_name: step,
-        model,
-        role,
+        model: safeModel,
+        role: safeRole,
         prompt_signature: promptSig,
         tokens_in: tokensIn,
         tokens_out: tokensOut,
@@ -272,7 +351,7 @@ export async function callAI(opts: AICallOptions): Promise<string> {
         details: {
           cache_write_tokens: cacheWriteTokens,
           cache_read_tokens: cacheReadTokens,
-          cache_savings_cents: cacheReadTokens > 0 ? Math.round(calculateCacheSavings(cacheReadTokens, model) * 100) : 0
+          cache_savings_cents: cacheReadTokens > 0 ? Math.round(calculateCacheSavings(cacheReadTokens, safeModel) * 100) : 0
         }
       }),
       
@@ -285,12 +364,29 @@ export async function callAI(opts: AICallOptions): Promise<string> {
       })
     ])
     
-    console.log(`✅ [AI] ${role} complete in ${duration}ms | $${(costCents / 100).toFixed(3)} | ${tokensOut} tokens`)
+    console.log(`✅ [AI] ${safeRole} complete in ${duration}ms | $${(costCents / 100).toFixed(3)} | ${tokensOut} tokens`)
+    
+    // ✅ P2: Track cost in CostTracker (if available)
+    try {
+      const { CostTracker } = await import('./lib/cost-tracker');
+      // Use a global instance if available, or create a temporary one
+      const globalTracker = (global as any).costTracker;
+      if (globalTracker && pipelineId) {
+        globalTracker.trackModelCall(
+          step || role || 'unknown',
+          safeModel,
+          tokensIn,
+          tokensOut
+        );
+      }
+    } catch {
+      // CostTracker not available, skip
+    }
     
     return response
     
   } catch (error: any) {
-    console.error(`❌ [AI] ${role} failed:`, error.message)
+    console.error(`❌ [AI] ${safeRole} failed:`, error.message)
     throw error
   }
 }
@@ -301,7 +397,7 @@ export async function callAI(opts: AICallOptions): Promise<string> {
 export type ModelTier = 'cheap' | 'mid' | 'expensive'
 
 export function selectModel(
-  role: 'PLANNER' | 'CODER' | 'FIXER' | 'REVIEWER',
+  role: 'PLANNER' | 'CODER' | 'FIXER' | 'REVIEWER' | 'PYTHON_FIXER',
   complexity: 'simple' | 'medium' | 'complex' = 'medium'
 ): string {
   // PLANNER: Always use reasoner
@@ -311,7 +407,7 @@ export function selectModel(
   
   // CODER: Use expensive for main generation
   if (role === 'CODER') {
-    return 'claude-3-5-sonnet-20241022'
+    return 'claude-sonnet-4-5'
   }
   
   // REVIEWER: Cheap model is fine
@@ -319,12 +415,17 @@ export function selectModel(
     return 'claude-3-5-haiku-20241022'
   }
   
-  // FIXER: Escalate based on complexity
+  // PYTHON_FIXER: Use DeepSeek for Python error fixing
+  if (role === 'PYTHON_FIXER') {
+    return 'deepseek-chat' // $0.14/$0.28 per 1M - reliable for Python fixes
+  }
+  
+  // FIXER: Use DeepSeek (we have API key, no OpenAI quota issues)
   if (role === 'FIXER') {
     switch (complexity) {
-      case 'simple': return 'claude-3-5-haiku-20241022'  // $0.001
-      case 'medium': return 'gpt-4o-mini'                // $0.005
-      case 'complex': return 'claude-3-5-sonnet-20241022' // $0.015
+      case 'simple': return 'deepseek-chat'              // $0.14/$0.28 per 1M - reliable
+      case 'medium': return 'deepseek-chat'             // $0.14/$0.28 per 1M - reliable
+      case 'complex': return 'deepseek-reasoner'        // $0.55/$2.19 per 1M - best reasoning
     }
   }
   

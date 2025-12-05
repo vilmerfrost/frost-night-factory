@@ -12,6 +12,7 @@ export type ErrorClass =
   | 'TS_SYNTAX'         // TS1005, TS1161 - JSX in .ts
   | 'TS_TYPE'           // TS2339, TS2741 - type mismatches
   | 'MISSING_MODULE'    // TS2307 - can't find module
+  | 'TYPE_DRIFT'        // TS2305 - schema drift (types.ts trying to export non-existent types)
   | 'DB_STATE'          // PGRST116, SQL errors
   | 'AI_PLACEHOLDER'    // Detected by validator
   | 'RUNTIME'           // Node/Python execution errors
@@ -76,6 +77,25 @@ export function classifyError(errorLog: string): ErrorAnalysis {
   }
   
   // ═══════════════════════════════════════════════════════════════
+  // TYPE_DRIFT - Schema drift (types.ts trying to export non-existent types)
+  // ═══════════════════════════════════════════════════════════════
+  if (
+    log.includes('ts2305') && 
+    log.includes('types.ts') &&
+    (log.includes('has no exported member') || log.includes('has no exported'))
+  ) {
+    return {
+      classification: 'TYPE_DRIFT',
+      errorCode: 'TS2305',
+      errorSignature: generateSignature('TYPE_DRIFT', errorLog),
+      fixStrategy: 'GOLDEN_TEMPLATE',  // Use schema-aware template
+      maxRetries: 2,
+      backoffMs: 0,
+      canCache: true
+    }
+  }
+  
+  // ═══════════════════════════════════════════════════════════════
   // TS_TYPE - Type mismatches
   // ═══════════════════════════════════════════════════════════════
   if (log.includes('ts2339') || log.includes('ts2741') || log.includes('does not exist on type')) {
@@ -106,9 +126,10 @@ export function classifyError(errorLog: string): ErrorAnalysis {
   }
   
   // ═══════════════════════════════════════════════════════════════
-  // DB_STATE - Database/Supabase errors (FATAL)
+  // DB_STATE - Database/Supabase errors (FATAL) - but NOT type drift
   // ═══════════════════════════════════════════════════════════════
-  if (log.includes('pgrst') || log.includes('database') || log.includes('sql')) {
+  if ((log.includes('pgrst') || log.includes('database') || log.includes('sql')) && 
+      !log.includes('types.ts') && !log.includes('ts2305')) {
     return {
       classification: 'DB_STATE',
       errorCode: 'DB_ERROR',

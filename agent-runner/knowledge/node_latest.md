@@ -1,130 +1,63 @@
-# Next.js 15/16 Technical Reference: Critical Breaking Changes & Best Practices
+Here is a concise, opinionated rule set you can drop into a team “engineering standards” doc. It focuses on Node.js and then adds the language/framework rules you asked for.
 
-## Async Request APIs (Breaking Change - Next.js 16)[1][3]
+## Node.js runtime rules
 
-Next.js 16 completely removes synchronous access to request-scoped APIs. All the following must now be accessed asynchronously:
+- Target active LTS or latest current (Node 22+ / 24+) only; do not support EOL majors.  
+- Use native ESM (`"type": "module"`) for all new services; treat CommonJS as legacy and isolate behind adapters.  
+- Use the built‑in `fetch`, Web Streams, WebSocket client, `URL`, and `URLPattern`; do not pull `node-fetch`, `axios`, or custom URL parsers unless you have a hard requirement.  
+- Turn on the permission model in production (`--experimental-permission` / newer flags as available) and explicitly scope FS, child process, and network access; no service runs with full system access.  
+- Prefer the built‑in test runner (`node:test`) over external test frameworks for unit/integration tests unless a specific missing feature is documented.  
+- Treat all deprecated core APIs as forbidden; add lint rules or codemods to block them and replace legacy crypto, legacy URL parser, and old HTTP parser usage.  
+- Default to HTTP/2+ capable clients/servers where supported; validate that your HTTP stack is using the modern parser and Undici‑based client.
 
-- `cookies()`
-- `headers()`
-- `draftMode()`
-- `params` in `layout.js`, `page.js`, `route.js`, `default.js`
-- `searchParams` in `page.js`
-- `generateMetadata` and `generateViewport` parameters
+## Next.js (v15/v16 style) rules
 
-**Implementation requirement:** Always use `await` when accessing these APIs. Next.js 15 provided temporary synchronous compatibility, but this is completely removed in v16.
+- Prefer the app router and React Server Components for new routes; do not create new pages in the old pages router.  
+- Use the new async Request APIs (`request`, `Response`, `headers`, `cookies`) in route handlers; avoid legacy `NextApiRequest` / `NextApiResponse` in new code.  
+- Treat data fetching as server‑first: use server components and route handlers for async data, and keep client components lean.  
+- Make caching explicit with the new caching primitives (`revalidate`, `cache`, route segment config); do not rely on implicit caching semantics.  
+- Use Turbopack (or the recommended bundler for the current major) in dev by default; only fall back to Webpack if a blocking issue is documented.
 
-```javascript
-// INCORRECT - v16 will break
-export default function Page({ params }) {
-  const id = params.id; // ❌ Synchronous access removed
-}
+## React (v19 style) rules
 
-// CORRECT - v16 required
-export default async function Page({ params }) {
-  const id = (await params).id; // ✅ Async access
-}
-```
+- Treat React’s server features as first‑class: use Server Components and Server Actions where appropriate in frameworks that support them.  
+- Use Server Actions for mutations and form handling instead of ad‑hoc fetch calls from the client when the framework supports it.  
+- Use `useFormStatus` (and related hooks) to wire form pending/error UI; do not reimplement loading flags with ad‑hoc local state when using Server Actions.  
+- Avoid legacy patterns (UNSAFE lifecycle methods, string refs, context misuse); use modern hooks, context, and suspense patterns only.
 
-## Sitemap Generation: Async `id` Parameter[3]
+## Python: Pydantic v2 & FastAPI
 
-The `id` parameter from `generateSitemaps()` is now a Promise that must be resolved:
+- Use Pydantic v2 only for new services; do not introduce new Pydantic v1 models.  
+- Rely on Pydantic v2’s new validation and serialization APIs (`model_validate`, `model_dump`, etc.); avoid deprecated v1 aliases and behaviors.  
+- In FastAPI, use type‑hint‑first design: path/query/body models are Pydantic v2 models or builtin types, and every endpoint is fully annotated.  
+- Use async def endpoints and async database/drivers by default; synchronous endpoints must be explicitly justified.  
+- Centralize settings/configuration in Pydantic `BaseSettings` (v2 style), wired through environment variables; no ad‑hoc `os.getenv` scattering in business logic.
 
-```javascript
-export async function generateSitemaps() {
-  return [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }]
-}
+## TypeScript rules
 
-// v16 requirement
-export default async function sitemap({ id }) {
-  const resolvedId = await id; // ✅ Must await
-  const start = resolvedId * 50000;
-}
-```
+- Enable strict mode (`"strict": true`) and treat it as non‑negotiable for all new projects.  
+- Enable modern strictness flags: `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noImplicitOverride`, `noPropertyAccessFromIndexSignature`, etc.  
+- Use `unknown` instead of `any`; `any` requires explicit justification and code review approval.  
+- Prefer discriminated unions, template literal types, and `satisfies` to model complex domains rather than `string | number | …` catch‑alls.  
+- Treat type‑only imports/exports correctly (`import type`) and ensure `verbatimModuleSyntax` and modern module resolution are enabled for ESM interop.  
+- Do not use namespace/`/// <reference` style patterns in new code; prefer modules and project references.
 
-## Caching Semantics & Fetch Behavior[1]
+## Rust & Tokio rules
 
-Next.js 15+ introduces breaking changes to caching behavior:
+- Use async Rust with Tokio for IO‑bound servers; do not mix multiple runtimes in a single binary.  
+- Use `tokio::main` and structured tasks with `tokio::spawn`; avoid unbounded task spawning and ensure task lifetimes are explicit.  
+- Use `tracing` (with structured fields) rather than ad‑hoc `println!` logging; propagate spans through async boundaries.  
+- Prefer `async fn` plus `impl Trait` returns over boxing futures unless you have a specific performance or API reason.  
+- Use `#[derive(Clone)]`/`Arc` for cheap shared state across tasks instead of global mutables; avoid `unsafe` unless reviewed and contained.  
+- Keep `Send`/`Sync` correctness explicit at boundaries (e.g., in trait objects used across tasks) and avoid custom `unsafe impl` unless absolutely required.
 
-- `fetch()` requests now respect `Cache-Control` headers by default
-- Caching semantics differ from previous versions; audit all data fetching patterns
-- `revalidateTag()` signature changed in v16: now requires a `cacheLife` profile as the second argument for stale-while-revalidate behavior[2]
+## Go rules
 
-## Default Bundler: Turbopack (v16)[2]
+- Use Go modules exclusively; no new GOPATH‑based projects.  
+- Organize modules with clear boundaries; avoid giant mono‑module repos unless there is an explicit, agreed‑upon reason.  
+- Use generics for reusable data structures and helper logic, but avoid over‑abstracting; prefer clear concrete APIs for most business logic.  
+- Use `context.Context` in all public APIs that may block (IO, RPC, DB); cancellations and timeouts must propagate through goroutines.  
+- Treat goroutine ownership as explicit: every spawned goroutine must have a clear lifetime and cancellation path; no fire‑and‑forget without justification.  
+- Prefer channels and structured worker patterns over ad‑hoc global state; but when simple, prefer mutexes/RWMutex over “clever” channel architectures.  
 
-**Turbopack is now stable and the default bundler for all apps.** Key technical implications:
-
-- 5-10x faster Fast Refresh
-- 2-5x faster builds
-- Automatic Babel integration if a babel config exists
-- Opt-out requirement: `next build --webpack` to revert to Webpack
-
-**Note:** Turbopack File System Caching (beta) provides additional performance gains for large apps.
-
-## Server Actions Security Enhancements[1]
-
-Server Actions now use **unguessable, non-deterministic IDs**:
-
-- Unused Server Actions have dead code elimination applied (IDs not exposed to client-side bundle)
-- Action IDs are periodically recalculated between builds for enhanced security
-- Endpoints are no longer predictable
-
-## Parallel Routes: Explicit `default.js` Requirement[2]
-
-**Breaking change in v16:** All parallel route slots now require explicit `default.js` files. Builds fail without them.
-
-```javascript
-// Required pattern for parallel routes
-// app/@slot/default.js
-export default function Default() {
-  return null; // or notFound()
-}
-```
-
-## Routing & Navigation Optimizations (v16)[2]
-
-**Layout deduplication:** Shared layouts are downloaded once instead of separately for each prefetch. This dramatically reduces network transfer (e.g., 50 product links now download shared layout once instead of 50 times).
-
-**Incremental prefetching:** Only prefetch parts not already in cache:
-- Cancels requests when links leave viewport
-- Prioritizes prefetching on hover
-- Re-prefetches on data invalidation
-
-## Image Handling: `images.minimumCacheTTL` Default Change[2]
-
-Default changed from **60 seconds to 4 hours (14400s)** in v16. Images without explicit cache-control headers now persist longer, reducing revalidation costs.
-
-**Security note:** Local `src` with query strings in `next/image` now requires `images.localPatterns` config to prevent enumeration attacks.[2]
-
-## React 19 Support[1]
-
-Next.js 15+ includes React 19 support. Use `@next/codemod` CLI for automated upgrade paths where available.
-
-## Metadata Image Route Parameters[2]
-
-In v16, the `params` argument in metadata image routes is now asynchronous. The `id` from `generateImageMetadata` is now `Promise<string>`:
-
-```javascript
-// v16 requirement
-export async function generateImageMetadata({ params }) {
-  const id = await params.id; // ✅ Must await
-}
-```
-
-## ESLint 9 Support[1]
-
-Next.js 15 added support for ESLint 9. Update ESLint configuration if upgrading.
-
-## Build & Development Performance[1][3]
-
-- Improved build times and faster Fast Refresh
-- Separate output directories for `next dev` and `next build` (enables concurrent execution)
-- Lockfile mechanism prevents multiple instances on the same project
-- Redesigned terminal output with clearer formatting and improved performance metrics
-
-## Removed Features (v16)[2]
-
-- Auto-instrumentation for Speed Insights (use `@vercel/speed-insights` package explicitly)
-- `.xml` extension for dynamic sitemap routes
-- `size` and `First Load JS` metrics from `next build` output (inaccurate in server-driven RSC architectures)
-
-**Upgrade urgency:** Next.js 16 contains critical breaking changes. The async request API migration is mandatory and affects nearly all server-side code patterns.
+These are “must‑follow” defaults: deviations should be rare, documented, and code‑reviewed.

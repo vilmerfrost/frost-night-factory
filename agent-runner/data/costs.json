@@ -1,0 +1,63 @@
+[
+  {
+    "pipelineId": "a7e0b2bd-3fa8-4141-95aa-14ed6c80c450",
+    "timestamp": "2025-12-05T07:40:57.085Z",
+    "totalCost": 0.010667700000000002,
+    "breakdown": [
+      {
+        "step": "tester",
+        "model": "claude-3-5-haiku-20241022",
+        "cost": 0.0030340000000000002,
+        "tokens": {
+          "input": 2176,
+          "output": 286
+        }
+      },
+      {
+        "step": "tester",
+        "model": "deepseek-chat",
+        "cost": 0.00024626,
+        "tokens": {
+          "input": 468,
+          "output": 109
+        }
+      },
+      {
+        "step": "tester",
+        "model": "deepseek-chat",
+        "cost": 0.0017060600000000001,
+        "tokens": {
+          "input": 3308,
+          "output": 739
+        }
+      },
+      {
+        "step": "tester",
+        "model": "claude-3-5-haiku-20241022",
+        "cost": 0.0028789999999999996,
+        "tokens": {
+          "input": 1769,
+          "output": 370
+        }
+      },
+      {
+        "step": "tester",
+        "model": "deepseek-chat",
+        "cost": 0.0003244,
+        "tokens": {
+          "input": 680,
+          "output": 128
+        }
+      },
+      {
+        "step": "tester",
+        "model": "deepseek-chat",
+        "cost": 0.0024779800000000003,
+        "tokens": {
+          "input": 3914,
+          "output": 1292
+        }
+      }
+    ]
+  }
+]

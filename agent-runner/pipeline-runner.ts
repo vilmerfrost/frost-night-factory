@@ -9037,6 +9037,142 @@ async function generateRepoName(userRequest: string): Promise<string> {
   }
 }
 
+/**
+ * Recovery Agent: Attempts to fix common build errors automatically
+ */
+async function attemptBuildRecovery(
+  error: string,
+  projectRoot: string,
+  pipeline?: any
+): Promise<boolean> {
+  console.log('   🔧 [Recovery Agent] Analyzing error...');
+  
+  // 1. Check for missing dependencies
+  const missingDeps = extractMissingDependencies(error);
+  if (missingDeps.length > 0) {
+    console.log(`   📦 Installing ${missingDeps.length} missing package(s): ${missingDeps.join(', ')}`);
+    try {
+      for (const dep of missingDeps) {
+        execSync(`npm install ${dep}`, {
+          cwd: projectRoot,
+          stdio: 'pipe',
+          timeout: 60000
+        });
+        console.log(`   ✅ Installed: ${dep}`);
+      }
+      return true; // Successfully installed dependencies
+    } catch (installError: any) {
+      console.error(`   ❌ Failed to install dependencies: ${installError.message}`);
+      return false;
+    }
+  }
+  
+  // 2. Check for TypeScript errors that might be fixable
+  if (error.includes('Type error') || error.includes('TS')) {
+    console.log('   🤖 TypeScript error detected - attempting AI fix...');
+    try {
+      const fixed = await fixBuildErrorWithAI(error, projectRoot, pipeline);
+      if (fixed) {
+        return true;
+      }
+    } catch (aiError: any) {
+      console.warn(`   ⚠️ AI fixer failed: ${aiError.message}`);
+    }
+  }
+  
+  // 3. Check for module resolution issues
+  if (error.includes('Module not found') || error.includes('Cannot resolve')) {
+    console.log('   🔍 Module resolution issue detected - checking imports...');
+    // Could add import path fixing here
+    return false; // Not auto-fixable yet
+  }
+  
+  return false; // No recovery possible
+}
+
+/**
+ * Extract missing dependencies from error message
+ */
+function extractMissingDependencies(error: string): string[] {
+  const matches: string[] = [];
+  
+  // Pattern 1: Cannot find module 'package-name'
+  const pattern1 = /Cannot find module ['"]([^'"]+)['"]/g;
+  let match;
+  while ((match = pattern1.exec(error)) !== null) {
+    const pkg = match[1];
+    // Skip relative imports and built-in modules
+    if (!pkg.startsWith('.') && !pkg.startsWith('/') && !pkg.startsWith('@/')) {
+      // Skip Node.js built-ins
+      if (!['fs', 'path', 'crypto', 'http', 'https', 'url', 'util', 'stream', 'events', 'buffer', 'os', 'net', 'tls', 'dns', 'zlib', 'querystring', 'child_process'].includes(pkg)) {
+        matches.push(pkg);
+      }
+    }
+  }
+  
+  // Pattern 2: Module not found: Can't resolve 'package-name'
+  const pattern2 = /Can't resolve ['"]([^'"]+)['"]/g;
+  while ((match = pattern2.exec(error)) !== null) {
+    const pkg = match[1];
+    if (!pkg.startsWith('.') && !pkg.startsWith('/') && !pkg.startsWith('@/')) {
+      if (!matches.includes(pkg)) {
+        matches.push(pkg);
+      }
+    }
+  }
+  
+  return [...new Set(matches)]; // Remove duplicates
+}
+
+/**
+ * Fix build errors using AI
+ */
+async function fixBuildErrorWithAI(
+  error: string,
+  projectRoot: string,
+  pipeline?: any
+): Promise<boolean> {
+  try {
+    const prompt = `
+Build failed with the following error:
+
+${error.substring(0, 2000)}
+
+Fix the issue. Return ONLY the files that need to be modified in the format:
+[FILE: path/to/file.tsx]
+... fixed code ...
+[GOAL]
+
+Rules:
+1. Fix ONLY the files with errors
+2. Do NOT modify unrelated files
+3. Ensure all imports are correct
+4. Use proper TypeScript types
+`;
+
+    const response = await callAI({
+      pipelineId: pipeline?.id || 'unknown',
+      step: 'build_fixer',
+      role: 'CODER',
+      model: 'claude-sonnet-4-5',
+      messages: [
+        { role: 'user', content: prompt }
+      ]
+    });
+
+    // Parse and apply fixes
+    if (response && response.trim().length > 0) {
+      const filesWritten = await parseAndWriteFiles(response, projectRoot, pipeline?.id);
+      return filesWritten > 0;
+    }
+    
+    return false;
+  } catch (aiError: any) {
+    console.warn(`   ⚠️ AI fixer error: ${aiError.message}`);
+    return false;
+  }
+}
+
 function generateDocs(repoPath: string, pipeline: any) {
   console.log("[Publisher] 📄 Generating documentation & configs...");
 
@@ -9268,23 +9404,48 @@ function toTitleCase(str: string): string {
  */
 async function runFinalBuildVerification(
   workspacePath: string,
-  pipelineId: string
+  pipelineId: string,
+  pipeline?: any
 ): Promise<void> {
   console.log('\n🔒 FINAL BUILD VERIFICATION (Pre-Publish Gate)');
   
-  // Step 1: Production build
+  // Step 1: Production build with recovery
   console.log('   📦 Running production build...');
-  try {
-    execSync('npm run build', {
-      cwd: workspacePath,
-      stdio: 'pipe',
-      encoding: 'utf-8',
-      timeout: 120000 // 2 min max
-    });
-    console.log('   ✅ Production build successful');
-  } catch (error: any) {
-    console.error('   ❌ Production build FAILED');
-    throw new Error(`Build failed: ${error.stderr || error.message}`);
+  let attempts = 0;
+  const MAX_ATTEMPTS = 3;
+  
+  while (attempts < MAX_ATTEMPTS) {
+    try {
+      execSync('npm run build', {
+        cwd: workspacePath,
+        stdio: 'pipe',
+        encoding: 'utf-8',
+        timeout: 120000 // 2 min max
+      });
+      console.log('   ✅ Production build successful');
+      break; // Success, exit retry loop
+    } catch (error: any) {
+      attempts++;
+      const errorOutput = error.stderr?.toString() || error.stdout?.toString() || error.message || '';
+      console.error(`   ❌ Production build FAILED (attempt ${attempts}/${MAX_ATTEMPTS})`);
+      
+      if (attempts >= MAX_ATTEMPTS) {
+        throw new Error(`Build failed after ${MAX_ATTEMPTS} attempts: ${errorOutput}`);
+      }
+      
+      // ✅ RECOVERY AGENT: Attempt to fix common issues
+      console.log('   🔧 [Recovery Agent] Attempting to fix build error...');
+      const recovered = await attemptBuildRecovery(errorOutput, workspacePath, pipeline);
+      
+      if (recovered) {
+        console.log('   ✅ Recovery successful, retrying build...');
+        continue; // Retry build
+      } else {
+        console.warn('   ⚠️ Recovery agent could not fix the error');
+        // Still retry in case it was a transient issue
+        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2s before retry
+      }
+    }
   }
   
   // Step 2: Start production server and verify it responds
@@ -9602,7 +9763,7 @@ async function runPublisherStep(pipeline: any, repoPath: string) {
     console.log('\n🔒 [Publisher] Running pre-publish verification...');
     
     // Fix 1: Final Build Verification
-    await runFinalBuildVerification(repoPath, pipeline.id);
+    await runFinalBuildVerification(repoPath, pipeline.id, pipeline);
     
     // Fix 2: Validate and Fix Dependencies
     await validateAndFixDependencies(repoPath);
@@ -10079,6 +10240,12 @@ export async function runPipelineLoop(sandboxPath: string) {
   // ✅ VALIDATE ENVIRONMENT
   validateEnvironment();
 
+  // ✅ Declare variables at function scope so they're accessible in catch block
+  let frontendPort: number | null = null;
+  let backendPort: number | null = null;
+  let costTracker: CostTracker | null = null;
+  let pipeline: any = null;
+
   while (true) {
     try {
       // Hämta aktiva pipelines
@@ -10100,12 +10267,7 @@ export async function runPipelineLoop(sandboxPath: string) {
         continue;
       }
 
-      const pipeline = pipelines[0];
-      
-      // ✅ Declare variables at function scope so they're accessible in catch block
-      let frontendPort: number | null = null;
-      let backendPort: number | null = null;
-      let costTracker: CostTracker | null = null;
+      pipeline = pipelines[0];
       
       // ✅ LOG PIPELINE PICKUP
       console.log(`\n📥 [Pipeline ${pipeline.id.slice(0, 8)}] Claimed`);

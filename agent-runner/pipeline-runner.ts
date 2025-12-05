@@ -4200,9 +4200,32 @@ You MUST use this exact format:
           
           if (!filePath || !content) continue;
           
-          content = content.split(/\[GOAL\]|### END_FILE/)[0];
-          content = content.replace(/^```[a-z]*\n/im, '').replace(/```$/m, '');
-          content = content.trim();
+          // ✅ STRICT PARSING: Extract only code blocks
+          const codeBlockMatch = content.match(/```(?:typescript|tsx|ts|js|jsx|json|css|html)?\n([\s\S]*?)```/);
+          if (codeBlockMatch) {
+            content = codeBlockMatch[1].trim();
+          } else {
+            // Fallback: Remove [GOAL] and explanations
+            content = content.split(/\[GOAL\]|### END_FILE/)[0];
+            content = content.replace(/^```[a-z]*\n/im, '').replace(/```$/m, '');
+            // Remove explanation lines
+            content = content
+              .split('\n')
+              .filter(line => {
+                const trimmed = line.trim();
+                if (/^(Fixed the|Here's|I've|The code|This|Note:|Explanation:)/i.test(trimmed)) {
+                  return false;
+                }
+                if (/^#{1,6}\s/.test(trimmed) || /^[-*+]\s/.test(trimmed)) {
+                  return false;
+                }
+                return true;
+              })
+              .join('\n')
+              .trim();
+          }
+          // Final cleanup
+          content = content.replace(/\[GOAL\][\s\S]*$/m, '').trim();
           
           if (filePath && content) {
             parsedFiles.push({ path: filePath, content });
@@ -8648,12 +8671,35 @@ CRITICAL EXPORT RULES (MANDATORY):
         const fileName = fileMatch[1].trim();
         let content = fileMatch[2].trim();
         
-        // THE SANITIZER: Ta bort alla Markdown-artefakter
-        content = content.replace(/^```[a-zA-Z0-9]*\n?/m, '');
-        content = content.replace(/```$/m, '');
-        content = content.replace(/^### FILE:.*\n?/m, '');
-        content = content.replace(/```[a-zA-Z0-9]*\n/g, '').replace(/```$/g, '');
-        content = content.trim();
+        // ✅ STRICT PARSING: Extract only code blocks
+        const codeBlockMatch = content.match(/```(?:typescript|tsx|ts|js|jsx|json|css|html)?\n([\s\S]*?)```/);
+        if (codeBlockMatch) {
+          content = codeBlockMatch[1].trim();
+        } else {
+          // Fallback: THE SANITIZER: Ta bort alla Markdown-artefakter
+          content = content.split(/\[GOAL\]/)[0].trim();
+          content = content.replace(/^```[a-zA-Z0-9]*\n?/m, '');
+          content = content.replace(/```$/m, '');
+          content = content.replace(/^### FILE:.*\n?/m, '');
+          content = content.replace(/```[a-zA-Z0-9]*\n/g, '').replace(/```$/g, '');
+          // Remove explanation lines
+          content = content
+            .split('\n')
+            .filter(line => {
+              const trimmed = line.trim();
+              if (/^(Fixed the|Here's|I've|The code|This|Note:|Explanation:)/i.test(trimmed)) {
+                return false;
+              }
+              if (/^#{1,6}\s/.test(trimmed) || /^[-*+]\s/.test(trimmed)) {
+                return false;
+              }
+              return true;
+            })
+            .join('\n')
+            .trim();
+        }
+        // Final cleanup
+        content = content.replace(/\[GOAL\][\s\S]*$/m, '').trim();
         
         // 🆕 VALIDATE FILENAME
         const cleanFileName = validateAndFixFilename(fileName);

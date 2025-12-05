@@ -9539,13 +9539,12 @@ export default nextConfig;
   // Verify it has required fields
   try {
     const configContent = fs.readFileSync(configPath, 'utf-8');
+    let needsUpdate = false;
+    let updatedConfig = configContent;
     
     // Check if experimental.appDir is enabled (for App Router)
     if (!configContent.includes('appDir') && !configContent.includes('experimental')) {
       console.log('⚠️ Enabling App Router support in next.config.mjs');
-      
-      // Try to add experimental.appDir
-      let updatedConfig = configContent;
       
       // If there's already an experimental block, add appDir to it
       if (configContent.includes('experimental:')) {
@@ -9553,29 +9552,39 @@ export default nextConfig;
           /experimental:\s*\{/,
           'experimental: {\n    appDir: true,'
         );
+        needsUpdate = true;
       } else {
-        // Add experimental block before closing brace
-        updatedConfig = configContent.replace(
-          /const nextConfig = \{/,
-          `const nextConfig = {\n  experimental: {\n    appDir: true,\n  },`
-        );
-      }
-      
-      if (updatedConfig !== configContent) {
-        fs.writeFileSync(configPath, updatedConfig, 'utf-8');
-        console.log('✅ Updated next.config.mjs with App Router support');
+        // Add experimental block after reactStrictMode or at the start
+        if (configContent.includes('reactStrictMode')) {
+          updatedConfig = configContent.replace(
+            /reactStrictMode:\s*true,?/,
+            'reactStrictMode: true,\n  experimental: {\n    appDir: true,\n  },'
+          );
+        } else {
+          updatedConfig = configContent.replace(
+            /const nextConfig = \{/,
+            `const nextConfig = {\n  experimental: {\n    appDir: true,\n  },`
+          );
+        }
+        needsUpdate = true;
       }
     }
     
     // Ensure reactStrictMode is set
     if (!configContent.includes('reactStrictMode')) {
       console.log('⚠️ Adding reactStrictMode to next.config.mjs');
-      let updatedConfig = configContent.replace(
+      updatedConfig = updatedConfig.replace(
         /const nextConfig = \{/,
         'const nextConfig = {\n  reactStrictMode: true,'
       );
+      needsUpdate = true;
+    }
+    
+    if (needsUpdate && updatedConfig !== configContent) {
       fs.writeFileSync(configPath, updatedConfig, 'utf-8');
-      console.log('✅ Added reactStrictMode to next.config.mjs');
+      console.log('✅ Updated next.config.mjs with required settings');
+    } else if (!needsUpdate) {
+      console.log('✅ next.config.mjs is valid');
     }
   } catch (error: any) {
     console.warn(`⚠️ Could not validate next.config.mjs: ${error.message}`);

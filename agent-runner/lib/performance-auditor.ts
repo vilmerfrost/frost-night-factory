@@ -32,7 +32,22 @@ export async function runPerformanceAudit(
   
   console.log('🔍 [Lighthouse] Running performance audit...');
   
-  const chrome = await chromeLauncher.launch({ chromeFlags: ['--headless'] });
+  // ✅ Add Chrome path configuration
+  const chromePath = process.env.CHROME_PATH || 
+    (process.platform === 'win32' 
+      ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
+      : process.platform === 'darwin'
+      ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+      : undefined);
+  
+  if (chromePath) {
+    console.log(`   Using Chrome at: ${chromePath}`);
+  }
+  
+  const chrome = await chromeLauncher.launch({ 
+    chromeFlags: ['--headless'],
+    chromePath: chromePath, // ✅ Add Chrome path
+  });
   
   const options = {
     logLevel: 'error' as const,

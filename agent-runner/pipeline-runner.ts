@@ -10168,7 +10168,7 @@ export async function runPipelineLoop(sandboxPath: string) {
       }
 
       // ✅ P2: Start Cost Tracking (available throughout pipeline)
-      let costTracker: CostTracker | null = null;
+      // costTracker already declared at function scope (line 10097)
       if (isFeatureEnabled('trackCosts')) {
         try {
           costTracker = new CostTracker();

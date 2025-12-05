@@ -20,7 +20,7 @@ const FORBIDDEN_PATTERNS = [
   // Lazy returns
   { pattern: /return\s+\[\s*\]\s*;/g, message: 'Empty array return' },
   { pattern: /return\s+\{\s*\}\s*;/g, message: 'Empty object return' },
-  { pattern: /return\s+null\s*;/g, message: 'Null return (likely placeholder)' },
+  // Note: return null is checked separately with context awareness (see detectPlaceholderCode)
   { pattern: /return\s+undefined\s*;/g, message: 'Undefined return (placeholder)' },
   
   // Mock/placeholder data
@@ -50,6 +50,21 @@ export function detectPlaceholderCode(code: string, fileName: string): Validatio
     const matches = code.match(pattern)
     if (matches) {
       errors.push(`[${fileName}] PLACEHOLDER DETECTED: ${message} (found: "${matches[0]}")`)
+    }
+  }
+  
+  // ✅ CONTEXT-AWARE: Check for "return null" with context awareness
+  if (code.includes('return null')) {
+    // Allow "return null" in:
+    // - Conditional returns: if (!mounted) return null;
+    // - Error states: if (error) return null;
+    // - Loading states: if (loading) return null;
+    const isConditional = /if\s*\([^)]+\)\s*return\s+null/g.test(code)
+    const hasOtherReturns = (code.match(/return\s+</g) || []).length > 0 || // JSX returns
+                            (code.match(/return\s+[^n]/g) || []).length > 0  // Other non-null returns
+    
+    if (!isConditional && !hasOtherReturns) {
+      errors.push(`[${fileName}] PLACEHOLDER DETECTED: Null return (likely placeholder)`)
     }
   }
   

@@ -72,8 +72,8 @@ export function validateCodeCompleteness(
     { pattern: /\/\/\s*TODO:/gi, message: 'TODO comment found' },
     { pattern: /\/\/\s*FIXME:/gi, message: 'FIXME comment found' },
     { pattern: /return\s+\[\s*\]\s*;/g, message: 'Empty array return' },
-    { pattern: /return\s+\{\s*\}\s*;/g, message: 'Empty object return' },
-    { pattern: /return\s+null\s*;/g, message: 'Null return (likely placeholder)' }
+    { pattern: /return\s+\{\s*\}\s*;/g, message: 'Empty object return' }
+    // Note: return null is checked separately with context awareness below
   ]
   
   placeholderPatterns.forEach(({ pattern, message }) => {
@@ -81,6 +81,21 @@ export function validateCodeCompleteness(
       issues.push(message)
     }
   })
+  
+  // ✅ CONTEXT-AWARE: Check for "return null" with context awareness
+  if (code.includes('return null')) {
+    // Allow "return null" in:
+    // - Conditional returns: if (!mounted) return null;
+    // - Error states: if (error) return null;
+    // - Loading states: if (loading) return null;
+    const isConditional = /if\s*\([^)]+\)\s*return\s+null/g.test(code)
+    const hasOtherReturns = (code.match(/return\s+</g) || []).length > 0 || // JSX returns
+                            (code.match(/return\s+[^n]/g) || []).length > 0  // Other non-null returns
+    
+    if (!isConditional && !hasOtherReturns) {
+      issues.push('Null return (likely placeholder)')
+    }
+  }
   
   // Score = statements per function (higher is better)
   const score = totalFunctions > 0 ? statementCount / totalFunctions : 0

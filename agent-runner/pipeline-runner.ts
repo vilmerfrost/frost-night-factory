@@ -4597,9 +4597,31 @@ Only fix the files that have issues. Keep everything else unchanged.
               const filePath = fixMatch[1].trim();
               let content = fixMatch[2].trim();
               
-              if (content.startsWith("```")) {
-                content = content.replace(/^```[a-z]*\n/, "").replace(/```$/, "");
+              // ✅ STRICT PARSING: Extract only code blocks
+              const codeBlockMatch = content.match(/```(?:typescript|tsx|ts|js|jsx|json|css|html)?\n([\s\S]*?)```/);
+              if (codeBlockMatch) {
+                content = codeBlockMatch[1].trim();
+              } else {
+                // Fallback: Remove [GOAL] and markdown
+                content = content.split(/\[GOAL\]/)[0].trim();
+                if (content.startsWith("```")) {
+                  content = content.replace(/^```[a-z]*\n/, "").replace(/```$/, "");
+                }
+                // Remove explanation lines
+                content = content
+                  .split('\n')
+                  .filter(line => {
+                    const trimmed = line.trim();
+                    if (/^(Fixed the|Here's|I've|The code|This|Note:|Explanation:)/i.test(trimmed)) {
+                      return false;
+                    }
+                    return true;
+                  })
+                  .join('\n')
+                  .trim();
               }
+              // Final cleanup
+              content = content.replace(/\[GOAL\][\s\S]*$/m, '').trim();
               
               if (filePath && content) {
                 fixFiles.push({ path: filePath, content: content });

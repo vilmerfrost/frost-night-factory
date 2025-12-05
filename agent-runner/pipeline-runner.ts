@@ -4814,7 +4814,7 @@ Only fix the files that have issues. Keep everything else unchanged.
       }
     } while (needsFix && iteration < maxIterations);
 
-    await updateStep(pipeline.id, 'coder', { status: 'completed' });
+    await updateStep(pipeline.id, 'coder', 'completed');
     await updatePipeline(pipeline.id, { current_phase: 'sql' });
 
   } catch (error) {
@@ -5589,15 +5589,15 @@ async function runIntelligentBatchFixer(
   while (true) {
     // 1. CLASSIFY THE ERROR
     const classified = classifyError(currentError);
-    console.log(`📊 Error Classification: ${classified.category} (confidence: ${(classified.confidence * 100).toFixed(0)}%)`);
-    console.log(`   Target files: ${classified.targetFiles.join(', ') || 'None detected'}`);
+    let targetFiles = extractTargetFiles(currentError);
+    console.log(`📊 Error Classification: ${classified.classification} (strategy: ${classified.fixStrategy})`);
+    console.log(`   Target files: ${targetFiles.join(', ') || 'None detected'}`);
     
     // 1.5. CHECK IF ERROR IS FIXABLE WITH GOLDEN TEMPLATE
     const typeErrorClassification = classifyTypeError(currentError);
     if (typeErrorClassification.fixable && typeErrorClassification.strategy === 'USE_GOLDEN_TEMPLATE') {
-      const targetFiles = classified.targetFiles.length > 0 ? classified.targetFiles : extractTargetFiles(currentError);
       
-      for (const targetFile of filesToFix) {
+      for (const targetFile of targetFiles) {
         if (targetFile.includes('layout.tsx')) {
           const targetFilePath = path.join(repoPath, targetFile);
           console.log('🔧 Using Golden Template strategy instead of AI fix...');
@@ -5694,13 +5694,14 @@ async function runIntelligentBatchFixer(
     }
     
     // 3. GET FIXING STRATEGY BASED ON ERROR CATEGORY
-    const strategy = getFixingStrategy(classified.category);
-    const targetFiles = classified.targetFiles.length > 0 
-      ? classified.targetFiles 
+    const errorCategory = classified.classification as ErrorCategory;
+    const strategy = getFixingStrategy(errorCategory);
+    const filesToFix = targetFiles.length > 0 
+      ? targetFiles 
       : strategy.fixFiles;
     
     console.log(`🎯 Strategy: ${strategy.approach}`);
-    console.log(`📁 Target files: ${targetFiles.join(', ') || 'General fix'}`);
+    console.log(`📁 Target files: ${filesToFix.join(', ') || 'General fix'}`);
     
     // 4. CHECK FOR AUTO-FIX SUGGESTION FROM TELEMETRY
     const autoFix = getAutoFixSuggestion(currentError);
@@ -5715,7 +5716,7 @@ async function runIntelligentBatchFixer(
     let fixedFiles: string[] = [];
     
     try {
-      switch (classified.category) {
+      switch (errorCategory) {
         case ErrorCategory.DEPENDENCY_VERSION:
           // Fix package.json directly with golden versions
           console.log('📦 Fixing dependency versions with GOLDEN_VERSIONS...');
@@ -5771,11 +5772,11 @@ async function runIntelligentBatchFixer(
           // Auto-fix Python syntax errors (brackets, indentation, etc.)
           console.log('🐍 Auto-fixing Python syntax error...');
           
-          if (classified.metadata?.file && classified.metadata?.type) {
-            const pythonFile = classified.metadata.file;
+          // Extract Python file from error message
+          const pythonFileMatch = currentError.match(/(?:File|file)\s+["']([^"']+\.py)["']/);
+          if (pythonFileMatch) {
+            const pythonFile = pythonFileMatch[1];
             const filePath = path.join(repoPath, pythonFile);
-            const errorType = classified.metadata.type;
-            const errorLine = classified.metadata.line;
             
             const fixed = await autoFixPythonError(classified, repoPath);
             if (fixed) {
@@ -5816,7 +5817,7 @@ async function runIntelligentBatchFixer(
         
         case ErrorCategory.SYNTAX_ERROR:
           // Check if it's a "missing use client" error
-          if (classified.metadata?.type === 'missing_use_client' && classified.targetFiles.length > 0) {
+          if (filesToFix.length > 0 && currentError.includes('use client')) {
             console.log("💡 Auto-fixing 'use client' directive...");
             
             const targetFile = classified.targetFiles[0];
@@ -6010,7 +6011,7 @@ OUTPUT FORMAT:
           const preventionPrompt = generatePreventionPrompt();
           
           const fixPrompt = `
-ERROR CATEGORY: ${classified.category}
+ERROR CATEGORY: ${classified.classification}
 ERROR CODE: ${classified.errorCode || 'Unknown'}
 
 ERROR MESSAGE:
@@ -6093,8 +6094,8 @@ OUTPUT FORMAT:
     circuitBreaker.recordAttempt({
       timestamp: new Date(),
       error: currentError,
-      errorHash: classified.errorHash,
-      errorCategory: classified.category,
+      errorHash: classified.errorSignature,
+      errorCategory: errorCategory,
       filesTouched: fixedFiles,
       strategy: strategy.approach,
       success: fixSuccess,
@@ -6103,7 +6104,10 @@ OUTPUT FORMAT:
     
     // Record in telemetry
     if (!fixSuccess) {
-      recordErrorOccurrence(currentError, classified.category);
+      // Convert ErrorClass to ErrorCategory for telemetry
+      // Map ErrorClass to ErrorCategory (they have similar values)
+      const telemetryCategory = errorCategory; // Already converted above
+      recordErrorOccurrence(currentError, telemetryCategory);
     }
     
     // Update total fixed files
@@ -9484,6 +9488,157 @@ async function convertToClientComponent(content: string): Promise<string> {
 }
 
 /**
+ * Recovery Agent: Fix homepage 404 errors
+ * Called when production build succeeds but homepage renders 404
+ */
+async function attemptHomepage404Fix(projectRoot: string, pipeline: any): Promise<boolean> {
+  console.log('🔍 [Recovery] Analyzing 404 issue...');
+  
+  const pagePath = path.join(projectRoot, 'src/app/page.tsx');
+  
+  if (!fs.existsSync(pagePath)) {
+    console.log('❌ page.tsx does not exist');
+    return false;
+  }
+  
+  let content = await fs.promises.readFile(pagePath, 'utf-8');
+  
+  // Strategy 1: Check import order
+  console.log('🔍 [Recovery] Checking import order...');
+  const hasImportOrderIssue = checkImportOrderIssue(content);
+  
+  if (hasImportOrderIssue) {
+    console.log('🔧 [Recovery] Fixing import order...');
+    content = validateAndFixImportOrder(content, pagePath);
+    await fs.promises.writeFile(pagePath, content, 'utf-8');
+    
+    // Clear cache and rebuild
+    await clearNextCache(projectRoot);
+    
+    console.log('✅ Import order fixed');
+    return true;
+  }
+  
+  // Strategy 2: Add force-dynamic if missing
+  if (!content.includes("export const dynamic = 'force-dynamic'")) {
+    console.log('🔧 [Recovery] Adding force-dynamic export...');
+    
+    const lines = content.split('\n');
+    const lastImportIndex = findLastImportIndex(lines);
+    
+    if (lastImportIndex >= 0) {
+      lines.splice(lastImportIndex + 1, 0,
+        '',
+        '// Force dynamic rendering',
+        "export const dynamic = 'force-dynamic';",
+        ''
+      );
+      
+      content = lines.join('\n');
+      await fs.promises.writeFile(pagePath, content, 'utf-8');
+      await clearNextCache(projectRoot);
+      
+      console.log('✅ Added force-dynamic');
+      return true;
+    }
+  }
+  
+  // Strategy 3: Call AI to fix
+  console.log('🤖 [Recovery] Calling AI to fix page structure...');
+  
+  const prompt = `
+The homepage (src/app/page.tsx) is rendering a 404 page in production build.
+
+Current file content:
+\`\`\`typescript
+${content.substring(0, 2000)}
+\`\`\`
+
+Fix this issue. The page should render correctly in production.
+
+Requirements:
+1. Ensure imports come BEFORE exports
+2. Add 'export const dynamic = "force-dynamic"' if using client state
+3. Ensure export default function exists
+4. Return valid JSX, not null
+
+Return ONLY the fixed page.tsx code in format:
+[FILE: src/app/page.tsx]
+... fixed code ...
+[GOAL]
+`;
+
+  try {
+    const response = await callAI({
+      pipelineId: pipeline?.id || 'unknown',
+      step: 'page_fixer',
+      role: 'FIXER',
+      model: selectModel('FIXER'),
+      messages: [{ role: 'user', content: prompt }]
+    });
+    
+    if (response && response.length > 100) {
+      // Extract code from response
+      const codeMatch = response.match(/\[FILE:\s*src\/app\/page\.tsx\]([\s\S]*?)(?:\[GOAL\]|$)/i);
+      const fixedCode = codeMatch ? codeMatch[1].trim() : response;
+      
+      await fs.promises.writeFile(pagePath, fixedCode, 'utf-8');
+      await clearNextCache(projectRoot);
+      
+      console.log('✅ AI fixed page structure');
+      return true;
+    }
+  } catch (aiError: any) {
+    console.log(`⚠️ AI fix failed: ${aiError.message}`);
+  }
+  
+  return false;
+}
+
+function checkImportOrderIssue(content: string): boolean {
+  const lines = content.split('\n');
+  let firstImportIndex = -1;
+  let firstExportIndex = -1;
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    
+    if (line.startsWith('import ') && firstImportIndex === -1) {
+      firstImportIndex = i;
+    }
+    
+    if (line.startsWith('export ') && !line.includes('export default') && firstExportIndex === -1) {
+      firstExportIndex = i;
+    }
+  }
+  
+  return firstExportIndex !== -1 && firstImportIndex !== -1 && firstExportIndex < firstImportIndex;
+}
+
+function findLastImportIndex(lines: string[]): number {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].trim().startsWith('import ')) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+async function clearNextCache(projectRoot: string): Promise<void> {
+  const cachePaths = [
+    path.join(projectRoot, '.next'),
+    path.join(projectRoot, 'tsconfig.tsbuildinfo'),
+    path.join(projectRoot, 'node_modules/.cache')
+  ];
+  
+  for (const cachePath of cachePaths) {
+    if (fs.existsSync(cachePath)) {
+      await fs.promises.rm(cachePath, { recursive: true, force: true });
+    }
+  }
+}
+
+/**
  * Call AI to fix page structure
  */
 async function callAIToFixPage(
@@ -10542,7 +10697,7 @@ async function runPublisherStep(pipeline: any, repoPath: string) {
 
         // Prefix med frost- om det inte redan finns
         const slug = projectName.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-        const repoName = slug.startsWith('frost-') ? slug : `frost-${slug}`; // T.ex. "frost-sportsync-dashboard" eller "frost-context-crystal"
+        let repoName = slug.startsWith('frost-') ? slug : `frost-${slug}`; // T.ex. "frost-sportsync-dashboard" eller "frost-context-crystal"
         
         const username = process.env.GITHUB_USERNAME || "vilmerfrost"; 
         targetRepoUrl = `https://github.com/${username}/${repoName}.git`;

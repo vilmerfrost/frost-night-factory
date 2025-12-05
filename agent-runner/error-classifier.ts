@@ -162,7 +162,7 @@ export function classifyError(errorLog: string): ErrorAnalysis {
     errorCode: 'RUNTIME',
     errorSignature: generateSignature('RUNTIME', errorLog),
     fixStrategy: 'AI_FIX',
-    maxRetries: 2,
+    maxRetries: 5, // ✅ Increased from 2 to 5 for more retry attempts
     backoffMs: 1000,
     canCache: false
   }

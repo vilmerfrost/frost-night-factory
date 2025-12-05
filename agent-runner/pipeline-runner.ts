@@ -5664,7 +5664,8 @@ async function runIntelligentBatchFixer(
       const reportPath = circuitBreaker.generateReport(reason || 'Unknown');
       
       // Record in telemetry
-      recordErrorOccurrence(currentError, classified.category);
+      const telemetryCategory = mapErrorClassToErrorCategory(classified.classification);
+      recordErrorOccurrence(currentError, telemetryCategory);
       
       // Save detailed error report
       const errorReportPath = path.join(

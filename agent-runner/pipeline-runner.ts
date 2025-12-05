@@ -10091,6 +10091,11 @@ export async function runPipelineLoop(sandboxPath: string) {
 
       const pipeline = pipelines[0];
       
+      // ✅ Declare variables at function scope so they're accessible in catch block
+      let frontendPort: number | null = null;
+      let backendPort: number | null = null;
+      let costTracker: CostTracker | null = null;
+      
       // ✅ LOG PIPELINE PICKUP
       console.log(`\n📥 [Pipeline ${pipeline.id.slice(0, 8)}] Claimed`);
       console.log(`   Name: ${pipeline.name || 'Untitled'}`);
@@ -10120,8 +10125,6 @@ export async function runPipelineLoop(sandboxPath: string) {
       const repoPath = getRepoPath(pipeline);
 
       // ✅ V8: Allocate dynamic ports for this pipeline
-      let frontendPort: number | null = null;
-      let backendPort: number | null = null;
       try {
         frontendPort = await PortManager.findAvailablePort(3000, 3100);
         backendPort = await PortManager.findAvailablePort(8000, 8100);

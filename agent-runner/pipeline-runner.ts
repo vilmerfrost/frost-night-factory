@@ -7097,6 +7097,9 @@ export default nextConfig;
           fs.writeFileSync(nextConfigPath, defaultConfig, 'utf-8');
           console.log("-> next.config.mjs created with valid Next.js 15 config.");
         }
+        
+        // ✅ Validate Next.js config structure
+        await validateNextConfig(repoPath);
       } catch (e) {
         console.warn("-> Warning: Could not update next.config.mjs (non-critical):", (e as Error).message);
       }
@@ -7444,11 +7447,22 @@ body {
         await validateNoRelativeImports(repoPath);
         
         console.log("[Tester] Running Final Build...");
-        execSync('npm run build', { 
+        const buildOutput = execSync('npm run build', { 
         cwd: repoPath, 
           stdio: 'pipe',
+          encoding: 'utf-8',
           env: { ...process.env, NEXT_TELEMETRY_DISABLED: '1' }
-        });
+        }).toString();
+        
+        // ✅ Analyze build output
+        const buildAnalysis = await analyzeBuildOutput(buildOutput);
+        if (buildAnalysis.warning) {
+          console.log(chalk.yellow(`⚠️ ${buildAnalysis.warning}`));
+          if (buildAnalysis.recommendation) {
+            console.log(chalk.yellow(`   💡 ${buildAnalysis.recommendation}`));
+          }
+        }
+        
         console.log(chalk.green.bold("✅ Build Successful!"));
         
         // 🧹 CLEAR ERROR HISTORY: Reset after successful build (V6.0)
@@ -9483,6 +9497,145 @@ async function verifySitemap(repoPath: string): Promise<boolean> {
 // =============================================================================
 
 /**
+ * Validate Next.js config file
+ * Ensures next.config.mjs exists and has required fields
+ */
+async function validateNextConfig(projectRoot: string): Promise<void> {
+  const configPath = path.join(projectRoot, 'next.config.mjs');
+  
+  if (!fs.existsSync(configPath)) {
+    console.log('⚠️ No next.config.mjs found, creating...');
+    
+    const defaultConfig = `/** @type {import('next').NextConfig} */
+const nextConfig = {
+  reactStrictMode: true,
+  swcMinify: true,
+  
+  // Support for client components
+  experimental: {
+    appDir: true,
+  },
+  
+  // Proper output mode
+  output: 'standalone',
+  
+  // Disable static optimization warnings
+  typescript: {
+    ignoreBuildErrors: false,
+  },
+  eslint: {
+    ignoreDuringBuilds: false,
+  },
+};
+
+export default nextConfig;
+`;
+    
+    await fs.promises.writeFile(configPath, defaultConfig, 'utf-8');
+    console.log('✅ Created default next.config.mjs');
+    return;
+  }
+  
+  // Verify it has required fields
+  try {
+    const configContent = fs.readFileSync(configPath, 'utf-8');
+    
+    // Check if experimental.appDir is enabled (for App Router)
+    if (!configContent.includes('appDir') && !configContent.includes('experimental')) {
+      console.log('⚠️ Enabling App Router support in next.config.mjs');
+      
+      // Try to add experimental.appDir
+      let updatedConfig = configContent;
+      
+      // If there's already an experimental block, add appDir to it
+      if (configContent.includes('experimental:')) {
+        updatedConfig = configContent.replace(
+          /experimental:\s*\{/,
+          'experimental: {\n    appDir: true,'
+        );
+      } else {
+        // Add experimental block before closing brace
+        updatedConfig = configContent.replace(
+          /const nextConfig = \{/,
+          `const nextConfig = {\n  experimental: {\n    appDir: true,\n  },`
+        );
+      }
+      
+      if (updatedConfig !== configContent) {
+        fs.writeFileSync(configPath, updatedConfig, 'utf-8');
+        console.log('✅ Updated next.config.mjs with App Router support');
+      }
+    }
+    
+    // Ensure reactStrictMode is set
+    if (!configContent.includes('reactStrictMode')) {
+      console.log('⚠️ Adding reactStrictMode to next.config.mjs');
+      let updatedConfig = configContent.replace(
+        /const nextConfig = \{/,
+        'const nextConfig = {\n  reactStrictMode: true,'
+      );
+      fs.writeFileSync(configPath, updatedConfig, 'utf-8');
+      console.log('✅ Added reactStrictMode to next.config.mjs');
+    }
+  } catch (error: any) {
+    console.warn(`⚠️ Could not validate next.config.mjs: ${error.message}`);
+  }
+}
+
+/**
+ * Analyze Next.js build output
+ * Parses build output to detect issues and provide recommendations
+ */
+interface BuildAnalysis {
+  success: boolean;
+  warning?: string;
+  recommendation?: string;
+  routes?: string[];
+}
+
+async function analyzeBuildOutput(buildOutput: string): Promise<BuildAnalysis> {
+  // Parse Next.js build output
+  const routeMatches = buildOutput.match(/Route \(pages\)\n([\s\S]*?)\n\n/);
+  
+  if (routeMatches) {
+    const routes = routeMatches[1];
+    
+    // Check if root page was generated
+    if (!routes.includes('○ /') && !routes.includes('λ /') && !routes.includes('ƒ /')) {
+      console.log('⚠️ Root page (/) was not generated');
+      console.log('📝 Generated routes:', routes);
+      
+      return {
+        success: true,  // Build succeeded
+        warning: 'Root page not statically generated - using dynamic rendering',
+        recommendation: 'Consider adding static export or removing client-only dependencies',
+        routes: routes.split('\n').filter(Boolean)
+      };
+    }
+    
+    // Extract all routes for logging
+    const routeList = routes.split('\n').filter(Boolean);
+    console.log(`✅ Build generated ${routeList.length} route(s)`);
+    
+    return {
+      success: true,
+      routes: routeList
+    };
+  }
+  
+  // Check for common build warnings
+  if (buildOutput.includes('warn')) {
+    const warnings = buildOutput.match(/⚠\s+(.+)/g) || [];
+    if (warnings.length > 0) {
+      console.log(`⚠️ Build warnings detected: ${warnings.length}`);
+      warnings.slice(0, 3).forEach(w => console.log(`   ${w}`));
+    }
+  }
+  
+  return { success: true };
+}
+
+/**
  * Helper: Wait for server to start and respond
  */
 async function waitForServer(url: string, timeoutMs: number = 30000): Promise<void> {
@@ -9541,12 +9694,22 @@ async function runFinalBuildVerification(
   
   while (attempts < MAX_ATTEMPTS) {
     try {
-      execSync('npm run build', {
+      const buildOutput = execSync('npm run build', {
         cwd: workspacePath,
         stdio: 'pipe',
         encoding: 'utf-8',
         timeout: 120000 // 2 min max
-      });
+      }).toString();
+      
+      // ✅ Analyze build output
+      const buildAnalysis = await analyzeBuildOutput(buildOutput);
+      if (buildAnalysis.warning) {
+        console.log(`   ⚠️ ${buildAnalysis.warning}`);
+        if (buildAnalysis.recommendation) {
+          console.log(`   💡 ${buildAnalysis.recommendation}`);
+        }
+      }
+      
       console.log('   ✅ Production build successful');
       break; // Success, exit retry loop
     } catch (error: any) {

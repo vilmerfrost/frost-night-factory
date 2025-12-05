@@ -31,7 +31,8 @@ import { runVisualAudit } from '../lib/nightFactory/visualAudit';
 import { runDocumentationStep } from '../lib/nightFactory/documentationAgent';
 import { DESIGN_SYSTEM, DESIGN_SYSTEM_EXAMPLES } from '../lib/nightFactory/design-system';
 import { planPerfectFileStructure, FileStructurePlan } from '../lib/nightFactory/structurePlanner';
-import { refinementLoop, startDevServerWithVerification, VisionAuditResult } from '../lib/nightFactory/vision-audit-system';
+import { refinementLoop, VisionAuditResult } from '../lib/nightFactory/vision-audit-system';
+// Note: startDevServerWithVerification is defined locally below
 import { runZeroShotPipeline } from '../lib/nightFactory/zero-shot-validation';
 import { getLatestFrameworkIntel } from '../lib/nightFactory/knowledgeBase';
 import { runIntegrationStep } from '../lib/nightFactory/integrationAgent';
@@ -105,13 +106,15 @@ import {
 // =============================================================================
 // PHASE 1-7 INTELLIGENT SYSTEMS (NEW)
 // =============================================================================
-import { GOLDEN_VERSIONS, validateAndFixDependencies, getGoldenVersion } from '../lib/nightFactory/goldenVersions';
+import { GOLDEN_VERSIONS, getGoldenVersion } from '../lib/nightFactory/goldenVersions';
+// Note: validateAndFixDependencies is defined locally below
 // ✅ REMOVED: Old classifyError import - using new error-classifier.ts instead
 // Keep other imports from old errorClassifier if still needed:
 import { extractTargetFiles, ErrorCategory, ClassifiedError, getFixingStrategy, autoFixPythonError } from '../lib/nightFactory/errorClassifier';
 import { CircuitBreaker, CircuitBreakerError, FixAttempt } from '../lib/nightFactory/circuitBreaker';
 import { recordErrorOccurrence, generatePreventionPrompt, getAutoFixSuggestion, getErrorStats } from '../lib/nightFactory/errorTelemetry';
-import { GOLDEN_TEMPLATES, getGoldenTemplate, hasGoldenTemplate, GOLDEN_PACKAGE_JSON, GOLDEN_TSCONFIG, GOLDEN_NEXT_CONFIG, GOLDEN_TAILWIND_CONFIG, GOLDEN_POSTCSS_CONFIG, GOLDEN_LAYOUT, GOLDEN_PAGE, GOLDEN_TYPES, GOLDEN_MOCK_DATA, GOLDEN_UTILS } from '../lib/nightFactory/goldenTemplates';
+import { GOLDEN_TEMPLATES, getGoldenTemplate, hasGoldenTemplate, GOLDEN_NEXT_CONFIG, GOLDEN_TAILWIND_CONFIG, GOLDEN_POSTCSS_CONFIG, GOLDEN_LAYOUT, GOLDEN_PAGE, GOLDEN_TYPES, GOLDEN_MOCK_DATA, GOLDEN_UTILS } from '../lib/nightFactory/goldenTemplates';
+// Note: GOLDEN_PACKAGE_JSON and GOLDEN_TSCONFIG are defined locally below
 import { runPreCommitValidation, ValidationResult } from '../lib/nightFactory/preCommitValidation';
 import { PathManager } from '../lib/nightFactory/pathManager';
 import { logPathOperation, clearPathLog } from '../lib/nightFactory/pathLogger';
@@ -4341,7 +4344,7 @@ You MUST use this exact format:
           
           // Use the auto-fixed files instead
           const fixedOutput = validation.fixes.map(f => 
-            `### FILE: ${f.path}\n\`\`\`tsx\n${f.content}\n\`\`\`\n### END_FILE`
+            `### FILE: ${f.file}\n\`\`\`tsx\n${f.content}\n\`\`\`\n### END_FILE`
           ).join('\n\n');
           
           rawOutput = fixedOutput;
@@ -4731,7 +4734,7 @@ Only fix the files that have issues. Keep everything else unchanged.
             // Om inga filer hittades, försök med ### FILE: format
             if (fixFiles.length === 0) {
               const fixStandardRegex = /### FILE: (.*?)\n([\s\S]*?)### END_FILE/g;
-              
+              let fixMatch;
               while ((fixMatch = fixStandardRegex.exec(rawOutput)) !== null) {
                 const filePath = fixMatch[1].trim();
                 let content = fixMatch[2].trim();
@@ -5594,7 +5597,7 @@ async function runIntelligentBatchFixer(
     if (typeErrorClassification.fixable && typeErrorClassification.strategy === 'USE_GOLDEN_TEMPLATE') {
       const targetFiles = classified.targetFiles.length > 0 ? classified.targetFiles : extractTargetFiles(currentError);
       
-      for (const targetFile of targetFiles) {
+      for (const targetFile of filesToFix) {
         if (targetFile.includes('layout.tsx')) {
           const targetFilePath = path.join(repoPath, targetFile);
           console.log('🔧 Using Golden Template strategy instead of AI fix...');
@@ -5612,13 +5615,22 @@ async function runIntelligentBatchFixer(
     }
     
     // 2. CHECK CIRCUIT BREAKER
-    const { canRetry, reason } = circuitBreaker.shouldRetry(classified);
+    // Convert ErrorAnalysis to ClassifiedError format for circuit breaker
+    const classifiedError: ClassifiedError = {
+      category: classified.classification as ErrorCategory,
+      originalError: currentError,
+      errorHash: classified.errorSignature,
+      targetFiles: targetFiles,
+      errorCode: classified.errorCode,
+      confidence: classified.canCache ? 0.8 : 0.5
+    };
+    const { canRetry, reason } = circuitBreaker.shouldRetry(classifiedError);
     if (!canRetry) {
       // ✅ Phase 0: Log circuit breaker event
       await logEvent(pipeline?.id || '', 'CIRCUIT_BREAKER', 'tester', {
         attempts: circuitBreaker.getStatus().totalAttempts,
         reason: reason || 'Max retries exceeded',
-        error_category: classified.category
+        error_category: classified.classification
       });
       
       console.error(`\n🚨 CIRCUIT BREAKER TRIGGERED: ${reason}\n`);
@@ -5710,8 +5722,11 @@ async function runIntelligentBatchFixer(
           const pkgPath = path.join(repoPath, 'package.json');
           if (fs.existsSync(pkgPath)) {
             const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-            const { fixed: fixedDeps, corrections: depCorrections } = validateAndFixDependencies(pkg.dependencies || {});
-            const { fixed: fixedDevDeps, corrections: devCorrections } = validateAndFixDependencies(pkg.devDependencies || {});
+            // validateAndFixDependencies modifies the object in place and returns void
+            const deps = pkg.dependencies || {};
+            const devDeps = pkg.devDependencies || {};
+            await validateAndFixDependencies(repoPath); // This validates the entire workspace
+            // The function modifies package.json directly, so we don't need to reassign
             
             pkg.dependencies = fixedDeps;
             pkg.devDependencies = fixedDevDeps;
@@ -6031,7 +6046,13 @@ OUTPUT FORMAT:
           if (status.totalAttempts > 5) smartLevel = 'GENIUS';
           
           try {
-            const fixOutput = await callAI('FIXER', fixPrompt, undefined, undefined, smartLevel);
+            const fixOutput = await callAI({
+              pipelineId: pipeline.id,
+              step: 'tester',
+              role: 'FIXER',
+              model: selectModel('FIXER', smartLevel === 'GENIUS' ? 'complex' : 'medium'),
+              messages: [{ role: 'user', content: fixPrompt }]
+            });
             
             // Parse and apply fixes
             const fileRegex = /\[FILE:\s*([^\]]+)\]([\s\S]*?)(?=\[GOAL\]|\[FILE:|$)/gi;
@@ -7361,8 +7382,9 @@ export default nextConfig;
           console.log(chalk.cyan("\n🐍 PYTHON FIXER: Python errors detected, attempting fix..."));
           
           try {
-            // Use new fixPythonErrors function with syntax validation
-            const fixed = await fixPythonErrors(fullQualityLog, pipeline.id, repoPath);
+            // Use autoFixPythonError function with syntax validation
+            const errorAnalysis = classifyError(fullQualityLog);
+            const fixed = await autoFixPythonError(errorAnalysis as any, repoPath);
             
             if (fixed) {
               console.log(chalk.green(`✅ Python Fixer fixed and validated Python file`));
@@ -8046,7 +8068,13 @@ RETURN FORMAT:
         // 2. ANROPA DETEKTIVEN (Kimi)
         let strategy: { analysis?: string; strategy: string; instructions: string };
         try {
-          const detectiveJson = await callAI("LOOP_DETECTIVE", investigationPrompt);
+          const detectiveJson = await callAI({
+            pipelineId: pipeline.id,
+            step: 'tester',
+            role: 'FIXER',
+            model: selectModel('FIXER', 'complex'),
+            messages: [{ role: 'user', content: investigationPrompt }]
+          });
           const jsonMatch = detectiveJson.match(/\{[\s\S]*\}/);
           if (jsonMatch) {
             strategy = JSON.parse(jsonMatch[0]);
@@ -8970,7 +8998,13 @@ ${errorHistory.slice(-3).join('\n---\n')}
 Provide a comprehensive solution that addresses the root cause, not just symptoms.
             `;
             
-            const radicalFix = await callAI("FRONTEND", radicalFixPrompt, undefined, undefined, "GENIUS");
+            const radicalFix = await callAI({
+              pipelineId: pipeline.id,
+              step: 'tester',
+              role: 'CODER',
+              model: selectModel('CODER'),
+              messages: [{ role: 'user', content: radicalFixPrompt }]
+            });
             const radicalFilesCreated = await parseAndWriteFiles(radicalFix, repoPath, pipeline.id);
             
             if (radicalFilesCreated > 0) {
@@ -9208,7 +9242,13 @@ async function generateRepoName(userRequest: string): Promise<string> {
   
   try {
     // Använd REVIEWER-rollen (Groq) för snabb generering
-    const name = await callAI("REVIEWER", prompt);
+    const name = await callAI({
+      pipelineId: 'system',
+      step: 'naming',
+      role: 'REVIEWER',
+      model: selectModel('REVIEWER'),
+      messages: [{ role: 'user', content: prompt }]
+    });
     // Städa bort skräp och konvertera till kebab-case
     const cleaned = name.trim()
       .toLowerCase()
@@ -10356,12 +10396,19 @@ async function runPublisherStep(pipeline: any, repoPath: string) {
   await updatePipeline(pipeline.id, { current_phase: 'publisher' });
   await createStep(pipeline.id, 'publisher', 'running');
 
-  try {
-    // 🔒 PRE-PUBLISH VERIFICATION (NEW - Fix 1, 2, 3)
-    console.log('\n🔒 [Publisher] Running pre-publish verification...');
-    
-    // Fix 1: Final Build Verification
-    await runFinalBuildVerification(repoPath, pipeline.id, pipeline);
+  const pipelineId = pipeline.id;
+  let attempts = 0;
+  const MAX_ATTEMPTS = 3;
+
+  while (attempts < MAX_ATTEMPTS) {
+    attempts++;
+
+    try {
+      // 🔒 PRE-PUBLISH VERIFICATION (NEW - Fix 1, 2, 3)
+      console.log(`\n🔒 [Publisher] Running pre-publish verification (attempt ${attempts}/${MAX_ATTEMPTS})...`);
+      
+      // Fix 1: Final Build Verification
+      await runFinalBuildVerification(repoPath, pipeline.id, pipeline);
     
     // Fix 2: Validate and Fix Dependencies
     await validateAndFixDependencies(repoPath);
@@ -10428,6 +10475,41 @@ async function runPublisherStep(pipeline: any, repoPath: string) {
     
     console.log('✅ [Publisher] Pre-publish verification complete\n');
     
+    // Success! Exit retry loop
+    break;
+    
+  } catch (error: any) {
+    console.log(`❌ [Publisher] Failed: ${error.message}`);
+    
+    // ✅ RECOVERY AGENT: Fix 404 errors
+    if (error.message.includes('Homepage renders 404') || error.message.includes('404 page')) {
+      console.log(`🔧 [Recovery Agent] Attempting to fix 404 error (attempt ${attempts}/${MAX_ATTEMPTS})...`);
+      
+      const fixed = await attemptHomepage404Fix(repoPath, pipeline);
+      
+      if (fixed) {
+        console.log('✅ Recovery successful, retrying verification...');
+        continue; // Retry
+      } else {
+        console.warn('⚠️ Recovery agent could not fix the 404 error');
+      }
+    }
+    
+    // Max retries reached
+    if (attempts >= MAX_ATTEMPTS) {
+      console.log(`❌ Publisher failed after ${MAX_ATTEMPTS} attempts`);
+      await updatePipelineStatus(pipelineId, 'failed', error.message);
+      await updateStep(pipelineId, 'publisher', 'failed', error.message);
+      return; // Exit without throwing
+    }
+    
+    console.log(`⚠️ Retrying (${attempts}/${MAX_ATTEMPTS})...`);
+    await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2s before retry
+  }
+  }
+  
+  // Continue with rest of publisher logic
+  try {
     // 1. BESTÄM MÅL-URL (Smart Naming)
     let targetRepoUrl = pipeline.repo_url;
 
@@ -10493,7 +10575,7 @@ async function runPublisherStep(pipeline: any, repoPath: string) {
                         console.log(`🔄 Pivoting to new repo name: ${newName}`);
                         
                         // Uppdatera pipeline data
-                        repoName = newName;
+                        repoName = newName; // This is now let, so assignment is allowed
                         targetRepoUrl = `https://github.com/${username}/${repoName}.git`;
                         
                         // Försök igen med nytt namn

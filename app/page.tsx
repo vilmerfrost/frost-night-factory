@@ -305,9 +305,19 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Pipeline Creator */}
-        <div className="mb-8">
-          <PipelineCreator />
+        {/* Quick Create Form */}
+        <div className="mb-8 bg-zinc-950 border border-zinc-800 rounded-xl p-6">
+          <h2 className="text-lg font-semibold text-white mb-4">Quick Create</h2>
+          <p className="text-sm text-zinc-400 mb-4">
+            Create a new application by describing your vision. The factory will build it automatically.
+          </p>
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="w-full bg-gradient-to-r from-cyan-500 to-purple-500 text-black font-bold py-3 rounded-lg hover:opacity-90 transition-all flex items-center justify-center gap-2"
+          >
+            <Plus className="w-5 h-5" />
+            Create New Application
+          </button>
         </div>
 
         {/* Active Pipelines */}

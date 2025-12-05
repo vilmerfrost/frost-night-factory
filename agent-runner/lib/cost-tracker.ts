@@ -37,7 +37,7 @@ export class CostTracker {
     'gpt-4o-mini': { input: 0.15, output: 0.60 },
     'deepseek-chat': { input: 0.27, output: 1.10 },
     'deepseek-reasoner': { input: 0.55, output: 2.19 },
-    'moonshot-v1-256k': { input: 0.50, output: 0.60 }, // Kimi K2
+    'kimi-k2-thinking': { input: 0.50, output: 0.60 }, // Kimi K2
     'llama-3.3-70b-versatile': { input: 0.59, output: 0.79 },
     'gemini-2.5-flash': { input: 0.075, output: 0.30 },
   };
@@ -97,7 +97,7 @@ export class CostTracker {
       return model.includes('reasoner') ? 'deepseek-reasoner' : 'deepseek-chat';
     }
     if (model.includes('moonshot') || model.includes('kimi')) {
-      return 'moonshot-v1-256k';
+      return 'kimi-k2-thinking';
     }
     if (model.includes('llama') || model.includes('groq')) {
       return 'llama-3.3-70b-versatile';

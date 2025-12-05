@@ -155,7 +155,7 @@ export function selectModel(config: {
   
   // K2 for research synthesis
   if (config.role === 'RESEARCHER' && config.step === 'synthesis') {
-    return { provider: 'kimi', model: 'moonshot-v1-256k' };
+    return { provider: 'kimi', model: 'kimi-k2-thinking' };
   }
   
   // Planner

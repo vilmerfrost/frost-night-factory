@@ -1,9 +1,8 @@
 "use client";
 
-import { createClient } from "@supabase/supabase-js";
+// ✅ Use singleton client from utils/supabase/client.ts to prevent multiple instances
+import { createClient } from "@/utils/supabase/client";
 
-export const supabaseBrowser = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+// Export singleton instance for backward compatibility
+export const supabaseBrowser = createClient();
 

@@ -48,10 +48,9 @@ export default function CreateTaskModal({ isOpen, onClose, onCreated }: CreateTa
       const apiEndpoint = prompt ? "/api/tickets" : "/api/tasks/new";
       const payload = prompt 
         ? {
-            vision: prompt,
+            vision: prompt,  // ✅ Use 'vision' not 'description'
             stack_config: stackConfig,
             priority: 'medium',
-            type: 'feature',
           }
         : {
             title, 

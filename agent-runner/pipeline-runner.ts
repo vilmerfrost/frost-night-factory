@@ -238,13 +238,28 @@ dotenv.config();
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL!;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY!;
 
+// ✅ VERIFY SERVICE ROLE KEY IS SET
+if (!SUPABASE_KEY) {
+  console.error('❌ CRITICAL: SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SERVICE_KEY must be set!');
+  console.error('   Get it from: Supabase Dashboard → Project Settings → API → service_role key');
+  process.exit(1);
+}
+
+if (!SUPABASE_URL) {
+  console.error('❌ CRITICAL: SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL must be set!');
+  process.exit(1);
+}
+
+console.log(`✅ Supabase configured: ${SUPABASE_URL.substring(0, 30)}...`);
+console.log(`✅ Using SERVICE ROLE KEY (bypasses RLS)`);
+
 // =============================================================================
 // 🛡️ UNIFIED PATH SYSTEM - Single Source of Truth
 // =============================================================================
 const pathManager = PathManager.getInstance();
 const pathCircuitBreaker = PathCircuitBreaker.getInstance();
 
-// Initiera Supabase Admin
+// Initiera Supabase Admin (MUST use service role key to bypass RLS)
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // =============================================================================
@@ -1494,7 +1509,7 @@ Synthesize this into actionable technical guidance for the development team.`;
       pipelineId,
       step: 'k2_synthesis',
       role: 'RESEARCHER',
-      model: 'moonshot-v1-256k',
+      model: 'kimi-k2-thinking',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
@@ -7344,7 +7359,8 @@ body {
         console.log(chalk.green("   🧹 Error history cleared"));
         
         // 🧠 MEMORIZE SOLUTION: Save successful fix to Hive Mind
-        if (wasFixing && lastAppliedFix && lastErrorLog) {
+        // ✅ Safety check: Ensure wasFixing is defined (prevents ReferenceError)
+        if (typeof wasFixing !== 'undefined' && wasFixing && lastAppliedFix && lastErrorLog) {
           console.log("🧠 Memorizing successful fix to Hive Mind...");
           await memorizeSolution(lastErrorLog, lastAppliedFix).catch(err => 
             console.warn("⚠️ Failed to memorize solution:", err?.message)
@@ -7555,7 +7571,8 @@ RETURN FORMAT:
         console.log("✅ All checks passed! Ready for publishing.");
         
         // 🧠 MEMORIZE SOLUTION: Save successful fix to Hive Mind
-        if (wasFixing && lastAppliedFix && lastErrorLog) {
+        // ✅ Safety check: Ensure wasFixing is defined (prevents ReferenceError)
+        if (typeof wasFixing !== 'undefined' && wasFixing && lastAppliedFix && lastErrorLog) {
           console.log("🧠 Memorizing successful fix to Hive Mind...");
           await memorizeSolution(lastErrorLog, lastAppliedFix).catch(err => 
             console.warn("⚠️ Failed to memorize solution:", err?.message)
@@ -10040,7 +10057,10 @@ export async function runPipelineLoop(sandboxPath: string) {
         .order('updated_at', { ascending: true }) // FIFO
         .limit(1);
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Error fetching pipelines:', error);
+        throw error;
+      }
 
       if (!pipelines || pipelines.length === 0) {
         await sleep(5000);
@@ -10048,6 +10068,14 @@ export async function runPipelineLoop(sandboxPath: string) {
       }
 
       const pipeline = pipelines[0];
+      
+      // ✅ LOG PIPELINE PICKUP
+      console.log(`\n📥 [Pipeline ${pipeline.id.slice(0, 8)}] Claimed`);
+      console.log(`   Name: ${pipeline.name || 'Untitled'}`);
+      console.log(`   Status: ${pipeline.status}`);
+      console.log(`   Phase: ${pipeline.current_phase}`);
+      console.log(`   Ticket ID: ${pipeline.ticket_id || 'N/A'}`);
+      console.log(`🔧 Starting AI agents...\n`);
       
       // ✅ CHECK DB STATE FIRST (prevent loops)
       if (pipeline.status === 'failed_hard') {
@@ -10099,7 +10127,7 @@ export async function runPipelineLoop(sandboxPath: string) {
       let stackConfig: any = null;
       if (pipeline.ticket_id) {
         const { data: ticket } = await supabase
-          .from('frost_tickets')
+          .from('tickets')
           .select('stack_config')
           .eq('id', pipeline.ticket_id)
           .single();
@@ -10129,6 +10157,7 @@ export async function runPipelineLoop(sandboxPath: string) {
       }
 
       // Fas-väljare
+      console.log(`[Pipeline ${pipeline.id.slice(0, 8)}] Executing phase: ${pipeline.current_phase}`);
       switch (pipeline.current_phase) {
         case 'cloner':
           await runClonerStep(pipeline, repoPath);

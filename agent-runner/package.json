@@ -5,7 +5,8 @@
   "main": "index.ts",
   "scripts": {
     "start": "tsx index.ts",
-    "dev": "tsx watch index.ts",
+    "watch": "tsx watcher.ts",
+    "dev": "tsx --watch watcher.ts",
     "build": "tsc",
     "run": "node dist/index.js",
     "test:e2e": "playwright test",

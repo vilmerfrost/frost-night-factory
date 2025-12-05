@@ -1,9 +1,9 @@
 -- =============================================================================
--- ADD STACK CONFIG TO FROST_TICKETS
+-- ADD STACK CONFIG TO TICKETS TABLE
 -- =============================================================================
 
--- Add stack_config column to frost_tickets
-ALTER TABLE frost_tickets 
+-- Add stack_config column to tickets
+ALTER TABLE tickets 
 ADD COLUMN IF NOT EXISTS stack_config JSONB DEFAULT '{
   "frontend": "nextjs-16",
   "backend": "none",
@@ -11,15 +11,24 @@ ADD COLUMN IF NOT EXISTS stack_config JSONB DEFAULT '{
   "features": []
 }'::jsonb;
 
+-- Add priority column (if not exists)
+ALTER TABLE tickets 
+ADD COLUMN IF NOT EXISTS priority TEXT DEFAULT 'medium' CHECK (priority IN ('low', 'medium', 'high'));
+
 -- Add metadata column for ports and other runtime data
-ALTER TABLE frost_tickets 
+ALTER TABLE tickets 
 ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb;
 
 -- Create index for stack queries
-CREATE INDEX IF NOT EXISTS idx_frost_tickets_stack_config 
-ON frost_tickets USING gin(stack_config);
+CREATE INDEX IF NOT EXISTS idx_tickets_stack_config 
+ON tickets USING gin(stack_config);
 
--- Add comment
-COMMENT ON COLUMN frost_tickets.stack_config IS 'User-selected tech stack configuration (frontend, backend, UI library, features)';
-COMMENT ON COLUMN frost_tickets.metadata IS 'Runtime metadata (ports, timestamps, etc.)';
+-- Create index for priority queries
+CREATE INDEX IF NOT EXISTS idx_tickets_priority 
+ON tickets(priority);
+
+-- Add comments
+COMMENT ON COLUMN tickets.stack_config IS 'User-selected tech stack configuration (frontend, backend, UI library, features)';
+COMMENT ON COLUMN tickets.metadata IS 'Runtime metadata (ports, timestamps, etc.)';
+COMMENT ON COLUMN tickets.priority IS 'Ticket priority: low, medium, or high';
 

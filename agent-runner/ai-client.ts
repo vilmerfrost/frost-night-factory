@@ -57,7 +57,7 @@ const COST_PER_1M_TOKENS = {
   'llama-3.3-70b-versatile': { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 },
   
   // Kimi K2 (Moonshot) - for research synthesis
-  'moonshot-v1-256k': { input: 500, output: 600, cacheWrite: 0, cacheRead: 0 }, // $0.50/$0.60 per 1M
+  'kimi-k2-thinking': { input: 500, output: 600, cacheWrite: 0, cacheRead: 0 }, // $0.50/$0.60 per 1M
   'moonshot-v1-8k': { input: 500, output: 600, cacheWrite: 0, cacheRead: 0 }
 }
 
@@ -315,7 +315,7 @@ export async function callAI(opts: AICallOptions): Promise<string> {
       const nonSystemMessages = messages.filter(m => m.role !== 'system')
       
       const result = await kimiClient.chat.completions.create({
-        model: safeModel.includes('256k') ? 'moonshot-v1-256k' : 'moonshot-v1-8k',
+        model: safeModel.includes('k2-thinking') || safeModel.includes('256k') ? 'kimi-k2-thinking' : 'moonshot-v1-8k',
         messages: [
           ...(systemMessages.length > 0 ? [{ role: 'system', content: systemMessages.join('\n\n') }] : []),
           ...nonSystemMessages.map(m => ({ role: m.role as any, content: m.content }))

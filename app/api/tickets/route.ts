@@ -1,126 +1,117 @@
 // app/api/tickets/route.ts
-import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase-server";
+import { NextRequest, NextResponse } from 'next/server';
+import { supabase } from '@/lib/supabase-server';
 
-export async function POST(req: NextRequest) {
+export async function POST(request: NextRequest) {
   try {
-    const body = await req.json();
-    const { type, title, description, source, autoHandle, project, vision, stack_config, priority } = body;
-
-    // Support both old format (type/title/description) and new format (vision)
-    if (!vision && (!type || !title || !description)) {
+    const body = await request.json();
+    
+    // Validate required fields
+    if (!body.vision) {
       return NextResponse.json(
-        { error: "Missing required fields: either 'vision' or 'type/title/description'" },
+        { error: 'Vision is required' },
         { status: 400 }
       );
     }
-
+    
     // Default stack config if not provided
-    const defaultStackConfig = {
+    const stackConfig = body.stack_config || {
       frontend: 'nextjs-16',
       backend: 'none',
       ui: 'shadcn',
       features: [],
     };
-
-    const stackConfig = stack_config || defaultStackConfig;
-
-    // Determine auto_handle and status based on type (or default for vision-based tickets)
-    const ticketType = type || 'feature';
-    if (!["bug", "feature"].includes(ticketType)) {
-      return NextResponse.json(
-        { error: "Invalid type. Must be 'bug' or 'feature'" },
-        { status: 400 }
-      );
+    
+    // ✅ MAP PRIORITY STRING TO INTEGER
+    const priorityMap: Record<string, number> = {
+      'low': 1,
+      'medium': 2,
+      'high': 3,
+    };
+    
+    // Convert priority to integer
+    let priority = 2; // default to medium
+    if (typeof body.priority === 'number') {
+      priority = body.priority;
+    } else if (typeof body.priority === 'string') {
+      priority = priorityMap[body.priority.toLowerCase()] || 2;
     }
-
-    const auto_handle = autoHandle ?? (ticketType === "bug");
-    const status = ticketType === "bug" ? "new" : "needs_human_review";
-
+    
     // Build insert payload
-    const insertPayload: any = {
-      type: ticketType,
-      source: source ?? "user_app",
-      auto_handle: auto_handle,
-      status,
-      project: project ?? "frost-solutions",
-      stack_config: stackConfig, // Store stack config
+    const insertPayload = {
+      // Primary content field
+      vision: body.vision,
+      description: body.vision,
+      request: body.vision,
+      
+      // Status & priority
+      status: 'queued', // ✅ Always use 'queued' so watcher can find it
+      priority: priority, // ✅ Now it's an INTEGER!
+      
+      // Stack configuration
+      stack_config: stackConfig,
+      
+      // Metadata
+      metadata: {
+        created_from: 'api',
+        source: body.source || 'user_app',
+        user_agent: request.headers.get('user-agent'),
+      },
+      
+      // Optional fields
+      auto_handle: body.autoHandle ?? true,
+      project_type: body.project_type || 'new',
+      reference_images: body.reference_images || [],
+      
+      // Timestamps
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     };
 
-    // Use vision if provided, otherwise use title/description
-    if (vision) {
-      insertPayload.title = `Feature: ${vision.substring(0, 100)}`;
-      insertPayload.description = vision;
-    } else {
-      insertPayload.title = title;
-      insertPayload.description = description;
-    }
-
-    // Add priority if provided
-    if (priority) {
-      insertPayload.priority = priority;
-    }
-
-    const { data, error } = await supabase
-      .from("tickets")
+    // Insert ticket
+    const { data: ticket, error } = await supabase
+      .from('tickets')
       .insert(insertPayload)
-      .select("*")
+      .select()
       .single();
-
+    
     if (error) {
-      console.error("Error inserting ticket", error);
+      console.error('Error inserting ticket:', error);
       return NextResponse.json(
-        { error: "Failed to create ticket" },
+        { error: error.message, details: error },
         { status: 500 }
       );
     }
-
-    return NextResponse.json({ ticket: data }, { status: 201 });
-  } catch (err) {
-    console.error("Unexpected error in /api/tickets", err);
+    
+    return NextResponse.json(ticket, { status: 201 });
+    
+  } catch (error: any) {
+    console.error('API error:', error);
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: 'Failed to create ticket', details: error.message },
       { status: 500 }
     );
   }
 }
 
-export async function GET(req: NextRequest) {
+export async function GET() {
   try {
-    const { searchParams } = new URL(req.url);
-    const type = searchParams.get("type");
-    const status = searchParams.get("status");
-
-    let query = supabase
-      .from("tickets")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (type) {
-      query = query.eq("type", type);
-    }
-
-    if (status) {
-      query = query.eq("status", status);
-    }
-
-    const { data, error } = await query;
-
+    const { data: tickets, error } = await supabase
+      .from('tickets')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(100);
+    
     if (error) {
-      console.error("Error fetching tickets", error);
-      return NextResponse.json(
-        { error: "Failed to fetch tickets" },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
-
-    return NextResponse.json({ tickets: data || [] });
-  } catch (err) {
-    console.error("Unexpected error in /api/tickets", err);
+    
+    return NextResponse.json(tickets || []);
+  } catch (error: any) {
+    console.error('API error:', error);
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: 'Failed to fetch tickets' },
       { status: 500 }
     );
   }
 }
-

@@ -6052,7 +6052,12 @@ export interface Database {
     }
 
     // 3. Python Checks (Om backend finns)
-    if (intent?.isPython || fs.existsSync(path.join(localPath, 'backend'))) {
+    // ✅ STACK AWARENESS: Only check Python if backend is FastAPI/Python
+    const backendType = intent?.stackConfig?.backend || 
+                       (intent?.isPython ? 'fastapi' : null) ||
+                       (fs.existsSync(path.join(localPath, 'backend', 'main.py')) ? 'fastapi' : null);
+    
+    if (backendType === 'fastapi' || backendType === 'python') {
         const backendPath = path.join(localPath, 'backend');
         console.log("   🐍 Checking Python Backend...");
         try {
@@ -6073,6 +6078,8 @@ export interface Database {
             (pythonError as any).isPythonError = true;
             throw pythonError;
         }
+    } else {
+        console.log(`   ⏭️ Skipping Python check (backend: ${backendType || 'none'})`);
     }
     console.log("✅ QUALITY GATE PASSED.");
 }

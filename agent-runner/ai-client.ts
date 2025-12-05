@@ -313,7 +313,6 @@ export async function callAI(opts: AICallOptions): Promise<string> {
           ...(finalSystemMessages.length > 0 ? finalSystemMessages.map(content => ({ role: 'system' as const, content })) : []),
           ...nonSystemMessages.map(m => ({ role: m.role as any, content: m.content }))
         ],
-        messages: messages as any,
         logit_bias: FORBIDDEN_TOKENS // ← Model physically can't write these
       })
       

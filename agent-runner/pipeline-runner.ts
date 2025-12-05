@@ -2689,6 +2689,87 @@ async function validateAndWriteFile(
   return { success: true, errors: [] }
 }
 
+/**
+ * Validate and fix import order in generated code
+ * Ensures imports come before exports (ES module requirement)
+ */
+function validateAndFixImportOrder(code: string, filePath: string): string {
+  const lines = code.split('\n');
+  
+  // Find first import and first export
+  let firstImportIndex = -1;
+  let firstExportIndex = -1;
+  let useClientIndex = -1;
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    
+    if (line === "'use client';" || line === '"use client";') {
+      useClientIndex = i;
+    }
+    
+    if (line.startsWith('import ') && firstImportIndex === -1) {
+      firstImportIndex = i;
+    }
+    
+    if ((line.startsWith('export ') && !line.includes('export default')) && firstExportIndex === -1) {
+      firstExportIndex = i;
+    }
+  }
+  
+  // Check if exports come before imports (WRONG)
+  if (firstExportIndex !== -1 && firstImportIndex !== -1 && firstExportIndex < firstImportIndex) {
+    console.log(`⚠️ [VALIDATOR] Import order violation in ${path.basename(filePath)}`);
+    console.log(`   Export at line ${firstExportIndex + 1}, Import at line ${firstImportIndex + 1}`);
+    console.log(`   🔧 Auto-fixing import order...`);
+    
+    // Extract all imports and exports
+    const imports: string[] = [];
+    const exports: string[] = [];
+    const otherLines: string[] = [];
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      
+      if (i === useClientIndex) {
+        continue; // Handle separately
+      } else if (line.trim().startsWith('import ')) {
+        imports.push(line);
+      } else if (line.trim().startsWith('export ') && !line.includes('export default')) {
+        exports.push(line);
+      } else {
+        otherLines.push(line);
+      }
+    }
+    
+    // Reconstruct in correct order
+    const fixed: string[] = [];
+    
+    if (useClientIndex !== -1) {
+      fixed.push(lines[useClientIndex]);
+      fixed.push('');
+    }
+    
+    // 1. Imports first
+    imports.forEach(imp => fixed.push(imp));
+    
+    if (imports.length > 0) fixed.push('');
+    
+    // 2. Named exports (route config)
+    exports.forEach(exp => fixed.push(exp));
+    
+    if (exports.length > 0) fixed.push('');
+    
+    // 3. Rest of code
+    otherLines.forEach(line => fixed.push(line));
+    
+    console.log(`   ✅ Fixed import order`);
+    return fixed.join('\n');
+  }
+  
+  return code;
+}
+
 async function parseAndWriteFiles(
   codeBlock: string,
   localPath: string,

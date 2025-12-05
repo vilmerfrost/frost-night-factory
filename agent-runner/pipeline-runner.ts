@@ -9216,6 +9216,33 @@ function extractMissingDependencies(error: string): string[] {
 }
 
 /**
+ * Extract clean code from AI response
+ * Removes [GOAL] markers, explanations, and other prompt artifacts
+ */
+function extractCodeFromAIResponse(response: string): string {
+  // Try to extract code block first
+  const codeBlockMatch = response.match(/```(?:typescript|tsx|ts|js|jsx|json|css|html)?\n([\s\S]*?)```/);
+  if (codeBlockMatch) {
+    return codeBlockMatch[1].trim();
+  }
+  
+  // Remove common prompt artifacts
+  let cleaned = response
+    .replace(/\[GOAL\][\s\S]*$/m, '')           // Remove [GOAL] and everything after
+    .replace(/\[INSTRUCTION\][\s\S]*$/m, '')    // Remove [INSTRUCTION] markers
+    .replace(/^(Fixed|Updated|Changed|Modified).*$/gm, '')  // Remove explanation lines
+    .replace(/^(Here's|This is|I've|The code|This code).*$/gm, '')  // Remove more explanation patterns
+    .replace(/^(Note:|Explanation:|Summary:).*$/gm, '')     // Remove note/explanation headers
+    .replace(/^#{1,6}\s.*$/gm, '')              // Remove markdown headers
+    .replace(/^[-*+]\s.*$/gm, '')               // Remove markdown list items
+    .replace(/^```[a-zA-Z0-9]*\n?/gm, '')        // Remove code fence starts
+    .replace(/```$/gm, '')                       // Remove code fence ends
+    .trim();
+  
+  return cleaned;
+}
+
+/**
  * Fix build errors using AI
  */
 async function fixBuildErrorWithAI(
@@ -9251,9 +9278,16 @@ Rules:
       ]
     });
 
-    // Parse and apply fixes
+    // ✅ Use strict parsing helper
     if (response && response.trim().length > 0) {
-      const filesWritten = await parseAndWriteFiles(response, projectRoot, pipeline?.id);
+      // The parseAndWriteFiles function already handles strict parsing,
+      // but we can pre-clean the response here for extra safety
+      const cleanedResponse = extractCodeFromAIResponse(response);
+      
+      // If cleaning removed too much, use original response
+      const finalResponse = cleanedResponse.length > 50 ? cleanedResponse : response;
+      
+      const filesWritten = await parseAndWriteFiles(finalResponse, projectRoot, pipeline?.id);
       return filesWritten > 0;
     }
     

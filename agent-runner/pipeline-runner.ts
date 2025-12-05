@@ -10470,9 +10470,12 @@ export async function runPipelineLoop(sandboxPath: string) {
       }
       
       // ✅ V8: Release ports on error
-      // Get ports from pipeline metadata if not already set (fallback)
-      const frontendPortToRelease = frontendPort || pipeline.metadata?.frontend_port;
-      const backendPortToRelease = backendPort || pipeline.metadata?.backend_port;
+      // Get ports from variables or pipeline metadata (fallback)
+      // Note: pipeline might not exist if error occurred before assignment
+      const frontendPortToRelease = (typeof frontendPort !== 'undefined' ? frontendPort : null) || 
+                                    (typeof pipeline !== 'undefined' ? pipeline.metadata?.frontend_port : null);
+      const backendPortToRelease = (typeof backendPort !== 'undefined' ? backendPort : null) || 
+                                   (typeof pipeline !== 'undefined' ? pipeline.metadata?.backend_port : null);
       
       if (frontendPortToRelease) {
         try {

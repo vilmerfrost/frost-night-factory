@@ -9192,7 +9192,128 @@ async function attemptBuildRecovery(
     return false; // Not auto-fixable yet
   }
   
+  // 4. NEW: Detect 404-only build (Homepage renders 404)
+  if (error.includes('Homepage renders 404') || error.includes('This page could not be found')) {
+    console.log('   🔧 [Recovery Agent] Detecting 404-only build...');
+    
+    // Try to find page.tsx files
+    const possiblePagePaths = [
+      path.join(projectRoot, 'src/app/page.tsx'),
+      path.join(projectRoot, 'app/page.tsx'),
+      path.join(projectRoot, 'src/pages/index.tsx'),
+      path.join(projectRoot, 'pages/index.tsx'),
+    ];
+    
+    for (const pagePath of possiblePagePaths) {
+      if (fs.existsSync(pagePath)) {
+        try {
+          let pageContent = await fs.promises.readFile(pagePath, 'utf-8');
+          
+          // Check if already has force-dynamic
+          if (!pageContent.includes("export const dynamic = 'force-dynamic'")) {
+            console.log(`   🔍 Root page found at ${path.relative(projectRoot, pagePath)}`);
+            console.log('   🔧 Adding dynamic rendering config...');
+            
+            // Add after 'use client' directive or at the top
+            const lines = pageContent.split('\n');
+            const useClientIndex = lines.findIndex(l => l.includes("'use client'") || l.includes('"use client"'));
+            
+            if (useClientIndex >= 0) {
+              // Insert after 'use client' directive
+              lines.splice(useClientIndex + 1, 0, '', 
+                '// ✅ Force dynamic rendering for this page',
+                "export const dynamic = 'force-dynamic';",
+                "export const dynamicParams = true;",
+                ''
+              );
+            } else {
+              // No 'use client', add at the top
+              lines.unshift(
+                "// ✅ Force dynamic rendering for this page",
+                "export const dynamic = 'force-dynamic';",
+                "export const dynamicParams = true;",
+                ''
+              );
+            }
+            
+            pageContent = lines.join('\n');
+            await fs.promises.writeFile(pagePath, pageContent, 'utf-8');
+            
+            console.log(`   ✅ Added force-dynamic config to ${path.basename(pagePath)}`);
+            return true; // Successfully fixed
+          } else {
+            console.log(`   ✅ Page already has force-dynamic config`);
+            // Still return true since config is correct
+            return true;
+          }
+        } catch (fileError: any) {
+          console.warn(`   ⚠️ Could not fix page.tsx: ${fileError.message}`);
+        }
+      }
+    }
+    
+    // If no page.tsx found, try AI fix
+    console.log('   🤖 No page.tsx found or fix failed, attempting AI fix...');
+    const pagePath = possiblePagePaths.find(p => fs.existsSync(p));
+    if (pagePath) {
+      return await fixPageWithAI(pagePath, projectRoot, pipeline);
+    }
+  }
+  
   return false; // No recovery possible
+}
+
+/**
+ * Fix page structure with AI to enable static generation
+ */
+async function fixPageWithAI(
+  pagePath: string,
+  projectRoot: string,
+  pipeline?: any
+): Promise<boolean> {
+  try {
+    const pageContent = await fs.promises.readFile(pagePath, 'utf-8');
+    
+    const prompt = `
+The homepage is rendering a 404 page during build. This usually happens when:
+1. The page uses client-only features that prevent static generation
+2. The page needs dynamic rendering configuration
+
+Current page content:
+${pageContent.substring(0, 2000)}
+
+Fix the page by adding:
+export const dynamic = 'force-dynamic';
+export const dynamicParams = true;
+
+Place these exports right after any 'use client' directive.
+
+Return ONLY the fixed file content in format:
+[FILE: ${path.relative(projectRoot, pagePath)}]
+... fixed code ...
+[GOAL]
+`;
+
+    const response = await callAI({
+      pipelineId: pipeline?.id || 'unknown',
+      step: 'page_fixer',
+      role: 'CODER',
+      model: 'claude-sonnet-4-5',
+      messages: [
+        { role: 'user', content: prompt }
+      ]
+    });
+
+    if (response && response.trim().length > 0) {
+      const filesWritten = await parseAndWriteFiles(response, projectRoot, pipeline?.id);
+      return filesWritten > 0;
+    }
+    
+    return false;
+  } catch (aiError: any) {
+    console.warn(`   ⚠️ AI page fixer failed: ${aiError.message}`);
+    return false;
+  }
 }
 
 /**

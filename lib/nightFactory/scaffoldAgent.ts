@@ -18,6 +18,7 @@ export function generateScaffold(repoPath: string): void {
     'src/app',
     'src/lib',
     'src/components/ui',
+    'src/components/layout',
     'src/types',
     'backend'
   ];
@@ -105,7 +106,76 @@ export type Timestamp = string;
     }
   });
   
-  // 3. Injicera Golden Components direkt (så de finns i registret)
+  // 3. ✅ V8.0: Inject Golden UI Components from templates/shadcn
+  const goldenRoot = path.join(__dirname, '..', '..', 'agent-runner', 'templates', 'shadcn');
+  
+  // 3.1 Copy UI components
+  const goldenUIDir = path.join(goldenRoot, 'components', 'ui');
+  const projectUIDir = path.join(repoPath, 'src/components/ui');
+  if (fs.existsSync(goldenUIDir)) {
+    if (!fs.existsSync(projectUIDir)) {
+      fs.mkdirSync(projectUIDir, { recursive: true });
+    }
+    
+    const uiFiles = fs.readdirSync(goldenUIDir);
+    uiFiles.forEach(file => {
+      if (file.endsWith('.tsx') || file.endsWith('.ts')) {
+        const sourcePath = path.join(goldenUIDir, file);
+        const destPath = path.join(projectUIDir, file);
+        
+        // Only copy if doesn't exist (don't overwrite existing)
+        if (!fs.existsSync(destPath)) {
+          fs.copyFileSync(sourcePath, destPath);
+          console.log(`   ✨ Injected Golden UI Component: ${file}`);
+        }
+      }
+    });
+  }
+  
+  // 3.2 Copy Layout components
+  const goldenLayoutDir = path.join(goldenRoot, 'components', 'layout');
+  const projectLayoutDir = path.join(repoPath, 'src/components/layout');
+  if (fs.existsSync(goldenLayoutDir)) {
+    if (!fs.existsSync(projectLayoutDir)) {
+      fs.mkdirSync(projectLayoutDir, { recursive: true });
+    }
+    
+    const layoutFiles = fs.readdirSync(goldenLayoutDir);
+    layoutFiles.forEach(file => {
+      if (file.endsWith('.tsx') || file.endsWith('.ts')) {
+        const sourcePath = path.join(goldenLayoutDir, file);
+        const destPath = path.join(projectLayoutDir, file);
+        
+        // Only copy if doesn't exist (don't overwrite existing)
+        if (!fs.existsSync(destPath)) {
+          fs.copyFileSync(sourcePath, destPath);
+          console.log(`   ✨ Injected Golden Layout Component: ${file}`);
+        }
+      }
+    });
+  }
+  
+  // 3.3 Copy lib/utils.ts and lib/blueprints.ts
+  const goldenLibDir = path.join(goldenRoot, 'lib');
+  const projectLibDir = path.join(repoPath, 'src/lib');
+  if (fs.existsSync(goldenLibDir)) {
+    if (!fs.existsSync(projectLibDir)) {
+      fs.mkdirSync(projectLibDir, { recursive: true });
+    }
+    
+    const libFiles = ['utils.ts', 'blueprints.ts'];
+    libFiles.forEach(file => {
+      const sourcePath = path.join(goldenLibDir, file);
+      const destPath = path.join(projectLibDir, file);
+      
+      if (fs.existsSync(sourcePath) && !fs.existsSync(destPath)) {
+        fs.copyFileSync(sourcePath, destPath);
+        console.log(`   ✨ Injected Golden Lib File: ${file}`);
+      }
+    });
+  }
+  
+  // 3.4 Legacy: Still inject old GOLDEN_COMPONENTS if they exist (for backward compatibility)
   const uiDir = path.join(repoPath, 'src/components/ui');
   if (!fs.existsSync(uiDir)) {
     fs.mkdirSync(uiDir, { recursive: true });
@@ -115,7 +185,7 @@ export type Timestamp = string;
     const componentPath = path.join(uiDir, name);
     if (!fs.existsSync(componentPath)) {
       fs.writeFileSync(componentPath, content);
-      console.log(`   ✨ Injected Golden Component: ${name}`);
+      console.log(`   ✨ Injected Legacy Golden Component: ${name}`);
     }
   });
   

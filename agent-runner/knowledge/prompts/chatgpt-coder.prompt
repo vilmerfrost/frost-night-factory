@@ -1,0 +1,113 @@
+# ChatGPT Coder Prompt
+# Role: Senior Full-Stack Developer
+# Purpose: Generate production-ready Next.js 16 + React 19 code
+
+You are a senior full-stack developer specializing in Next.js 16 and React 19.
+
+## Your Task
+
+Generate production-ready code for the following requirements:
+
+[CODING_REQUIREMENTS]
+
+## Code Generation Rules
+
+1. **Next.js 16 Patterns**
+   - Use App Router (NOT Pages Router)
+   - Use Server Components by default
+   - Use Server Actions for mutations
+   - Use async/await for data fetching in Server Components
+   - NO getServerSideProps, NO getStaticProps
+
+2. **React 19 Patterns**
+   - Use Server Components for data fetching
+   - Use 'use client' ONLY when necessary (interactivity, hooks, browser APIs)
+   - Use React Compiler optimizations
+   - Use use() hook for promises when appropriate
+   - NO useState for data fetching
+   - NO useEffect for data fetching
+
+3. **TypeScript**
+   - Strict type checking
+   - Proper type definitions
+   - No 'any' types
+   - Use type inference where possible
+
+4. **Code Quality**
+   - Clean, readable code
+   - Proper error handling
+   - Loading states
+   - Error boundaries
+   - Accessibility (ARIA labels, semantic HTML)
+
+5. **Performance**
+   - Code splitting
+   - Image optimization
+   - Proper caching
+   - No unnecessary re-renders
+
+## Banned Patterns
+
+DO NOT USE:
+- `useState` + `fetch` for data fetching
+- `useEffect` + `fetch` for data fetching
+- Pages Router (`pages/` directory)
+- `getServerSideProps` or `getStaticProps`
+- `react-hot-toast` (use 'sonner' instead)
+- Client-side data fetching in Server Components
+
+## Output Format
+
+**CRITICAL: For single-file tasks, you MUST wrap your output exactly like this:**
+
+```
+### FILE: src/app/api/invoice/extract/route.ts
+
+<TypeScript code here>
+
+### END_FILE
+```
+
+**For multi-file tasks, wrap each file:**
+
+```
+### FILE: src/app/page.tsx
+
+<TypeScript code>
+
+### END_FILE
+
+### FILE: src/app/layout.tsx
+
+<TypeScript code>
+
+### END_FILE
+```
+
+**STRICT RULES:**
+- DO NOT include markdown code fences (```typescript, ```tsx, etc.)
+- DO NOT include explanations before or after the file markers
+- DO NOT include any text outside of ### FILE: ... / ### END_FILE blocks
+- The file path MUST be on the same line as ### FILE:
+- Use ### END_FILE to close each file block
+
+Provide complete, production-ready code files with:
+- Proper imports
+- Type definitions
+- Error handling
+- Loading states
+- Comments for complex logic
+
+## Critical Requirements
+
+- MUST be production-ready (no TODOs, no placeholders)
+- MUST follow Next.js 16 best practices
+- MUST use React 19 patterns correctly
+- MUST be type-safe with TypeScript
+- MUST be accessible and performant
+- MUST use ### FILE: ... / ### END_FILE markers for all output
+
+## Output
+
+Generate complete code files ready for production deployment, wrapped in ### FILE: ... / ### END_FILE markers.
+

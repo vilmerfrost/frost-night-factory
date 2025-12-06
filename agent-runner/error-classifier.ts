@@ -22,14 +22,49 @@ export interface ErrorAnalysis {
   classification: ErrorClass
   errorCode: string
   errorSignature: string
-  fixStrategy: 'SANITIZE' | 'REGEN' | 'GOLDEN_TEMPLATE' | 'AI_FIX' | 'STOP'
+  fixStrategy: 'SANITIZE' | 'REGEN' | 'GOLDEN_TEMPLATE' | 'AI_FIX' | 'STOP' | 'RESTORE_GOLDEN_AND_FIX_CALL_SITES'
   maxRetries: number
   backoffMs: number
   canCache: boolean
+  filePath?: string // ✅ NEW: Track file path for protected file checks
 }
 
-export function classifyError(errorLog: string): ErrorAnalysis {
+export function classifyError(errorLog: string, filePath?: string): ErrorAnalysis {
   const log = errorLog.toLowerCase()
+  
+  // ✅ NEW: Check if error is in a protected file
+  if (filePath) {
+    const { isProtectedFile } = require('./lib/protected-files');
+    if (isProtectedFile(filePath)) {
+      // Protected file errors get special handling
+      if (log.includes('ts2305') && log.includes('has no exported member')) {
+        return {
+          classification: 'TYPE_DRIFT',
+          errorCode: 'TS2305',
+          errorSignature: generateSignature('PROTECTED_TYPE_DRIFT', errorLog),
+          fixStrategy: 'RESTORE_GOLDEN_AND_FIX_CALL_SITES',
+          maxRetries: 1, // Only restore once, then fix callers
+          backoffMs: 0,
+          canCache: true,
+          filePath,
+        };
+      }
+      
+      // Any syntax error in protected file → restore golden
+      if (log.includes('ts1005') || log.includes('ts1161') || log.includes('syntax error')) {
+        return {
+          classification: 'TS_SYNTAX',
+          errorCode: 'TS1005',
+          errorSignature: generateSignature('PROTECTED_SYNTAX', errorLog),
+          fixStrategy: 'RESTORE_GOLDEN_AND_FIX_CALL_SITES',
+          maxRetries: 1,
+          backoffMs: 0,
+          canCache: true,
+          filePath,
+        };
+      }
+    }
+  }
   
   // ═══════════════════════════════════════════════════════════════
   // TS_UNUSED - Auto-fixable with sanitizer
@@ -54,10 +89,13 @@ export function classifyError(errorLog: string): ErrorAnalysis {
       classification: 'TS_SYNTAX',
       errorCode: 'TS1005',
       errorSignature: generateSignature('TS1005', errorLog),
-      fixStrategy: 'GOLDEN_TEMPLATE', // Or auto-rename .ts → .tsx
-      maxRetries: 2,
+      fixStrategy: filePath && require('./lib/protected-files').isProtectedFile(filePath)
+        ? 'RESTORE_GOLDEN_AND_FIX_CALL_SITES'
+        : 'AI_FIX', // ✅ Use AI_FIX with generateAndValidateCode for non-protected files
+      maxRetries: filePath && require('./lib/protected-files').isProtectedFile(filePath) ? 1 : 5, // ✅ Increased to 5 for non-protected files
       backoffMs: 0,
-      canCache: true
+      canCache: true,
+      filePath,
     }
   }
   

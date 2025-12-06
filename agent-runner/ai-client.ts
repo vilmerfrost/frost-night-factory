@@ -21,7 +21,8 @@ const groq = new Groq({
 
 const deepseek = new OpenAI({
   apiKey: process.env.DEEPSEEK_API_KEY!,
-  baseURL: 'https://api.deepseek.com'
+  baseURL: 'https://api.deepseek.com',
+  timeout: 120000 // ✅ Increased timeout to 120s (2 minutes) for backend generation
 })
 
 const openai = new OpenAI({
@@ -29,12 +30,32 @@ const openai = new OpenAI({
 })
 
 // ✅ Kimi K2 (Moonshot) client for research synthesis
+// ✅ Bug 6: Support both KIMI_API_KEY and MOONSHOT_API_KEY for consistency
+// ✅ CRITICAL FIX: Use .ai endpoint (not .cn) for global/international keys
+//   - platform.moonshot.cn = China-only (needs Chinese phone/WeChat)
+//   - platform.moonshot.ai = Global/International (your key source ✅)
 let kimiClient: OpenAI | null = null
-if (process.env.MOONSHOT_API_KEY) {
+const kimiKey = process.env.KIMI_API_KEY || process.env.MOONSHOT_API_KEY
+
+if (kimiKey) {
+  // ✅ Validate key format
+  if (!kimiKey.startsWith('sk-')) {
+    console.warn('⚠️ KIMI_API_KEY does not start with "sk-" - may be invalid');
+  }
+  
   kimiClient = new OpenAI({
-    apiKey: process.env.MOONSHOT_API_KEY,
-    baseURL: 'https://api.moonshot.cn/v1'
+    apiKey: kimiKey,
+    baseURL: 'https://api.moonshot.ai/v1', // ✅ FIXED: Use .ai (not .cn) for global keys
+    timeout: 300000, // ✅ Increased to 300s (5 minutes) for Kimi K2 thinking model
+    // ✅ Explicit Authorization header (some SDKs need this)
+    defaultHeaders: {
+      'Authorization': `Bearer ${kimiKey}`
+    }
   })
+  
+  console.log(`✅ Kimi/Moonshot client initialized (key: ${kimiKey.substring(0, 10)}..., endpoint: api.moonshot.ai)`);
+} else {
+  console.warn('⚠️ KIMI_API_KEY not found - Kimi K2 synthesis will be unavailable');
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -57,8 +78,10 @@ const COST_PER_1M_TOKENS = {
   'llama-3.3-70b-versatile': { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 },
   
   // Kimi K2 (Moonshot) - for research synthesis
-  'kimi-k2-thinking': { input: 500, output: 600, cacheWrite: 0, cacheRead: 0 }, // $0.50/$0.60 per 1M
-  'moonshot-v1-8k': { input: 500, output: 600, cacheWrite: 0, cacheRead: 0 }
+  // ✅ PHASE 1.2: Updated model names to match Moonshot API
+  'moonshot-v1-128k': { input: 500, output: 600, cacheWrite: 0, cacheRead: 0 }, // $0.50/$0.60 per 1M (128k context)
+  'moonshot-v1-32k': { input: 500, output: 600, cacheWrite: 0, cacheRead: 0 }, // $0.50/$0.60 per 1M (32k context, faster)
+  'moonshot-reasoning-v1': { input: 500, output: 600, cacheWrite: 0, cacheRead: 0 } // For deep thinking tasks
 }
 
 function estimateCostCents(
@@ -142,27 +165,16 @@ CRITICAL CODE STRUCTURE RULES:
    - Wrong: export → import (causes module errors)
 
    Example (CORRECT):
-   \`\`\`typescript
    'use client';
-
    import { useState } from 'react';
    import { motion } from 'framer-motion';
-
    export const dynamic = 'force-dynamic';
-
-   export default function Component() {
-     // ...
-   }
-   \`\`\`
+   export default function Component() { ... }
 
    Example (WRONG - NEVER DO THIS):
-   \`\`\`typescript
    'use client';
-
    export const dynamic = 'force-dynamic';  // ❌ Export before import
-
    import { useState } from 'react';  // ❌ Import after export
-   \`\`\`
 
 2. **ES Module Rules**:
    - Imports must be at the top of the file
@@ -172,6 +184,44 @@ CRITICAL CODE STRUCTURE RULES:
 3. **Next.js Route Segment Config**:
    - Route configs (dynamic, revalidate, etc.) go AFTER imports
    - But BEFORE the component export
+
+🚨 CRITICAL OUTPUT CONSTRAINTS (NEVER VIOLATE):
+
+1. **NO MARKDOWN FENCES**:
+   - NEVER use \`\`\`typescript, \`\`\`tsx, or any markdown code fences
+   - Output ONLY raw code, no markdown formatting
+   - Example WRONG: \`\`\`typescript\nconst x = 5;\n\`\`\`
+   - Example CORRECT: const x = 5;
+
+2. **NO CHATTER OR EXPLANATIONS**:
+   - NEVER write "Here is the code", "I have updated the file", "This code does..."
+   - NEVER include conversational text before or after code
+   - Output ONLY the code itself
+   - Example WRONG: "Here is the code:\nconst x = 5;"
+   - Example CORRECT: const x = 5;
+
+3. **NO PLACEHOLDERS**:
+   - NEVER use "// ...existing code..." or "// ..." as placeholders
+   - NEVER use "return null" as a placeholder (only use for conditional rendering)
+   - NEVER use "TODO", "FIXME", "IMPLEMENT THIS", or similar markers
+   - Write complete, working code every time
+
+4. **NO GIT ARTIFACTS**:
+   - NEVER output "<<<<<<< HEAD", ">>>>>>>", "=======" (git conflict markers)
+   - NEVER include merge conflict markers in code
+   - If you see conflict markers, resolve them completely
+
+5. **NO INCOMPLETE CODE**:
+   - NEVER output partial functions or incomplete implementations
+   - Every function must be fully implemented
+   - Every import must reference existing files
+   - Every type must be properly defined
+
+OUTPUT FORMAT (STRICT):
+- Use ### FILE: <path> ... ### END_FILE markers
+- Output ONLY code between markers
+- No explanations, no markdown, no placeholders
+- Complete, production-ready code only
 `;
 
 export async function callAI(opts: AICallOptions): Promise<string> {
@@ -374,9 +424,34 @@ export async function callAI(opts: AICallOptions): Promise<string> {
       tokensOut = result.usage?.completion_tokens || 0
       
     } else if (safeModel.includes('moonshot') || safeModel.includes('kimi')) {
-      // ✅ Kimi K2 (Moonshot) API for research synthesis
+      // ✅ PHASE 7: Kimi K2 (Moonshot) API for research synthesis with debug logging
+      // ✅ Enhanced: Key validation and graceful fallback
+      // ✅ CRITICAL FIX: Use .ai endpoint (not .cn) for global/international keys
+      const kimiKey = process.env.KIMI_API_KEY || process.env.MOONSHOT_API_KEY
+      console.log('🌙 [DEBUG] Calling Kimi API...');
+      console.log('   Key:', kimiKey?.substring(0, 15) + '...');
+      console.log('   Endpoint:', 'https://api.moonshot.ai/v1/chat/completions'); // ✅ FIXED: .ai not .cn
+      
+      // ✅ Key validation before use
+      if (!kimiKey) {
+        throw new Error('Kimi/Moonshot API key not configured (KIMI_API_KEY or MOONSHOT_API_KEY required)')
+      }
+      
+      if (!kimiKey.startsWith('sk-')) {
+        throw new Error('Kimi/Moonshot API key invalid format (must start with "sk-")')
+      }
+      
+      // ✅ Initialize client on-demand if not already initialized
       if (!kimiClient) {
-        throw new Error('Kimi/Moonshot API key not configured')
+        kimiClient = new OpenAI({
+          apiKey: kimiKey,
+          baseURL: 'https://api.moonshot.ai/v1', // ✅ FIXED: Use .ai (not .cn) for global keys
+          timeout: 300000, // ✅ Increased to 300s (5 minutes) for Kimi K2 thinking model
+          defaultHeaders: {
+            'Authorization': `Bearer ${kimiKey}`
+          }
+        })
+        console.log('   ✅ Kimi client initialized on-demand (endpoint: api.moonshot.ai, timeout: 5min)');
       }
       
       // Extract system messages (Kimi uses standard OpenAI format)
@@ -388,19 +463,64 @@ export async function callAI(opts: AICallOptions): Promise<string> {
         systemMessages = [CODE_GENERATION_RULES, ...systemMessages]
       }
       
-      const result = await kimiClient.chat.completions.create({
-        model: safeModel.includes('k2-thinking') || safeModel.includes('256k') ? 'kimi-k2-thinking' : 'moonshot-v1-8k',
-        messages: [
-          ...(systemMessages.length > 0 ? [{ role: 'system', content: systemMessages.join('\n\n') }] : []),
-          ...nonSystemMessages.map(m => ({ role: m.role as any, content: m.content }))
-        ],
-        temperature,
-        max_tokens: opts.maxTokens || 150000 // Leverage K2's long output capacity
-      })
+      // ✅ PHASE 1.2: Fix Kimi K2 Model - Use correct model IDs from Moonshot docs
+      // https://platform.moonshot.ai/docs/pricing/chat#generation-model-kimi-k2
+      // Try kimi-k2-thinking first (thinking model), fallback to standard models
+      let modelName: string;
+      if (safeModel.includes('k2-thinking') || safeModel.includes('kimi-k2-thinking')) {
+        modelName = 'kimi-k2-thinking'; // ✅ Exact model name from Moonshot docs
+      } else if (safeModel.includes('reasoning')) {
+        modelName = 'moonshot-reasoning-v1';
+      } else if (safeModel.includes('128k') || safeModel.includes('k2')) {
+        modelName = 'moonshot-v1-128k';
+      } else {
+        modelName = 'moonshot-v1-32k';
+      }
+      console.log('   Model:', modelName);
+      console.log('   Messages:', nonSystemMessages.length, 'user messages');
       
-      response = result.choices[0]?.message?.content || ''
-      tokensIn = result.usage?.prompt_tokens || 0
-      tokensOut = result.usage?.completion_tokens || 0
+      try {
+        const result = await kimiClient.chat.completions.create({
+          model: modelName,
+          messages: [
+            ...(systemMessages.length > 0 ? [{ role: 'system', content: systemMessages.join('\n\n') }] : []),
+            ...nonSystemMessages.map(m => ({ role: m.role as any, content: m.content }))
+          ],
+          temperature,
+          max_tokens: opts.maxTokens || 150000 // Leverage K2's long output capacity
+        })
+        
+        console.log('   Status: Success');
+        console.log('   Response length:', result.choices[0]?.message?.content?.length || 0, 'chars');
+        
+        response = result.choices[0]?.message?.content || ''
+        tokensIn = result.usage?.prompt_tokens || 0
+        tokensOut = result.usage?.completion_tokens || 0
+        
+      } catch (kimiError: any) {
+        console.error('❌ [DEBUG] Kimi error:', kimiError);
+        console.error('   Error message:', kimiError.message);
+        console.error('   Error status:', (kimiError as any).status);
+        console.error('   Error response:', (kimiError as any).response?.data || 'N/A');
+        
+        // ✅ Enhanced error handling with graceful fallback
+        if ((kimiError as any).status === 401) {
+          const errorMsg = 'Kimi API: 401 Unauthorized - Check API key or account status. ' +
+            'Verify key at platform.moonshot.cn and ensure account has active credits.';
+          console.error(`   ${errorMsg}`);
+          
+          // ✅ Graceful fallback suggestion
+          console.warn('   💡 TIP: Check account status at https://platform.moonshot.cn');
+          console.warn('   💡 TIP: Free tier credits may have expired - verify account balance');
+          console.warn('   💡 TIP: Some regions require API access approval');
+          
+          throw new Error(errorMsg);
+        }
+        
+        // For other errors, still throw but with better context
+        const statusCode = (kimiError as any).status || 'unknown';
+        throw new Error(`Kimi API error (${statusCode}): ${kimiError.message}`);
+      }
       
     } else {
       throw new Error(`Unknown model: ${safeModel}`)
@@ -408,6 +528,15 @@ export async function callAI(opts: AICallOptions): Promise<string> {
     
     const duration = Date.now() - startTime
     const costCents = estimateCostCents(safeModel, tokensIn, tokensOut, cacheWriteTokens, cacheReadTokens)
+    const costUsd = costCents / 100
+    
+    // ✅ V8.0: Determine provider from model name
+    let provider = 'unknown';
+    if (safeModel.startsWith('claude')) provider = 'claude';
+    else if (safeModel.startsWith('gpt') || safeModel.startsWith('o1')) provider = 'openai';
+    else if (safeModel.startsWith('deepseek')) provider = 'deepseek';
+    else if (safeModel.includes('groq') || safeModel.includes('llama')) provider = 'groq';
+    else if (safeModel.includes('moonshot') || safeModel.includes('kimi')) provider = 'moonshot';
     
     // Log to database
     await Promise.all([
@@ -435,27 +564,31 @@ export async function callAI(opts: AICallOptions): Promise<string> {
         p_cost_cents: costCents,
         p_tokens_in: tokensIn,
         p_tokens_out: tokensOut
-      })
+      }),
+      
+      // ✅ V8.0: Log to cost tracker for dashboard
+      (async () => {
+        try {
+          const { logCost } = await import('./lib/cost-tracker');
+          await logCost(
+            pipelineId,
+            step,
+            safeModel,
+            provider,
+            tokensIn,
+            tokensOut,
+            costUsd,
+            duration,
+            true, // success
+            0 // fix_attempts (would need to track this)
+          );
+        } catch (err) {
+          // Cost tracker not critical, skip silently
+        }
+      })()
     ])
     
-    console.log(`✅ [AI] ${safeRole} complete in ${duration}ms | $${(costCents / 100).toFixed(3)} | ${tokensOut} tokens`)
-    
-    // ✅ P2: Track cost in CostTracker (if available)
-    try {
-      const { CostTracker } = await import('./lib/cost-tracker');
-      // Use a global instance if available, or create a temporary one
-      const globalTracker = (global as any).costTracker;
-      if (globalTracker && pipelineId) {
-        globalTracker.trackModelCall(
-          step || role || 'unknown',
-          safeModel,
-          tokensIn,
-          tokensOut
-        );
-      }
-    } catch {
-      // CostTracker not available, skip
-    }
+    console.log(`✅ [AI] ${safeRole} complete in ${duration}ms | $${costUsd.toFixed(4)} | ${tokensOut} tokens`)
     
     return response
     

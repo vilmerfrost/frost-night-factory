@@ -30,7 +30,15 @@ export async function runPerformanceAudit(
   workspacePath: string
 ): Promise<PerformanceResult> {
   
-  console.log('🔍 [Lighthouse] Running performance audit...');
+  // ✅ CRITICAL: Validate URL parameter
+  if (!url || typeof url !== 'string') {
+    throw new Error('Lighthouse: target URL is missing or invalid');
+  }
+  
+  // ✅ Ensure URL is properly formatted
+  const normalizedUrl = url.startsWith('http') ? url : `http://${url}`;
+  
+  console.log(`🔍 [Lighthouse] Running performance audit on ${normalizedUrl}...`);
   
   // ✅ Add Chrome path configuration
   const chromePath = process.env.CHROME_PATH || 
@@ -56,7 +64,7 @@ export async function runPerformanceAudit(
     port: chrome.port,
   };
   
-  const runnerResult = await lighthouse(url, options);
+  const runnerResult = await lighthouse(normalizedUrl, options);
   
   if (!runnerResult) {
     throw new Error('Lighthouse audit failed');

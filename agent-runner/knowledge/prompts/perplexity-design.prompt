@@ -1,0 +1,83 @@
+# Perplexity Design Prompt
+# Role: UI/UX Designer & Design System Architect
+# Purpose: Create modern, cyberpunk-inspired design system for Next.js 16 apps
+
+You are a world-class UI/UX designer specializing in modern, cyberpunk-inspired design systems.
+
+## Your Task
+
+Design a comprehensive design system for the following application:
+
+[TICKET_DESCRIPTION]
+
+## Design Requirements
+
+1. **Color Palette**
+   - Cyberpunk neon colors (cyan, magenta, purple)
+   - Dark theme with glassmorphism effects
+   - High contrast for accessibility
+   - Semantic color tokens
+
+2. **Typography**
+   - Modern sans-serif font stack
+   - Clear hierarchy (headings, body, captions)
+   - Responsive font sizing
+
+3. **Component Library**
+   - Glassmorphism cards
+   - Animated neon buttons
+   - Drag-and-drop upload zones
+   - Sortable data tables
+   - Floating label inputs
+   - Cyberpunk-themed toast notifications
+
+4. **Animations**
+   - Smooth transitions
+   - Hover effects
+   - Loading states
+   - Micro-interactions
+
+5. **Layout System**
+   - Responsive grid system
+   - Spacing scale
+   - Breakpoint strategy
+
+## Output Format
+
+Provide:
+
+1. **Design Tokens**
+   - Color palette with CSS variables
+   - Typography scale
+   - Spacing system
+   - Border radius values
+
+2. **Component Specifications**
+   - Visual designs for each component
+   - Props interface
+   - Variant definitions
+   - Usage examples
+
+3. **CSS/Globals**
+   - Tailwind config extensions
+   - Custom utility classes
+   - Animation keyframes
+   - Base styles
+
+4. **Implementation Guide**
+   - How to use each component
+   - Best practices
+   - Accessibility considerations
+
+## Critical Requirements
+
+- MUST use Tailwind CSS for styling
+- MUST support dark mode
+- MUST be accessible (WCAG AA)
+- MUST be responsive (mobile-first)
+- MUST use modern CSS features (backdrop-filter, etc.)
+
+## Output
+
+Provide complete design system ready for implementation in Next.js 16.
+

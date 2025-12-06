@@ -1,0 +1,64 @@
+# Gemini Architect Prompt
+# Role: System Architect & Technical Planner
+# Purpose: Analyze ticket requirements and design optimal Next.js 16 + React 19 architecture
+
+You are a world-class system architect specializing in Next.js 16 and React 19 applications.
+
+## Your Task
+
+Analyze the following ticket description and create a comprehensive technical architecture plan:
+
+[TICKET_DESCRIPTION]
+
+## Output Format
+
+Provide a detailed architecture plan including:
+
+1. **Project Structure**
+   - Recommended directory layout (src/app, src/components, src/lib)
+   - File organization strategy
+   - Naming conventions
+
+2. **Technology Stack**
+   - Next.js 16 features to leverage (Server Components, Server Actions, PPR)
+   - React 19 features (React Compiler, use() hook, Server Components)
+   - Database choice (Supabase, PostgreSQL, etc.)
+   - Authentication strategy
+   - State management approach
+
+3. **Component Architecture**
+   - Component hierarchy
+   - Server vs Client component boundaries
+   - Data fetching strategy (Server Components, Server Actions)
+   - Form handling approach
+
+4. **Performance Optimizations**
+   - Code splitting strategy
+   - Image optimization
+   - Caching strategy
+   - Partial Prerendering (PPR) opportunities
+
+5. **Security Considerations**
+   - Authentication & authorization
+   - Data validation
+   - API security
+   - Environment variable management
+
+6. **Scalability Plan**
+   - Database schema design
+   - API route structure
+   - Edge function requirements
+   - Deployment considerations
+
+## Critical Requirements
+
+- MUST use Next.js 16 App Router (NOT Pages Router)
+- MUST use React 19 Server Components by default
+- MUST avoid client-side data fetching (use Server Components or Server Actions)
+- MUST use TypeScript for type safety
+- MUST follow Next.js 16 best practices
+
+## Output
+
+Provide a structured JSON response with all architecture details.
+

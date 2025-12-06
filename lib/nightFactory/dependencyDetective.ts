@@ -212,6 +212,71 @@ export function runDependencyDetective(projectPath: string): DependencyScanResul
     }
   }
   
+  // ✅ PHASE 4.1: Force modern dependency versions (Next.js 16 + React 19)
+  const modernDeps: Record<string, string> = {
+    'next': '^16.0.7',
+    'react': '^19.0.0',
+    'react-dom': '^19.0.0',
+    'framer-motion': '^11.0.0',
+    'sonner': '^2.0.0',
+    'lucide-react': '^0.400.0',
+    '@radix-ui/react-dialog': 'latest',
+    '@radix-ui/react-dropdown-menu': 'latest',
+    '@radix-ui/react-select': 'latest',
+    '@radix-ui/react-slot': 'latest',
+    '@radix-ui/react-toast': 'latest',
+    'tailwindcss': '^3.4.15',
+    'tailwindcss-animate': '^1.0.7',
+    'autoprefixer': '^10.4.20',
+    'postcss': '^8.4.47',
+    '@supabase/supabase-js': '^2.47.10',
+    '@supabase/ssr': '^0.5.2',
+  };
+  
+  // ✅ Permanent Guard: Ensure packages are added to package.json before installing
+  const packageJsonPath = path.join(projectPath, 'package.json');
+  if (fs.existsSync(packageJsonPath)) {
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+    
+    // Add missing packages to package.json dependencies/devDependencies
+    if (!packageJson.dependencies) packageJson.dependencies = {};
+    if (!packageJson.devDependencies) packageJson.devDependencies = {};
+    
+    // ✅ PHASE 4.1: Force modern versions for critical packages
+    for (const [pkg, version] of Object.entries(modernDeps)) {
+      if (packageJson.dependencies[pkg] || packageJson.devDependencies[pkg]) {
+        // Update existing version to modern version
+        if (packageJson.dependencies[pkg]) {
+          packageJson.dependencies[pkg] = version;
+          console.log(`   🔄 Updated ${pkg} to ${version}`);
+        } else if (packageJson.devDependencies[pkg]) {
+          packageJson.devDependencies[pkg] = version;
+          console.log(`   🔄 Updated ${pkg} to ${version}`);
+        }
+      }
+    }
+    
+    for (const pkg of regularDeps) {
+      if (!packageJson.dependencies[pkg] && !packageJson.devDependencies[pkg]) {
+        // Use modern version if available, otherwise 'latest'
+        packageJson.dependencies[pkg] = modernDeps[pkg] || 'latest';
+        console.log(`   📝 Added ${pkg} to package.json dependencies`);
+      }
+    }
+    
+    for (const pkg of devDeps) {
+      if (!packageJson.dependencies[pkg] && !packageJson.devDependencies[pkg]) {
+        // Use modern version if available, otherwise 'latest'
+        packageJson.devDependencies[pkg] = modernDeps[pkg] || 'latest';
+        console.log(`   📝 Added ${pkg} to package.json devDependencies`);
+      }
+    }
+    
+    // Write updated package.json
+    fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2));
+    console.log(`   ✅ Updated package.json with modern versions`);
+  }
+  
   try {
     if (regularDeps.length > 0) {
       console.log(`   📥 Installing dependencies: ${regularDeps.join(', ')}`);

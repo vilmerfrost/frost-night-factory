@@ -84,6 +84,12 @@ export const GOLDEN_TSCONFIG = `{
 export const GOLDEN_NEXT_CONFIG = `/** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // ✅ Fix 3: Explicit root for file tracing - silences many warnings
+  outputFileTracingRoot: __dirname,
+  // ✅ Fix 2: Explicitly set workspace root to silence warnings
+  turbopack: {
+    root: __dirname,
+  },
   images: {
     remotePatterns: [
       {
@@ -99,12 +105,16 @@ export default nextConfig;
 
 /**
  * Golden tailwind.config.ts
+ * ✅ Fix 1: Added borderColor extension to fix 'border-border' class error
  */
 export const GOLDEN_TAILWIND_CONFIG = `import type { Config } from 'tailwindcss';
 
 const config: Config = {
   darkMode: ['class'],
   content: [
+    './src/pages/**/*.{js,ts,jsx,tsx,mdx}',
+    './src/components/**/*.{js,ts,jsx,tsx,mdx}',
+    './src/app/**/*.{js,ts,jsx,tsx,mdx}',
     './app/**/*.{js,ts,jsx,tsx,mdx}',
     './components/**/*.{js,ts,jsx,tsx,mdx}',
     './lib/**/*.{js,ts,jsx,tsx,mdx}',
@@ -112,6 +122,9 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        border: 'hsl(var(--border))',
+        input: 'hsl(var(--input))',
+        ring: 'hsl(var(--ring))',
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',
         primary: {
@@ -122,6 +135,10 @@ const config: Config = {
           DEFAULT: 'hsl(var(--secondary))',
           foreground: 'hsl(var(--secondary-foreground))',
         },
+        destructive: {
+          DEFAULT: 'hsl(var(--destructive))',
+          foreground: 'hsl(var(--destructive-foreground))',
+        },
         muted: {
           DEFAULT: 'hsl(var(--muted))',
           foreground: 'hsl(var(--muted-foreground))',
@@ -130,6 +147,25 @@ const config: Config = {
           DEFAULT: 'hsl(var(--accent))',
           foreground: 'hsl(var(--accent-foreground))',
         },
+        popover: {
+          DEFAULT: 'hsl(var(--popover))',
+          foreground: 'hsl(var(--popover-foreground))',
+        },
+        card: {
+          DEFAULT: 'hsl(var(--card))',
+          foreground: 'hsl(var(--card-foreground))',
+        },
+      },
+      // ✅ CRITICAL: Explicit borderColor extension (Fix 1)
+      borderColor: {
+        DEFAULT: 'hsl(var(--border))',
+        border: 'hsl(var(--border))', // Explicit border-border utility
+      },
+      borderRadius: {
+        lg: 'var(--radius)',
+        md: 'calc(var(--radius) - 2px)',
+        sm: 'calc(var(--radius) - 4px)',
+      },
         destructive: {
           DEFAULT: 'hsl(var(--destructive))',
           foreground: 'hsl(var(--destructive-foreground))',
@@ -138,6 +174,11 @@ const config: Config = {
         input: 'hsl(var(--input))',
         ring: 'hsl(var(--ring))',
       },
+      // ✅ CRITICAL: Explicit borderColor extension (Fix 1)
+      borderColor: {
+        DEFAULT: 'hsl(var(--border))',
+        border: 'hsl(var(--border))', // Explicit border-border utility
+      },
       borderRadius: {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
@@ -145,7 +186,7 @@ const config: Config = {
       },
     },
   },
-  plugins: [],
+  plugins: [require('tailwindcss-animate')],
 };
 
 export default config;

@@ -392,16 +392,40 @@ export async function generateKimiPlanner(prompt: string): Promise<string> {
  * Granskar koden för att hitta "Fusk" (Mock data) och logiska luckor.
  */
 export async function runKimiQA(codeSnippets: string): Promise<string> {
+  // ✅ Check for both KIMI_API_KEY and MOONSHOT_API_KEY
+  const kimiKey = process.env.KIMI_API_KEY || process.env.MOONSHOT_API_KEY;
+  
   // Fallback om ingen Moonshot-nyckel
-  if (!moonshot) {
+  if (!moonshot && !kimiKey) {
     console.log("⚠️ No Moonshot (Kimi) Key found. Skipping QA audit.");
     return "PASS"; // Släpp igenom vid saknad API-nyckel
   }
 
+  // ✅ Initialize moonshot client if not already initialized
+  let kimiClient = moonshot;
+  if (!kimiClient && kimiKey) {
+    try {
+      kimiClient = new OpenAI({
+        apiKey: kimiKey,
+        baseURL: "https://api.moonshot.ai/v1", // ✅ Use .ai endpoint
+        timeout: 300000, // ✅ 5 minutes for thinking model
+      });
+      console.log("✅ Kimi client initialized for QA audit");
+    } catch (initError: any) {
+      console.error("❌ Failed to initialize Kimi client:", initError?.message);
+      return "PASS"; // Fallback to pass
+    }
+  }
+
+  if (!kimiClient) {
+    console.log("⚠️ Kimi client not available. Skipping QA audit.");
+    return "PASS";
+  }
+
   try {
-    console.log("👮 Kimi k2 is auditing the code for mocks...");
-    const completion = await moonshot.chat.completions.create({
-      model: "moonshot-v1-8k", // Eller specifik k2-preview om tillgänglig
+    console.log("🕵️ Kimi K2 Thinking is auditing the code for mocks...");
+    const completion = await kimiClient.chat.completions.create({
+      model: "kimi-k2-thinking", // ✅ Use Kimi K2 Thinking model for better analysis
       messages: [
         { 
           role: "system", 
@@ -419,14 +443,16 @@ export async function runKimiQA(codeSnippets: string): Promise<string> {
         },
         { role: "user", content: `AUDIT THIS CODE:\n${codeSnippets}` }
       ],
-      temperature: 0.1, 
+      temperature: 0.1,
+      max_tokens: 2000,
     });
 
     const result = completion.choices[0].message.content || "PASS";
-    console.log("✅ Kimi QA Audit Complete:", result);
+    console.log("✅ Kimi QA Audit Complete:", result.substring(0, 200));
     return result;
   } catch (error: any) {
     console.error("❌ Kimi QA Error:", error?.message);
+    console.error("   Error details:", error?.response?.data || error?.status || 'Unknown');
     return "PASS"; // Släpp igenom vid API-fel för att inte blockera
   }
 }
@@ -1006,7 +1032,7 @@ export async function callAI(
                 temperature: 0.3,
                 max_tokens: 8000
               }),
-              60000, // 60 seconds is enough for fast models
+              180000, // ✅ Increased to 180 seconds (3 minutes) for backend generation
               'DeepSeek V3.2 Backend'
             ),
             3,
@@ -1058,21 +1084,42 @@ export async function callAI(
       break;
 
     case "AUDIT":
-      // Kimi k2 (Moonshot) - QA Auditor with DeepSeek Reasoner fallback
-      console.log("🕵️ Kimi K2 auditing...");
-      if (moonshot) {
+      // ✅ Kimi K2 Thinking (Moonshot) - QA Auditor with DeepSeek Reasoner fallback
+      console.log("🕵️ Kimi K2 Thinking auditing...");
+      
+      // ✅ Check for Kimi API key and initialize client if needed
+      const auditKimiKey = process.env.KIMI_API_KEY || process.env.MOONSHOT_API_KEY;
+      let auditKimiClient = moonshot;
+      
+      if (!auditKimiClient && auditKimiKey) {
         try {
-          const kimi = await moonshot.chat.completions.create({
-            model: "moonshot-v1-128k", // Eller k2 om tillgänglig via API
+          auditKimiClient = new OpenAI({
+            apiKey: auditKimiKey,
+            baseURL: "https://api.moonshot.ai/v1", // ✅ Use .ai endpoint
+            timeout: 300000, // ✅ 5 minutes for thinking model
+          });
+          console.log("✅ Kimi client initialized for AUDIT");
+        } catch (initError: any) {
+          console.warn("⚠️ Failed to initialize Kimi client:", initError?.message);
+        }
+      }
+      
+      if (auditKimiClient) {
+        try {
+          const kimi = await auditKimiClient.chat.completions.create({
+            model: "kimi-k2-thinking", // ✅ Use Kimi K2 Thinking model
             messages: [
               { role: "system", content: "You are the QA Auditor. Find inconsistencies, mock data, and logical errors." },
               { role: "user", content: fullPrompt }
             ],
             temperature: 0.1,
+            max_tokens: 2000,
           });
           responseText = kimi.choices[0].message.content || "";
+          console.log("✅ Kimi K2 Thinking audit complete");
         } catch (e: any) {
-          console.warn("⚠️ Kimi is DOWN. Falling back to DeepSeek Reasoner (R1)...");
+          console.warn("⚠️ Kimi K2 Thinking failed:", e?.message);
+          console.warn("   Falling back to DeepSeek Reasoner (R1)...");
           
           // Fallback till DeepSeek Reasoner
           if (deepSeek) {
@@ -1098,7 +1145,7 @@ export async function callAI(
           }
         }
       } else {
-        // No Kimi key, try DeepSeek Reasoner directly
+        // No Kimi client available, try DeepSeek Reasoner directly
         if (deepSeek) {
           try {
             console.log("🔄 No Kimi key, using DeepSeek Reasoner for audit...");
@@ -1113,7 +1160,7 @@ export async function callAI(
             responseText = r1.choices[0].message.content || "";
           } catch (e: any) {
             console.error("❌ DeepSeek Reasoner failed:", e?.message);
-            responseText = "PASS"; // Last resort: pass audit
+            responseText = await runKimiQA(fullPrompt); // ✅ Try runKimiQA which has better initialization
           }
         } else {
           responseText = await runKimiQA(fullPrompt);

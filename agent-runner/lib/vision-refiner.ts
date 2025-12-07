@@ -45,7 +45,7 @@ export async function visionRefineUI(
   try {
     // Navigate to dev server
     await page.goto(`http://localhost:${port}`, { waitUntil: 'networkidle' });
-    await new Promise(resolve => setTimeout(resolve, 2000)); // ✅ Fixed: Use Promise instead of deprecated waitForTimeout
+    await page.waitForTimeout(2000); // Let React hydrate
 
     while (iteration < maxIterations && currentScore < targetScore) {
       iteration++;
@@ -162,9 +162,9 @@ RESPOND IN THIS EXACT JSON FORMAT:
         }
 
         // Wait for changes to rebuild
-        await new Promise(resolve => setTimeout(resolve, 3000)); // ✅ Fixed: Use Promise instead of deprecated waitForTimeout
+        await page.waitForTimeout(3000);
         await page.reload({ waitUntil: 'networkidle' });
-        await new Promise(resolve => setTimeout(resolve, 2000)); // ✅ Fixed: Use Promise instead of deprecated waitForTimeout
+        await page.waitForTimeout(2000);
       } else {
         console.log('   ⚠️ No specific fixes provided, stopping refinement');
         break;

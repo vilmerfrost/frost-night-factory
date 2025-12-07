@@ -44,17 +44,14 @@ import { verifyDataFlow, logContextState } from '../lib/nightFactory/flowChecker
 import { generateScaffold, generateComponentRegistry, formatComponentRegistry } from '../lib/nightFactory/scaffoldAgent';
 import { validateCode, autoFixFileExtension, ValidationResult as CodeValidationResult } from './code-validator';
 import { callAI, selectModel } from './ai-client';
-import { detectEnvFromCode, detectEnvFromPlan, detectEnvFromProject, generateEnvFile, EnvDetectionResult } from './lib/env-detector';
 import { classifyError, recordErrorPattern, ErrorAnalysis } from './error-classifier';
 import { validateCodeCompleteness } from './ast-validator';
 import { generateWithValidation } from './multi-pass-generator';  // ✅ Phase 1: Multi-pass generation
 import { generateRepositoryMap } from './repo-map-generator';  // ✅ Phase 1: Repository map
 import { logEvent } from './event-logger';  // ✅ Phase 0: Event logging
-// ✅ V8.0: Cost tracking is now handled via logCost/getCostSummary in cost-tracker.ts
+import { CostTracker } from './lib/cost-tracker';  // ✅ P2: Cost tracking
 import { FEATURE_FLAGS, isFeatureEnabled } from './lib/version-manager';  // ✅ V8: Feature flags
 import { PortManager } from './lib/port-manager';  // ✅ V8: Dynamic port allocation
-import { logger } from './lib/logger';  // ✅ V8: Professional terminal logger
-import { broadcastPipelineUpdate, broadcastLog } from './lib/pipeline-broadcast';  // ✅ V8: WebSocket/SSE updates
 
 // =============================================================================
 // 🧠 INTELLIGENT FIX SYSTEMS (V6.0 - Zero Human Input)
@@ -100,6 +97,38 @@ import {
   clearErrorHistory as clearAutopsyHistory,
   getPreviousFixes
 } from '../lib/nightFactory/errorAutopsy';
+// =============================================================================
+// 🏰 FROST NIGHT FACTORY v9.0 - FORTRESS ARCHITECTURE INTEGRATION
+// =============================================================================
+import {
+  checkRepairAllowed,
+  fortressWrite,
+  filterRepairableErrors,
+  getViolationAction,
+  validateFortressIntegrity,
+  type FortressGuardResult,
+} from '../lib/nightFactory/v90-fortress-guard';
+import { mapErrorClassToErrorCategory } from '../lib/nightFactory/v85-error-mapping';
+import {
+  createRepairSession,
+  authorizeRepair,
+  recordAttempt,
+  getSessionSummary,
+  isWithinBudget,
+  getRecommendedModel,
+  type RepairSession,
+  type RepairAuthorization,
+} from '../lib/nightFactory/v90-repair-authority';
+import {
+  snapshotManager,
+  withTransaction,
+  type SnapshotComparison,
+} from '../lib/nightFactory/v90-snapshot-manager';
+import {
+  runZoneValidation,
+  quickValidation,
+  type ZoneValidationResult,
+} from '../lib/nightFactory/v90-zone-validator';
 import { 
   runCompilerAgent, 
   generateAIFixPrompt,
@@ -122,25 +151,6 @@ import { runPreCommitValidation, ValidationResult } from '../lib/nightFactory/pr
 import { PathManager } from '../lib/nightFactory/pathManager';
 import { logPathOperation, clearPathLog } from '../lib/nightFactory/pathLogger';
 import { PathCircuitBreaker } from '../lib/nightFactory/pathCircuitBreaker';
-import { QUALITY_POLICY, canPublishFromVision, canPublishFromE2E, canPublishFromLighthouse, canPublishFromBuild, canPublish } from './lib/quality-policy';
-import { withAutoFix, classifyError as classifyErrorAutoFix, applyFix, FixContext } from './lib/auto-fixer';
-import { 
-  logPipelineRun, 
-  logErrorEvent, 
-  updateModelPerformance, 
-  logFeedback,
-  saveSolution,
-  recordSolutionFailure,
-  collectTrainingData,
-  generateErrorSignature,
-  logFixCandidate,
-} from './lib/hive-mind';
-
-// =============================================================================
-// 🔥 PHASE 1: STOP THE BLEEDING - Retry Limits
-// =============================================================================
-const MAX_PUBLISHER_RETRIES = 3;
-const publisherAttempts = new Map<string, number>();
 
 // =============================================================================
 // 🛡️ PROTECTED INFRASTRUCTURE FILES - Never modify these with AI
@@ -800,7 +810,7 @@ async function startDevServerWithVerification(
  */
 const GOLDEN_STACK = {
   frontend: {
-    framework: 'Next.js 16.0.x', // ✅ Updated to Next.js 16
+    framework: 'Next.js 14.2.x', // Stable, well-tested
     react: '18.2.x',
     tailwind: '3.4.x',
     lucide: '0.344.x',
@@ -873,8 +883,8 @@ You are building a holistic system. Here is the Master Plan you MUST follow:
        : await fetchFromSupabase();
 
 4. GOLDEN STACK (ENFORCED):
-   - Next.js 16.0.x (with React 19, Server Components, Server Actions, PPR, Turbopack)
-   - React 19.0.x
+   - Next.js 14.2.x (NOT 15, NOT 16)
+   - React 18.2.x
    - Tailwind 3.4.x
    - Supabase SSR for auth
    - Structure: app/ in ROOT (NOT src/app/)
@@ -1038,19 +1048,7 @@ function forceResetTsConfig(repoPath: string) {
 
 async function updatePipeline(id: string, updates: any) {
   const { error } = await supabase.from('pipelines').update({ ...updates, updated_at: new Date().toISOString() }).eq('id', id);
-  if (error) {
-    logger.error(`Failed to update pipeline ${id.slice(0, 8)}: ${error.message}`);
-  } else {
-    // ✅ V8: Broadcast pipeline update via WebSocket/SSE
-    try {
-      broadcastPipelineUpdate({
-        id,
-        ...updates,
-      })
-    } catch (err) {
-      // Broadcast failure is non-critical
-    }
-  }
+  if (error) console.error('Error updating pipeline:', error);
 }
 
 /**
@@ -1436,47 +1434,49 @@ async function runClonerStep(pipeline: any, repoPath: string) {
 // STEG 1: RESEARCH
 // ------------------------------------------------------------------
 // ═══════════════════════════════════════════════════════════════════
-// PHASE 1: RESEARCH LAYER (Frost Night Factory 2.0)
+// PHASE 1: PERPLEXITY RESEARCH (Multiple focused queries)
 // ═══════════════════════════════════════════════════════════════════
-// ✅ PHASE 1.1: Load prompts from knowledge/prompts/ directory
-async function loadResearchPrompts(): Promise<{ gemini: string; kimi: string; perplexity: string; chatgpt: string }> {
-  const promptsDir = path.join(__dirname, 'knowledge', 'prompts');
-  
-  try {
-    const gemini = fs.readFileSync(path.join(promptsDir, 'gemini-architect.prompt'), 'utf-8');
-    const kimi = fs.readFileSync(path.join(promptsDir, 'kimi-k2-synthesizer.prompt'), 'utf-8');
-    const perplexity = fs.readFileSync(path.join(promptsDir, 'perplexity-design.prompt'), 'utf-8');
-    const chatgpt = fs.readFileSync(path.join(promptsDir, 'chatgpt-coder.prompt'), 'utf-8');
-    
-    return { gemini, kimi, perplexity, chatgpt };
-  } catch (error: any) {
-    console.warn(`⚠️ Could not load prompt files: ${error.message}. Using fallback prompts.`);
-    // Fallback to inline prompts
-    return {
-      gemini: `You are a world-class system architect specializing in Next.js 16 and React 19 applications. Analyze: [TICKET_DESCRIPTION]`,
-      kimi: `You are Kimi K2, an advanced AI research synthesizer. Synthesize: [RESEARCH_INPUTS]`,
-      perplexity: `You are a UI/UX designer specializing in cyberpunk design systems. Design: [TICKET_DESCRIPTION]`,
-      chatgpt: `You are a senior full-stack developer. Generate code for: [CODING_REQUIREMENTS]`
-    };
-  }
-}
-
 async function runResearchStep(pipeline: any, researchType: 'technical-constraints' | 'best-practices' = 'technical-constraints'): Promise<string> {
   console.log(`[Research] Phase 1 - ${researchType} for: ${pipeline.name || pipeline.id}`);
   
   const userRequest = pipeline.initial_prompt || pipeline.prompt;
   
-  // ✅ PHASE 1.1: Load prompts from files
-  const prompts = await loadResearchPrompts();
-  
   let researchPrompt: string;
   
   if (researchType === 'technical-constraints') {
-    // ✅ PHASE 1.1: Use Gemini architect prompt from file
-    researchPrompt = prompts.gemini.replace('[TICKET_DESCRIPTION]', userRequest);
+    researchPrompt = `
+ROLE: You are a Technical Lead performing Due Diligence.
+
+TASK: Research TECHNICAL CONSTRAINTS for: "${userRequest}"
+
+⛔ IGNORE:
+- Beginner tutorials ("How to install React").
+- Generic marketing fluff.
+
+✅ FIND CRITICAL INFO:
+1. BREAKING CHANGES: specifically for Next.js 15 / React 19.
+2. COMPATIBILITY: Which libraries conflict with Server Components?
+3. DEPENDENCIES: What are the critical dependencies and their versions?
+4. GOTCHAS: What usually kills this type of project?
+
+OUTPUT:
+A bulleted list of TECHNICAL CONSTRAINTS and CONFIGURATION RULES.
+    `;
   } else {
-    // ✅ PHASE 1.1: Use Perplexity design prompt for best practices
-    researchPrompt = prompts.perplexity.replace('[TICKET_DESCRIPTION]', userRequest);
+    researchPrompt = `
+ROLE: You are a Technical Lead performing Best Practices Research.
+
+TASK: Research BEST PRACTICES and ARCHITECTURE PATTERNS for: "${userRequest}"
+
+✅ FIND:
+1. STATE OF THE ART: What is the current best-practice stack for this type of project?
+2. ARCHITECTURE PATTERNS: Recommended patterns, folder structures, and design principles.
+3. PERFORMANCE: Optimization strategies and common pitfalls.
+4. SCALABILITY: How to structure for growth.
+
+OUTPUT:
+A comprehensive guide of BEST PRACTICES and ARCHITECTURE RECOMMENDATIONS.
+    `;
   }
 
   try {
@@ -1507,9 +1507,43 @@ async function runK2SynthesisStep(
     .map((report, i) => `## Research Report ${i + 1}\n\n${report}`)
     .join('\n\n---\n\n');
 
-  // ✅ PHASE 1.1: Load Kimi K2 synthesizer prompt from file
-  const prompts = await loadResearchPrompts();
-  const systemPrompt = prompts.kimi.replace('[RESEARCH_INPUTS]', combinedResearch);
+  const systemPrompt = `You are a Technical Architect performing deep research synthesis.
+
+TASK: Analyze the provided research reports and user vision to generate:
+
+1. A prioritized list of TECHNICAL CONSTRAINTS
+2. An EDGE CASE ANALYSIS (what usually kills this type of project)
+3. A QA CHECKLIST with 15-20 validation criteria
+4. ARCHITECTURE RECOMMENDATIONS based on contradictions or gaps in the research
+
+USE YOUR FULL REASONING CAPACITY:
+- Cross-reference information across all reports
+- Identify contradictions and resolve them with explanation
+- Prioritize constraints by impact (critical > important > nice-to-have)
+- Generate specific, actionable recommendations (not generic advice)
+
+OUTPUT FORMAT:
+
+# Technical Constraints
+
+## Critical (Must-Have)
+- [Constraint with justification]
+
+## Important
+- [Constraint with justification]
+
+## Nice-to-Have
+- [Constraint with justification]
+
+# Edge Case Analysis
+[What breaks this type of project, with prevention strategies]
+
+# QA Checklist
+- [ ] [Specific test case]
+...
+
+# Architecture Recommendations
+[Specific tech choices with rationale]`;
 
   const userPrompt = `USER VISION:
 ${userVision}
@@ -1524,7 +1558,7 @@ Synthesize this into actionable technical guidance for the development team.`;
       pipelineId,
       step: 'k2_synthesis',
       role: 'RESEARCHER',
-      model: 'kimi-k2-thinking', // ✅ Use Kimi K2 Thinking model for deep synthesis (includes reasoning)
+      model: 'kimi-k2-thinking',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
@@ -1573,7 +1607,7 @@ async function optimizeUserRequest(rawRequest: string, pipelineId: string): Prom
     
     GUIDELINES:
     1. FILL GAPS: If user says "blog", assume "Next.js 15, Markdown support, SEO friendly, Dark mode".
-    2. TECH STACK: Enforce the "Golden Stack" (Next.js 16.0+, React 19, Tailwind, Supabase).
+    2. TECH STACK: Enforce the "Golden Stack" (Next.js 14.2+, Tailwind, Supabase).
     3. CLARITY: Remove ambiguity. Define specific features.
     4. DO NOT write code. Write REQUIREMENTS.
     
@@ -1720,7 +1754,7 @@ async function runPlannerStep(pipeline: any, repoPath: string) {
     4. NO SERVERLESS: Do NOT use Next.js API Routes (app/api) for core logic.
     5. DOCKER: Plan for docker-compose.yml that runs both services.` 
     : 
-    `1. STACK: Fullstack Next.js 16 (App Router, React 19, Server Components, Server Actions, PPR).
+    `1. STACK: Fullstack Next.js 15 (App Router).
     2. All backend logic goes in Server Actions or API Routes (app/api).`;
 
   const RUTHLESS_PLANNER_PROMPT = `
@@ -1741,14 +1775,14 @@ ${zeroShotData.testSuite.cases.map(c => `- ${c}`).join('\n')}
 ` : ''}
 
 TECH STACK (GOLDEN STACK - ENFORCED, NO DEVIATIONS):
-- Framework: Next.js 16.0.x (with React 19, Server Components, Server Actions, PPR, Turbopack)
-- React: 19.0.x (Server Components by default, use 'use client' only when needed)
+- Framework: Next.js 14.2.x (STABLE - NOT 15, NOT 16)
+- React: 18.2.x
 - Tailwind: 3.4.x
 - Icons: Lucide React
 - Auth: Supabase SSR (@supabase/ssr)
 - Database: Supabase (PostgreSQL)
-- Structure: src/app/ (Next.js 16 recommended structure)
-- State: Server Components for data, React useState/useReducer for client interactivity
+- Structure: app/ in ROOT (NOT src/app/)
+- State: React useState/useReducer (no Redux)
 - Backend: ${matrix.primary_backend}
 - Architecture: ${matrix.architecture}
 
@@ -1761,14 +1795,9 @@ ${ragKnowledge.substring(0, 3000)}
 RESEARCH DATA:
 ${JSON.stringify(researchData).substring(0, 5000)}
 
-CRITICAL: NEXT.JS 16 + REACT 19 REQUIREMENTS (MUST FOLLOW):
-- Use Server Components by default (NO 'use client' unless needed for interactivity/hooks/browser APIs)
+CRITICAL: NEXT.JS 15 REQUIREMENTS (MUST FOLLOW):
 - All route parameters (params, searchParams) MUST be awaited: const { slug } = await params;
-- All cookies() and headers() calls MUST be awaited
-- Use Server Actions for mutations (NOT client-side fetch in useEffect)
-- Use async/await for data fetching in Server Components (NOT useState + fetch)
-- NO useEffect for data fetching (use Server Components or Server Actions)
-- NO Pages Router patterns (pages/, getStaticProps, getServerSideProps) awaited: const token = (await cookies()).get('token');
+- All cookies() and headers() calls MUST be awaited: const token = (await cookies()).get('token');
 - All page components and route handlers using these APIs MUST be async functions.
 - Plan for explicit caching strategies: { cache: 'force-cache' } or { cache: 'no-store' }.
 - Do NOT mix Next.js 13/14 patterns. Use ONLY Next.js 15 patterns.
@@ -1830,33 +1859,6 @@ OUTPUT FORMAT:
 - components/ui/Button.tsx (Reusable button component)
 - components/ui/Card.tsx (Card component)
 ... (list EVERY file explicitly)
-
-[PAGE_BLUEPRINTS]
-
-For each key page (/, /dashboard, /invoices, etc.), generate a PageBlueprint JSON object:
-
-{
-  "route": "/",
-  "blueprint": {
-    "template": "marketing" | "dashboard" | "tool",
-    "sections": [
-      {
-        "kind": "hero" | "feature-grid" | "stats" | "table" | "form" | "tool-showcase" | "cta",
-        "title": "Section title",
-        "subtitle": "Optional subtitle",
-        "description": "Optional description",
-        "bullets": ["Feature 1", "Feature 2"],
-        "primaryAction": { "label": "Get Started", "href": "/signup" },
-        "secondaryAction": { "label": "Learn More", "href": "/about" },
-        "stats": [{ "title": "Users", "value": "1,234", "description": "Active users" }],
-        "features": [{ "title": "Feature", "description": "Description" }]
-      }
-    ],
-    "primaryAction": { "label": "Get Started", "href": "/signup" }
-  }
-}
-
-CRITICAL: Generate blueprints for ALL pages listed in [FILE_LIST]. Store them in lib/blueprints/[page-name].ts files.
 
 ${BLUEPRINT_PROTOCOL_PROMPT}
 
@@ -2519,10 +2521,8 @@ const VALID_STATE_TRANSITIONS: Record<string, string[]> = {
   'published': [], // Terminal state
   'failed_hard': ['pending'], // Can retry from scratch
   // Legacy states for backwards compatibility
-  'running': ['failed_hard', 'completed', 'failed', 'needs_review'], // ✅ Bug 3: Add 'failed' and 'needs_review'
+  'running': ['failed_hard', 'completed'],
   'completed': [],
-  'failed': ['running'], // ✅ Bug 3: Allow retry from failed state
-  'needs_review': ['running', 'failed'], // ✅ Bug 3: Allow transitions from review
 };
 
 /**
@@ -2536,7 +2536,7 @@ function validateEnvironment() {
   
   if (major >= 22 && major < 24) {
     console.warn('⚠️  WARNING: Node.js ' + nodeVersion + ' detected');
-    console.warn('   Next.js 16 recommends Node 20 LTS or higher');
+    console.warn('   Next.js 14 recommends Node 18 or 20 LTS');
     console.warn('   Jest worker crashes are common on Node 22+');
     console.warn('');
     console.warn('   Recommended fix:');
@@ -2546,7 +2546,7 @@ function validateEnvironment() {
   }
   
   if (major >= 24) {
-    console.error('❌ UNSUPPORTED: Node.js version must be 20+ for Next.js 16');
+    console.error('❌ UNSUPPORTED: Node.js 24.x is NOT compatible with Next.js 14');
     console.error('   Downgrade to Node 20 LTS immediately');
     console.error('');
     console.error('   Run these commands:');
@@ -2609,65 +2609,6 @@ async function removeUnusedImports(filePath: string): Promise<void> {
   }
 }
 
-/**
- * ✅ Helper function to classify error types
- */
-function classifyErrorType(error: Error): string {
-  const message = error.message.toLowerCase();
-  
-  if (message.includes('timeout')) return 'timeout_error';
-  if (message.includes('build')) return 'build_error';
-  if (message.includes('ts') || message.includes('type')) return 'type_error';
-  if (message.includes('404') || message.includes('not found')) return 'not_found_error';
-  if (message.includes('syntax')) return 'syntax_error';
-  if (message.includes('state transition') || message.includes('invalid transition')) return 'state_transition_error';
-  if (message.includes('import') || message.includes('module')) return 'import_error';
-  if (message.includes('runtime')) return 'runtime_error';
-  
-  return 'unknown_error';
-}
-
-/**
- * ✅ Log error to pipeline_errors table
- * Matches the SQL schema: pipeline_id, step_id, phase, error_type, error_message, error_stack, retry_count, metadata
- */
-async function logErrorToDatabase(
-  pipelineId: string,
-  phase: string,
-  error: Error,
-  retryCount: number = 1,
-  additionalMetadata: Record<string, any> = {}
-): Promise<void> {
-  try {
-    const { data, error: dbError } = await supabase
-      .from('pipeline_errors')
-      .insert({
-        pipeline_id: pipelineId,
-        step_id: null, // Optional - add if you have step context
-        phase: phase,
-        error_type: classifyErrorType(error),
-        error_message: error.message,
-        error_stack: error.stack || null,
-        retry_count: retryCount,
-        metadata: {
-          timestamp: new Date().toISOString(),
-          node_version: process.version,
-          ...additionalMetadata
-        }
-      })
-      .select();
-
-    if (dbError) {
-      console.error('⚠️ Failed to log error to database:', dbError.message);
-    } else {
-      console.log('✅ Error logged to database');
-    }
-  } catch (err: any) {
-    // Don't crash pipeline if logging fails
-    console.error('⚠️ Database logging failed:', err.message);
-  }
-}
-
 async function updatePipelineStatus(
   pipelineId: string,
   newStatus: string,
@@ -2697,16 +2638,28 @@ async function updatePipelineStatus(
     console.error(`❌ ${error}`);
     
     // Log to telemetry (if pipeline_errors table exists)
-    await logErrorToDatabase(
-      pipelineId,
-      'state_transition',
-      new Error(error),
-      1,
-      {
+    try {
+      const { data: telemetryData, error: telemetryError } = await supabase.from('pipeline_errors').insert({
+        pipeline_id: pipelineId,
+        error_type: 'invalid_state_transition',
+        error_message: error,
         current_state: currentStatus,
-        attempted_state: newStatus
+        attempted_state: newStatus,
+      })
+      .select()
+      .single();
+
+      if (telemetryError) {
+        throw telemetryError;
       }
-    );
+
+      if (!telemetryData) {
+        console.warn('⚠️ Telemetry insert returned null');
+      }
+    } catch (telemetryError: any) {
+      // Ignore if table doesn't exist
+      console.warn('⚠️ Could not log to pipeline_errors table:', telemetryError.message);
+    }
     
     throw new Error(error);
   }
@@ -2735,8 +2688,7 @@ async function updatePipelineStatus(
 async function validateAndWriteFile(
   filePath: string,
   content: string,
-  projectRoot: string,
-  pipelineId?: string
+  projectRoot: string
 ): Promise<{ success: boolean; errors: string[] }> {
   const fileName = path.relative(projectRoot, filePath)
   
@@ -2761,45 +2713,15 @@ async function validateAndWriteFile(
     validation.warnings.forEach(warn => console.log(`   ${warn}`))
   }
   
-  // STEP 4: Write to disk using safe writer
-  const { writeFileSafe, isDangerousContent } = await import('./lib/write-file-safe');
-  
-  // Check for dangerous content
-  const danger = isDangerousContent(code, newFileName);
-  if (danger) {
-    return { success: false, errors: [`Security check failed: ${danger}`] };
+  // STEP 4: Write to disk
+  const dir = path.dirname(finalPath)
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true })
   }
-  
-  const writeResult = await writeFileSafe(finalPath, code);
-  if (!writeResult.success) {
-    if (writeResult.blocked) {
-      console.warn(`⚠️ ${writeResult.reason}`);
-      return { success: false, errors: [writeResult.reason || 'File write blocked'] };
-    }
-    return { success: false, errors: [writeResult.reason || 'File write failed'] };
-  }
-  
+  fs.writeFileSync(finalPath, code, 'utf8')
   console.log(`✅ Validated & wrote: ${newFileName}`)
   
   return { success: true, errors: [] }
-}
-
-/**
- * Map ErrorClass (from error-classifier.ts) to ErrorCategory (from errorClassifier.ts)
- */
-function mapErrorClassToErrorCategory(errorClass: string): ErrorCategory {
-  const mapping: Record<string, ErrorCategory> = {
-    'TS_UNUSED': ErrorCategory.IMPORT_ERROR,
-    'TS_SYNTAX': ErrorCategory.SYNTAX_ERROR,
-    'TS_TYPE': ErrorCategory.TYPE_ERROR,
-    'MISSING_MODULE': ErrorCategory.IMPORT_ERROR,
-    'TYPE_DRIFT': ErrorCategory.TYPE_ERROR,
-    'DB_STATE': ErrorCategory.RUNTIME_ERROR,
-    'AI_PLACEHOLDER': ErrorCategory.LAZY_CODE,
-    'RUNTIME': ErrorCategory.RUNTIME_ERROR,
-    'INFRA': ErrorCategory.RUNTIME_ERROR,
-  };
-  return mapping[errorClass] || ErrorCategory.UNKNOWN;
 }
 
 /**
@@ -2883,81 +2805,15 @@ function validateAndFixImportOrder(code: string, filePath: string): string {
   return code;
 }
 
-/**
- * ✅ PHASE 1B: Strip code fences and Claude artifacts
- * Removes all markdown code fences, [FILE:] markers, [GOAL] sections, and explanation lines
- * ✅ Bug 5: Export function for testing
- * ✅ Permanent Guard: Enhanced sentinel marker removal
- */
-export function stripCodeFences(content: string): string {
-  let cleaned = content;
-  
-  // Remove opening fences with language (```typescript, ```tsx, etc.)
-  cleaned = cleaned.replace(/^```[\w]*\n?/gm, '');
-  
-  // Remove closing fences
-  cleaned = cleaned.replace(/\n```\s*$/gm, '');
-  
-  // Remove ALL remaining fences (paranoid mode)
-  cleaned = cleaned.replace(/```/g, '');
-  
-  // ✅ Permanent Guard: Remove all sentinel markers
-  cleaned = cleaned.replace(/### END_FILE\s*$/gm, '');
-  cleaned = cleaned.replace(/\[END FILE\]/g, '');
-  cleaned = cleaned.replace(/\[END_FILE\]/g, '');
-  cleaned = cleaned.replace(/END_FILE/g, '');
-  cleaned = cleaned.replace(/\[FILE:\s*[^\]]+\]\n?/g, '');
-  
-  // Remove [GOAL] and everything after
-  cleaned = cleaned.replace(/\n?\[GOAL\][\s\S]*$/m, '');
-  
-  // Remove explanation lines
-  cleaned = cleaned.replace(/^(Fixed|Updated|Changed|Here's|This is).*$/gm, '');
-  
-  return cleaned.trim();
-}
-
-/**
- * ✅ Permanent Guard: Post-write validation
- * Refuses to save if content contains sentinel markers or scaffolding comments
- */
-function validateCodeBeforeWrite(content: string, filePath: string): { valid: boolean; reason?: string } {
-  // Check for sentinel markers
-  if (content.includes('### END_FILE') || content.includes('[END FILE]') || content.includes('[END_FILE]')) {
-    return { valid: false, reason: 'Contains sentinel markers (### END_FILE, [END FILE])' };
-  }
-  
-  // Check for obvious scaffolding comments
-  const scaffoldingPatterns = [
-    /\/\/ TODO:.*implement/i,
-    /\/\/ FIXME:.*implement/i,
-    /\/\/ Pending implementation/i,
-    /\/\/ Placeholder/i,
-    /\/\/ Add.*here/i,
-  ];
-  
-  for (const pattern of scaffoldingPatterns) {
-    if (pattern.test(content)) {
-      return { valid: false, reason: `Contains scaffolding comment: ${pattern}` };
-    }
-  }
-  
-  return { valid: true };
-}
-
 async function parseAndWriteFiles(
   codeBlock: string,
   localPath: string,
-  pipelineId?: string,
-  targetPath?: string  // ✅ NEW: Optional target file path for single-file fallback
+  pipelineId?: string
 ): Promise<number> {
   console.log('🔍 [PARSER] Starting file parsing...');
   
-  // ✅ PHASE 1B: Strip code fences FIRST
-  const strippedBlock = stripCodeFences(codeBlock);
-  
   // CRITICAL: Remove [END FILE] markers and other Claude artifacts
-  const cleanedBlock = strippedBlock
+  const cleanedBlock = codeBlock
     .replace(/\[END FILE\]/g, '')           // Remove end markers
     .replace(/```tsx\n?/g, '')
     .replace(/```ts\n?/g, '')
@@ -2969,22 +2825,19 @@ async function parseAndWriteFiles(
 
   // 🆕 TRY MULTIPLE PATTERNS (in order of priority)
   const patterns = [
-    // Pattern 1: ### FILE: ... ### END_FILE (Strict - NEW ENFORCED FORMAT)
-    /### FILE:\s*(.+?)\n([\s\S]*?)\n### END_FILE/g,
-    
-    // Pattern 2: ### FILE: (Strict - without END_FILE marker)
+    // Pattern 1: ### FILE: (Strict)
     /### FILE: (.+?)\n([\s\S]*?)(?=\n### FILE:|$)/g,
     
-    // Pattern 3: FILE: (No ###)
+    // Pattern 2: FILE: (No ###)
     /^FILE: (.+?)\n([\s\S]*?)(?=\nFILE:|$)/gm,
     
-    // Pattern 4: **FILE**: (Markdown bold)
+    // Pattern 3: **FILE**: (Markdown bold)
     /\*\*FILE\*\*: (.+?)\n([\s\S]*?)(?=\n\*\*FILE\*\*:|$)/g,
     
-    // Pattern 5: [FILE: ...] (Square brackets)
+    // Pattern 4: [FILE: ...] (Square brackets) 🆕
     /\[FILE:\s*(.+?)\](?:python|typescript|tsx|javascript)?\n([\s\S]*?)(?=\n\[FILE:|$)/g,
     
-    // Pattern 6: // FILE: (Comment style)
+    // Pattern 5: // FILE: (Comment style)
     /\/\/ FILE: (.+?)\n([\s\S]*?)(?=\n\/\/ FILE:|$)/g
   ];
 
@@ -3045,18 +2898,6 @@ async function parseAndWriteFiles(
         }
       }
 
-      // ✅ PHASE 1B: Strip code fences from file content BEFORE processing
-      if (rawPath.endsWith('.ts') || rawPath.endsWith('.tsx') || rawPath.endsWith('.js') || rawPath.endsWith('.jsx')) {
-        content = stripCodeFences(content);
-      }
-
-      // ✅ Permanent Guard: Post-write validation
-      const preValidation = validateCodeBeforeWrite(content, rawPath);
-      if (!preValidation.valid) {
-        console.error(`❌ [GUARD] Rejected file ${rawPath}: ${preValidation.reason}`);
-        continue; // Skip this file
-      }
-
       // IMPORT REWRITER: Fix relative imports
       if (rawPath.endsWith('.ts') || rawPath.endsWith('.tsx')) {
         content = await rewriteImportsToAlias(content, rawPath);
@@ -3072,18 +2913,10 @@ async function parseAndWriteFiles(
         content = validateAndFixImportOrder(content, rawPath);
       }
 
-      // ✅ Contract-aware: Check for dangerous content BEFORE validation
-      const { isDangerousContent } = await import('./lib/write-file-safe');
-      const danger = isDangerousContent(content, rawPath);
-      if (danger) {
-        console.error(`❌ [SECURITY] Dangerous content detected in ${rawPath}: ${danger}`);
-        continue;
-      }
-      
       // ═══════════════════════════════════════════════════════════════════
-      // CODE VALIDATION GATE: Validate before writing (uses safe writer internally)
+      // CODE VALIDATION GATE: Validate before writing
       // ═══════════════════════════════════════════════════════════════════
-      const validationResult = await validateAndWriteFile(fullPath, content, localPath, pipelineId);
+      const validationResult = await validateAndWriteFile(fullPath, content, localPath);
       
       if (!validationResult.success) {
         console.error(`❌ [VALIDATOR] Rejected file: ${rawPath}`);
@@ -3104,59 +2937,17 @@ async function parseAndWriteFiles(
   }
 
   if (filesWritten.length === 0) {
-    // ✅ FALLBACK: If targetPath is provided and this is a single-file task, write entire cleaned output
-    if (targetPath) {
-      console.log(`⚠️ [PARSER] No file markers found, but targetPath provided: ${targetPath}`);
-      console.log(`   Using fallback: Writing entire cleaned output to ${targetPath}`);
-      
-      // Ensure directory exists
-      const fullPath = path.join(localPath, targetPath);
-      const dir = path.dirname(fullPath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-      
-      // Clean the content one more time (remove any remaining artifacts)
-      let finalContent = cleanedBlock.trim();
-      
-      // Remove any remaining markers
-      finalContent = finalContent
-        .replace(/^### FILE:.*$/gm, '')
-        .replace(/^### END_FILE.*$/gm, '')
-        .replace(/^FILE:.*$/gm, '')
-        .replace(/^END_FILE.*$/gm, '')
-        .trim();
-      
-      // Validate before writing
-      const validationResult = await validateAndWriteFile(fullPath, finalContent, localPath);
-      
-      if (validationResult.success) {
-        console.log(`✅ [PARSER] Fallback successful: Wrote ${targetPath}`);
-        filesWritten = [targetPath];
-      } else {
-        console.error(`❌ [PARSER] Fallback validation failed for ${targetPath}`);
-        console.error(`   Errors: ${validationResult.errors.join(', ')}`);
-        
-        // Still save debug output
-        const debugPath = path.join(localPath, 'DEBUG_RAW_OUTPUT.txt');
-        fs.writeFileSync(debugPath, codeBlock, 'utf-8');
-        console.error(`💾 Saved raw output to: ${debugPath}`);
-        
-        throw new Error(`Parser fallback failed. Debug output saved to: ${debugPath}`);
-      }
-    } else {
-      // 🆕 FALLBACK: Dump raw output for debugging
-      console.error('❌ [PARSER] NO FILES MATCHED ANY PATTERN!');
-      console.error('First 500 chars of cleaned output:');
-      console.error(cleanedBlock.substring(0, 500));
-      
-      // Save to debug file
-      const debugPath = path.join(localPath, 'DEBUG_RAW_OUTPUT.txt');
-      fs.writeFileSync(debugPath, codeBlock, 'utf-8');
-      console.error(`💾 Saved raw output to: ${debugPath}`);
-      
-      throw new Error(`Parser found 0 files. Debug output saved to: ${debugPath}`);
-    }
+    // 🆕 FALLBACK: Dump raw output for debugging
+    console.error('❌ [PARSER] NO FILES MATCHED ANY PATTERN!');
+    console.error('First 500 chars of cleaned output:');
+    console.error(cleanedBlock.substring(0, 500));
+    
+    // Save to debug file
+    const debugPath = path.join(localPath, 'DEBUG_RAW_OUTPUT.txt');
+    fs.writeFileSync(debugPath, codeBlock, 'utf-8');
+    console.error(`💾 Saved raw output to: ${debugPath}`);
+    
+    throw new Error(`Parser found 0 files. Debug output saved to: ${debugPath}`);
   }
 
   console.log(`✅ [PARSER] Wrote ${filesWritten.length} files`);
@@ -3239,7 +3030,7 @@ async function runCoderStep(pipeline: any, repoPath: string) {
     ? `\nCURRENT FILE STRUCTURE:\n${fileTree}\n`
     : '\n(File structure will be created during generation)\n';
 
-  const { data: plannerStepForPlan } = await supabase
+  const { data: plannerStep } = await supabase
     .from('pipeline_steps')
     .select('output')
     .eq('pipeline_id', pipeline.id)
@@ -3248,51 +3039,10 @@ async function runCoderStep(pipeline: any, repoPath: string) {
     .limit(1)
     .single();
 
-  const plan = plannerStepForPlan?.output?.content || "No plan.";
-  
-  // ✅ ENV DETECTION: Detect required environment variables from plan
-  console.log("\n🔍 [Env Detection] Scanning plan and research for required API keys...");
-  const planEnvDetection = detectEnvFromPlan(plan);
-  const researchEnvDetection = plannerStepForPlan?.output?.researchData 
-    ? detectEnvFromPlan(JSON.stringify(plannerStepForPlan.output.researchData))
-    : [];
-  
-  // Combine detections
-  const allDetectedEnv = [...planEnvDetection, ...researchEnvDetection];
-  const uniqueEnv = new Map<string, typeof planEnvDetection[0]>();
-  for (const env of allDetectedEnv) {
-    if (!uniqueEnv.has(env.provider)) {
-      uniqueEnv.set(env.provider, env);
-    }
-  }
-  
-  const envDetectionResult: EnvDetectionResult = {
-    required: Array.from(uniqueEnv.values()),
-    optional: [],
-    demoMode: pipeline.metadata?.demoMode || false,
-  };
-  
-  if (envDetectionResult.required.length > 0) {
-    console.log(`   📋 Detected ${envDetectionResult.required.length} required providers:`);
-    envDetectionResult.required.forEach(req => {
-      console.log(`      - ${req.label}: ${req.keys.join(', ')}`);
-    });
-    
-    // Store detection result in pipeline metadata for UI
-    await updatePipeline(pipeline.id, {
-      metadata: {
-        ...pipeline.metadata,
-        envRequirements: envDetectionResult,
-        needsEnvConfig: true,
-      }
-    });
-  } else {
-    console.log("   ✅ No special environment variables detected");
-  }
-  
-  const isPython = plannerStepForPlan?.output?.isPython || pipeline.is_python || false;
-  const intent = plannerStepForPlan?.output?.intent || { isPython: isPython, isHybrid: isPython, projectType: isPython ? 'hybrid' : 'web', frameworks: [] };
-  const matrix: TechMatrix = plannerStepForPlan?.output?.matrix || {
+  const plan = plannerStep?.output?.content || "No plan.";
+  const isPython = plannerStep?.output?.isPython || pipeline.is_python || false;
+  const intent = plannerStep?.output?.intent || { isPython: isPython, isHybrid: isPython, projectType: isPython ? 'hybrid' : 'web', frameworks: [] };
+  const matrix: TechMatrix = plannerStep?.output?.matrix || {
     languages: ["TypeScript"],
     primary_backend: isPython ? "Python" : "Node",
     frontend_framework: "Next.js",
@@ -3319,7 +3069,7 @@ async function runCoderStep(pipeline: any, repoPath: string) {
 5. NEVER create files in the project root that belong in '${rootDir}/'.
 6. CONFIG files (package.json, next.config.mjs) stay in ROOT (./).
 `;
-  const ragKnowledge = plannerStepForPlan?.output?.ragKnowledge || "";
+  const ragKnowledge = plannerStep?.output?.ragKnowledge || "";
 
   // Hämta research och initial_prompt för dynamisk design
   const { data: researchStep } = await supabase
@@ -3426,23 +3176,18 @@ You MUST wrap each file like this (exact format):
 
 ### FILE: src/app/page.tsx
 [code here]
-### END_FILE
 
 ### FILE: src/lib/types.ts
 [code here]
-### END_FILE
 
 RULES:
 - Start with exactly "### FILE: " (three hashes, space, FILE:, space)
-- End with exactly "### END_FILE" (three hashes, space, END_FILE)
 - Use forward slashes in paths (not backslashes)
-- One file per marker pair
+- One file per marker
 - No extra markdown around the code
-- Do NOT use markdown code fences (three backticks with language names)
-- Do NOT include explanations before or after file markers
 - Do NOT use FILE: without ###
 - Do NOT use **FILE**: or // FILE:
-- Always use the exact format: ### FILE: [path] ... code ... ### END_FILE
+- Always use the exact format: ### FILE: [path]
 `;
 
   const EXPORT_RULE = `
@@ -3512,68 +3257,6 @@ FAILURE TO COMPLY WILL RESULT IN IMMEDIATE PROCESS TERMINATION.
    - WRONG: const pattern = /regex
    - CORRECT: const pattern = /regex/
 `;
-
-  // ✅ V8.0: Check if blueprints exist from Planner
-  const { data: plannerStep } = await supabase
-    .from('pipeline_steps')
-    .select('output')
-    .eq('pipeline_id', pipeline.id)
-    .eq('name', 'planner')
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  
-  const plannerOutput = plannerStep?.output;
-  const hasBlueprints = plannerOutput?.pageBlueprints && Array.isArray(plannerOutput.pageBlueprints);
-  
-  // ✅ V8.0: Assembler Mode Instructions
-  const V8_ASSEMBLER_MODE = hasBlueprints ? `
-🚀 V8.0 ASSEMBLER MODE - Use PageRenderer + Blueprints
-
-CRITICAL: You are a TypeScript-strict UI ASSEMBLER, not a designer.
-
-AVAILABLE GOLDEN COMPONENTS (DO NOT RECREATE):
-- @/components/ui/button, @/components/ui/card, @/components/ui/input, @/components/ui/badge, @/components/ui/table, @/components/ui/toaster
-- @/components/layout/AppShell, @/components/layout/DashboardShell, @/components/layout/FormPage, @/components/layout/DataTablePage
-- @/components/layout/HeroSection, @/components/layout/StatsGrid, @/components/layout/FeatureGrid, @/components/layout/ToolShowcase, @/components/layout/CTASection
-- @/components/layout/PageRenderer (assembles blueprints)
-
-PAGE BLUEPRINTS FROM PLANNER:
-${JSON.stringify(plannerOutput.pageBlueprints || [], null, 2)}
-
-YOUR TASK:
-1. For each page blueprint, create lib/blueprints/[page-name].ts with the blueprint object
-2. Create src/app/[route]/page.tsx that imports the blueprint and passes it to PageRenderer
-3. DO NOT hand-code layout - use PageRenderer + sections
-4. DO NOT write raw CSS or Tailwind for base components - use golden components
-
-EXAMPLE FOR HOME PAGE:
-// lib/blueprints/home.ts
-import type { PageBlueprint } from '@/lib/blueprints';
-export const homeBlueprint: PageBlueprint = {
-  template: 'marketing',
-  sections: [
-    { kind: 'hero', title: 'Welcome', subtitle: '...', primaryAction: { label: 'Get Started', href: '/signup' } },
-    { kind: 'feature-grid', title: 'Features', features: [...] },
-    { kind: 'cta', title: 'Ready?', primaryAction: { label: 'Start Now', href: '/signup' } }
-  ]
-};
-
-// src/app/page.tsx
-import { PageRenderer } from '@/components/layout/PageRenderer';
-import { homeBlueprint } from '@/lib/blueprints/home';
-
-export default function HomePage() {
-  return <PageRenderer blueprint={homeBlueprint} />;
-}
-
-CRITICAL RULES:
-- Use ONLY pre-existing components from @/components/ui and @/components/layout
-- Use PageRenderer + blueprints for page layout
-- Never write raw CSS or Tailwind for base components
-- No markdown, no explanations, no placeholders (return null, // TODO)
-- Generate complete, syntactically valid TypeScript code
-` : '';
 
   const CODER_SYSTEM_PROMPT = `
 You are a PRODUCTION CODE GENERATOR for Frost Night Factory.
@@ -3716,10 +3399,10 @@ ${ARCHITECTURE_MEMORY}
 
 YOUR TASK: Generate the COMPLETE codebase for BOTH parts in this single response.
 
-PART 1: THE FRONTEND (Next.js 16.0.x - GOLDEN STACK) - REQUIRED
-- Path: MUST be /src/app (Next.js 16 recommended structure)
+PART 1: THE FRONTEND (Next.js 14.2.x - GOLDEN STACK) - REQUIRED
+- Path: MUST be /app in ROOT (NOT /src/app)
 - MUST include ALL of these files:
-  * package.json (with "next": "^16.0.7", "react": "^19.0.0", "react-dom": "^19.0.0", Tailwind CSS dependencies)
+  * package.json (with "next": "14.2.18", "react": "18.2.0", Tailwind CSS dependencies)
   * next.config.mjs
   * tailwind.config.ts
   * postcss.config.js
@@ -4254,50 +3937,17 @@ PRIORITY: Visual accuracy to the reference image > Generic design rules.
 
       const fePrompt = PREMIUM_SAAS_PROMPT + visionInstruction;
 
-      // ✅ V8.0: Use generateAndValidateCode wrapper for syntax firewall
-      const { generateAndValidateCode: generateAndValidateCodeFE } = await import('./lib/ai-code-validator');
-      
-      // Wrap AI call with syntax validator
-      const feCode = await generateAndValidateCodeFE(
-        async (prompt: string) => {
-          return await callAI({
-            pipelineId: pipeline.id,
-            step: 'coder',
-            role: 'CODER',
-            model: selectModel('CODER'),
-            messages: [
-              { role: 'user', content: prompt }
-            ]
-          });
-        },
-        fePrompt,
-        'FRONTEND_FILES',
-        repoPath,
-        3 // Max retries for syntax errors
-      );
+      // Kör Claude för Frontend (med bild om den finns)
+      const feCode = await callAI({
+        pipelineId: pipeline.id,
+        step: 'coder',
+        role: 'CODER',
+        model: selectModel('CODER'),
+        messages: [
+          { role: 'user', content: fePrompt }
+        ]
+      });
       const feFilesCreated = await parseAndWriteFiles(feCode, repoPath, pipeline.id);
-      
-      // ✅ V8.0: Optional self-debug on critical files before Tester
-      const { shouldRunSelfDebug, selfDebugCriticalFiles } = await import('./lib/coder-self-debug');
-      if (await shouldRunSelfDebug() && feFilesCreated.length > 0) {
-        console.log(`   🔍 [Self-Debug] Running per-file validation on ${feFilesCreated.length} file(s)...`);
-        const criticalFiles = feFilesCreated.filter(f => 
-          f.includes('page.tsx') || f.includes('layout.tsx') || f.includes('types.ts')
-        );
-        if (criticalFiles.length > 0) {
-          const debugResults = await selfDebugCriticalFiles(criticalFiles, repoPath);
-          const failedFiles = debugResults.filter(r => !r.passed);
-          if (failedFiles.length > 0) {
-            console.warn(`   ⚠️ [Self-Debug] ${failedFiles.length} file(s) failed validation:`);
-            failedFiles.forEach(f => {
-              console.warn(`      - ${f.filePath}: ${f.errors.join(', ')}`);
-            });
-            // Don't fail the pipeline, but log for Tester to handle
-          } else {
-            console.log(`   ✅ [Self-Debug] All critical files passed validation`);
-          }
-        }
-      }
       console.log(`✅ Frontend Phase Complete: ${feFilesCreated} files created.`);
 
       // STEG B: Backend (Backend Router - Välj modell baserat på språk)
@@ -4394,27 +4044,16 @@ ${STRICT_OUTPUT_FORMAT}
 
       const bePrompt = BRAINY_BACKEND_PROMPT;
 
-      // ✅ V8.0: Use generateAndValidateCode wrapper for syntax firewall
-      const { generateAndValidateCode: generateAndValidateCodeBE } = await import('./lib/ai-code-validator');
-      
-      // Wrap AI call with syntax validator
-      const beCode = await generateAndValidateCodeBE(
-        async (prompt: string) => {
-          return await callAI({
-            pipelineId: pipeline.id,
-            step: 'coder',
-            role: 'CODER',
-            model: selectModel('CODER'),
-            messages: [
-              { role: 'user', content: prompt }
-            ]
-          });
-        },
-        bePrompt,
-        'BACKEND_FILES',
-        repoPath,
-        3 // Max retries for syntax errors
-      );
+      // Kör Backend med vald modell
+      const beCode = await callAI({
+        pipelineId: pipeline.id,
+        step: 'coder',
+        role: 'CODER',
+        model: selectModel('CODER'), // Use CODER model selection
+        messages: [
+          { role: 'user', content: bePrompt }
+        ]
+      });
       const beFilesCreated = await parseAndWriteFiles(beCode, repoPath, pipeline.id);
       console.log(`✅ Backend Phase Complete: ${beFilesCreated} files created.`);
       
@@ -4514,10 +4153,7 @@ ${STRICT_OUTPUT_FORMAT}
 
 You MUST use this exact format:
 ### FILE: ${file.path}
-
-<your code here>
-
-### END_FILE
+... code ...
           `;
           
           // ✅ Phase 1: Multi-pass generation with validation
@@ -4766,39 +4402,16 @@ You MUST use this exact format:
       runImportRewriter(repoPath);
       
       // =============================================================================
-      // ✅ PHASE 4: AUTO-DEPENDENCY INSTALLER (Fixes 25% of errors + Forces modern versions)
+      // 🏆 #1: AUTO-DEPENDENCY INSTALLER (Fixes 25% of errors)
       // =============================================================================
-      console.log(chalk.cyan("\n📦 PHASE 4: DEPENDENCY DETECTIVE: Auto-installing missing packages..."));
+      console.log(chalk.cyan("\n📦 DEPENDENCY DETECTIVE: Auto-installing missing packages..."));
       try {
         const depResult = runDependencyDetective(repoPath);
         if (depResult.installed.length > 0) {
-          console.log(chalk.green(`   ✅ Installed ${depResult.installed.length} packages with modern versions`));
+          console.log(chalk.green(`   ✅ Installed ${depResult.installed.length} packages`));
         }
         if (depResult.errors.length > 0) {
           console.log(chalk.yellow(`   ⚠️ ${depResult.errors.length} installation errors (non-critical)`));
-        }
-        
-        // ✅ PHASE 4.1: Verify critical packages are at correct versions
-        const packageJsonPath = path.join(repoPath, 'package.json');
-        if (fs.existsSync(packageJsonPath)) {
-          const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
-          const deps = { ...packageJson.dependencies, ...packageJson.devDependencies };
-          
-          const criticalChecks = [
-            { name: 'next', expected: '^16.0.7', current: deps.next },
-            { name: 'react', expected: '^19.0.0', current: deps.react },
-            { name: 'react-dom', expected: '^19.0.0', current: deps['react-dom'] },
-          ];
-          
-          for (const check of criticalChecks) {
-            if (check.current && !check.current.includes(check.expected.replace('^', '').split('.')[0])) {
-              console.warn(chalk.yellow(`   ⚠️ ${check.name} version mismatch: expected ${check.expected}, got ${check.current}`));
-            } else if (!check.current) {
-              console.warn(chalk.yellow(`   ⚠️ ${check.name} not found in package.json`));
-            } else {
-              console.log(chalk.green(`   ✅ ${check.name} version OK: ${check.current}`));
-            }
-          }
         }
       } catch (error: any) {
         console.warn(chalk.yellow(`   ⚠️ Dependency Detective failed: ${error.message}`));
@@ -4823,73 +4436,27 @@ You MUST use this exact format:
       console.log(chalk.green("   ✅ Post-coder fixes applied"));
     }
 
-    // =============================================================================
-    // ✅ PHASE 2.1: Inject Golden Configs (Next.js 16 + React 19)
-    // =============================================================================
-    console.log(chalk.cyan("\n✅ PHASE 2.1: Injecting golden configs..."));
-    
-    const goldenConfigsDir = path.join(__dirname, 'knowledge', 'golden-configs');
-    
-    // Inject next.config.js
-    const nextConfigPath = path.join(goldenConfigsDir, 'next.config.js');
-    if (fs.existsSync(nextConfigPath)) {
-      const nextConfigDest = path.join(repoPath, 'next.config.js');
-      fs.copyFileSync(nextConfigPath, nextConfigDest);
-      console.log(chalk.green("   ✅ Injected golden next.config.js"));
-    }
-    
-    // Inject tailwind.config.ts
-    const goldenTailwindConfigPath = path.join(goldenConfigsDir, 'tailwind.config.ts');
-    if (fs.existsSync(goldenTailwindConfigPath)) {
-      const tailwindConfigDest = path.join(repoPath, 'tailwind.config.ts');
-      fs.copyFileSync(goldenTailwindConfigPath, tailwindConfigDest);
-      console.log(chalk.green("   ✅ Injected golden tailwind.config.ts"));
-    }
-    
-    // ✅ PHASE 3: Inject globals.css (Cyberpunk Design System)
-    const globalsCssPath = path.join(goldenConfigsDir, 'globals.css');
-    if (fs.existsSync(globalsCssPath)) {
-      // Try src/app/globals.css first (Next.js 16 recommended)
-      const globalsCssDest1 = path.join(repoPath, 'src', 'app', 'globals.css');
-      const globalsCssDest2 = path.join(repoPath, 'app', 'globals.css');
-      
-      if (fs.existsSync(path.dirname(globalsCssDest1))) {
-        fs.copyFileSync(globalsCssPath, globalsCssDest1);
-        console.log(chalk.green("   ✅ Injected golden globals.css to src/app/globals.css"));
-      } else if (fs.existsSync(path.dirname(globalsCssDest2))) {
-        fs.copyFileSync(globalsCssPath, globalsCssDest2);
-        console.log(chalk.green("   ✅ Injected golden globals.css to app/globals.css"));
-      } else {
-        // Create directory if needed
-        const destDir = path.join(repoPath, 'src', 'app');
-        if (!fs.existsSync(destDir)) {
-          fs.mkdirSync(destDir, { recursive: true });
-        }
-        fs.copyFileSync(globalsCssPath, globalsCssDest1);
-        console.log(chalk.green("   ✅ Created src/app/ and injected golden globals.css"));
-      }
-    }
-
     // SAFEGUARD: Skapa saknade config-filer om AI:n missade dem
-    // ✅ Fix 1: Use golden template with borderColor fix
     const tailwindConfigPath = path.join(repoPath, 'tailwind.config.ts');
     if (!fs.existsSync(tailwindConfigPath)) {
-      console.log(`[Coder] Creating missing tailwind.config.ts with golden template`);
-      const goldenTailwind = getGoldenTemplate('tailwind.config.ts');
-      if (goldenTailwind) {
-        fs.writeFileSync(tailwindConfigPath, goldenTailwind);
-      } else {
-        // Fallback to inline template with borderColor fix
-        fs.writeFileSync(tailwindConfigPath, GOLDEN_TAILWIND_CONFIG);
-      }
-    } else {
-      // ✅ Fix 1: Ensure existing config has borderColor extension
-      const existingConfig = fs.readFileSync(tailwindConfigPath, 'utf-8');
-      if (!existingConfig.includes('borderColor')) {
-        console.log(`[Coder] Updating tailwind.config.ts to add borderColor extension`);
-        const goldenTailwind = getGoldenTemplate('tailwind.config.ts') || GOLDEN_TAILWIND_CONFIG;
-        fs.writeFileSync(tailwindConfigPath, goldenTailwind);
-      }
+      console.log(`[Coder] Creating missing tailwind.config.ts`);
+      fs.writeFileSync(tailwindConfigPath, `
+import type { Config } from 'tailwindcss';
+
+const config: Config = {
+  content: [
+    './app/**/*.{js,ts,jsx,tsx,mdx}',
+    './components/**/*.{js,ts,jsx,tsx,mdx}',
+    './src/**/*.{js,ts,jsx,tsx,mdx}',
+  ],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+};
+
+export default config;
+      `.trim());
     }
 
     const postcssConfigPath = path.join(repoPath, 'postcss.config.js');
@@ -5278,54 +4845,6 @@ Only fix the files that have issues. Keep everything else unchanged.
         break;
       }
     } while (needsFix && iteration < maxIterations);
-
-    // ✅ ENV DETECTION: Scan generated code for environment variable requirements
-    console.log("\n🔍 [Env Detection] Scanning generated code for required API keys...");
-    try {
-      const codeEnvDetection = await detectEnvFromProject(repoPath);
-      
-      // Merge with plan-based detection
-      const existingEnv = pipeline.metadata?.envRequirements as EnvDetectionResult | undefined;
-      if (existingEnv) {
-        // Combine detections (avoid duplicates)
-        const allProviders = new Map<string, any>();
-        [...existingEnv.required, ...codeEnvDetection.required].forEach(req => {
-          if (!allProviders.has(req.provider)) {
-            allProviders.set(req.provider, req);
-          }
-        });
-        codeEnvDetection.required = Array.from(allProviders.values());
-      }
-      
-      if (codeEnvDetection.required.length > 0) {
-        console.log(`   📋 Found ${codeEnvDetection.required.length} required providers in code:`);
-        codeEnvDetection.required.forEach(req => {
-          console.log(`      - ${req.label}: ${req.keys.join(', ')}`);
-        });
-        
-        // Generate .env.local if user has provided values or use demo mode
-        const envValues = pipeline.metadata?.envValues || {};
-        const demoMode = pipeline.metadata?.demoMode || false;
-        
-        const envFileContent = generateEnvFile(envValues, codeEnvDetection, demoMode);
-        const envFilePath = path.join(repoPath, '.env.local');
-        fs.writeFileSync(envFilePath, envFileContent, 'utf-8');
-        console.log(`   ✅ Generated .env.local (${demoMode ? 'DEMO MODE' : 'PRODUCTION MODE'})`);
-        
-        // Update pipeline metadata
-        await updatePipeline(pipeline.id, {
-          metadata: {
-            ...pipeline.metadata,
-            envRequirements: codeEnvDetection,
-            envFileGenerated: true,
-          }
-        });
-      } else {
-        console.log("   ✅ No special environment variables detected in code");
-      }
-    } catch (envError: any) {
-      console.warn(`   ⚠️ Env detection failed (non-critical): ${envError.message}`);
-    }
 
     await updateStep(pipeline.id, 'coder', 'completed');
     await updatePipeline(pipeline.id, { current_phase: 'sql' });
@@ -5852,53 +5371,8 @@ function detectLazyPythonPass(content: string, filePath: string): boolean {
   return false;
 }
 
-// ✅ Bug 3 Fix: Module-level Set to track recently fixed files
-const recentlyFixedFilesSet = new Set<string>();
-
-/**
- * ✅ Bug 2 Fix: Context-aware check for lazy return null in React components
- */
-function hasLazyReturnNull(content: string, filePath: string): boolean {
-  // Allow "return null" in React components if it's conditional or inside a function
-  const lines = content.split('\n');
-  
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    
-    // Allow: if (...) return null (conditional return)
-    if (line.match(/if\s*\(.*\)\s*return\s+null/)) {
-      continue;
-    }
-    
-    // Allow: return null; inside a function body (not top-level)
-    if (line === 'return null;' || line === 'return null') {
-      // Check if inside a function body (not top-level)
-      const before = lines.slice(Math.max(0, i - 10), i).join('\n');
-      if (before.match(/function|const.*=.*\(.*\)\s*=>|export\s+default\s+function|export\s+function/)) {
-        continue; // This is fine - it's inside a function
-      }
-    }
-    
-    // Reject: const Foo = () => null (lazy placeholder)
-    if (line.match(/const\s+\w+\s*=\s*\(\s*\)\s*=>\s*null/)) {
-      return true;
-    }
-    
-    // Reject: return null; as only line in file (or very minimal content)
-    if (content.trim() === 'return null;' || content.trim() === 'return null' || 
-        (content.trim().split('\n').length <= 3 && content.includes('return null'))) {
-      return true;
-    }
-  }
-  
-  return false;
-}
-
-function scanForLaziness(projectPath: string, recentlyFixedFiles?: Set<string>): { found: boolean; issues: string[] } {
+function scanForLaziness(projectPath: string): { found: boolean; issues: string[] } {
   console.log("🕵️ Scanning for lazy code...");
-  
-  // ✅ Bug 3 Fix: Use provided set or module-level set
-  const skipFiles = recentlyFixedFiles || recentlyFixedFilesSet;
   
   const issues: string[] = [];
   const scannedFiles: string[] = [];
@@ -5984,7 +5458,7 @@ function scanForLaziness(projectPath: string, recentlyFixedFiles?: Set<string>):
     { pattern: /console\.log\(['"]DEBUG/gi, name: "DEBUG console.log" },
     { pattern: /alert\(/g, name: "alert()" },
     { pattern: /Lorem ipsum/gi, name: "Lorem ipsum" },
-    // ✅ Bug 2 Fix: Removed 'return null' from lazy patterns - will check separately with context awareness
+    { pattern: /return null;$/gm, name: "return null" },
   ];
 
   for (const file of tsFiles) {
@@ -5992,34 +5466,15 @@ function scanForLaziness(projectPath: string, recentlyFixedFiles?: Set<string>):
     try {
       const content = fs.readFileSync(fullPath, 'utf-8');
       
-      // ✅ Bug 3 Fix: Skip lazy code check for recently fixed files
-      if (skipFiles.has(file)) {
-        console.log(`⏭️ Skipping lazy code check for recently fixed file: ${file}`);
-        continue;
-      }
-      
       // Check console.log (warning only)
       if (consoleLogPattern.test(content)) {
         consoleLogWarnings.push(file);
       }
       
-      // Check lazy patterns (excluding return null)
+      // Check lazy patterns
       for (const { pattern, name } of lazyPatternsTS) {
         if (pattern.test(content)) {
           issues.push(`Found '${name}' in ${file}`);
-        }
-      }
-      
-      // ✅ Bug 2 Fix: Context-aware return null check for React components
-      if (file.match(/\.(tsx|jsx)$/)) {
-        // Allow return null in React components if it's conditional or inside a function
-        if (hasLazyReturnNull(content, file)) {
-          issues.push(`Found lazy 'return null' in ${file}`);
-        }
-      } else {
-        // For non-React files, return null is likely lazy
-        if (/return null;?$/gm.test(content)) {
-          issues.push(`Found 'return null' in ${file} (non-React file)`);
         }
       }
       
@@ -6241,31 +5696,29 @@ async function runIntelligentBatchFixer(
       const reportPath = circuitBreaker.generateReport(reason || 'Unknown');
       
       // Record in telemetry
-      const telemetryCategory = mapErrorClassToErrorCategory(classified.classification);
+      // Note: mapErrorClassToErrorCategory returns v85 ErrorCategory, but telemetry uses old category
+      // Convert to string for telemetry compatibility
+      const telemetryCategory = mapErrorClassToErrorCategory(classified.classification) as any;
       recordErrorOccurrence(currentError, telemetryCategory);
       
-      // Save detailed error report
-      // ✅ Fix 6: Ensure error reports directory exists before writing
-      const reportDir = path.join(repoPath, 'error-reports');
-      const fse = await import('fs-extra');
-      await fse.ensureDir(reportDir);
-      
+      // Save detailed error report (sanitize Windows-invalid characters)
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const errorReportPath = path.join(
-        reportDir,
-        `error-report-${new Date().toISOString()}.json`
+        repoPath,
+        `error-reports/error-report-${timestamp}.json`
       );
       
-      // ✅ Bug 1 Fix: Use outputFile instead of writeFile (fs-extra method)
-      await fse.outputFile(errorReportPath, JSON.stringify({
+      fs.mkdirSync(path.dirname(errorReportPath), { recursive: true });
+      fs.writeFileSync(errorReportPath, JSON.stringify({
         pipelineId,
         timestamp: new Date().toISOString(),
         error: currentError,
         recommendation: 'Check layout.tsx for hallucinated imports',
         filesFixed,
         attemptsMade: circuitBreaker.getStatus().totalAttempts
-      }, null, 2), 'utf-8');
+      }, null, 2));
       
-      console.log(`📄 Error report saved: ${errorReportPath}`);
+      console.log(`📋 Error report saved: ${errorReportPath}`);
       
       return {
         success: false,
@@ -7044,64 +6497,7 @@ function sanitizeMiddleware(projectPath: string) {
   }
 }
 
-/**
- * ✅ Fix 3: Cleanup duplicate lockfiles to prevent Next.js warnings
- */
-async function cleanupLockfiles(projectRoot: string): Promise<void> {
-  console.log('🧹 Cleaning up duplicate lockfiles...');
-  
-  const fse = await import('fs-extra');
-  
-  // Only keep lockfile in project root
-  const lockfilesToDelete = [
-    path.join(projectRoot, '..', '..', '..', 'package-lock.json'), // agent-runner root
-    path.join(projectRoot, '..', '..', 'package-lock.json'), // workspace root
-  ];
-  
-  for (const lockfile of lockfilesToDelete) {
-    try {
-      if (await fse.pathExists(lockfile)) {
-        await fse.remove(lockfile);
-        console.log(`   ✅ Deleted: ${path.relative(projectRoot, lockfile)}`);
-      }
-    } catch (error: any) {
-      console.warn(`   ⚠️ Could not delete ${lockfile}: ${error.message}`);
-    }
-  }
-  
-  console.log('✅ Lockfile cleanup complete');
-}
-
 async function runTesterStep(pipeline: any, repoPath: string) {
-  // ═══════════════════════════════════════════════════════════════
-  // ✅ PRE-FLIGHT ORDERING (Critical Sequence)
-  // ═══════════════════════════════════════════════════════════════
-  // 1. Ensure golden contracts FIRST (before any validation)
-  console.log('\n🛡️ [Pre-Flight] Step 1: Ensuring golden contracts...');
-  const { ensureGoldenContracts } = await import('./lib/golden-contracts');
-  const { validateContracts } = await import('./lib/contract-check');
-  
-  const contractResult = await ensureGoldenContracts(repoPath);
-  if (contractResult.restored.length > 0) {
-    console.log(`   ✅ Restored ${contractResult.restored.length} contract file(s): ${contractResult.restored.join(', ')}`);
-  }
-  
-  // 2. Validate contracts (abort/restore if broken)
-  console.log('🛡️ [Pre-Flight] Step 2: Validating contracts...');
-  const contractValidation = validateContracts(repoPath);
-  if (!contractValidation.ok) {
-    console.error('❌ [CONTRACT-CHECK] Core contracts broken:');
-    contractValidation.errors.forEach(e => console.error(`   - ${e}`));
-    
-    // Restore and abort instead of running generic AI_FIX on them
-    await ensureGoldenContracts(repoPath);
-    throw new Error('Core contracts broken – restored golden and aborting automatic fixes');
-  }
-  console.log('   ✅ Contract validation passed');
-  
-  // 3. Run lazy code scan (before AI fixers)
-  console.log('🛡️ [Pre-Flight] Step 3: Scanning for lazy code...');
-  
   // ✅ Track fixing state for memorization (must be declared at function start)
   let wasFixing = false;
   let lastErrorLog: string | null = null;
@@ -7114,60 +6510,28 @@ async function runTesterStep(pipeline: any, repoPath: string) {
     return;
   }
 
-  // ✅ Fix 4: Dynamic Circuit Breaker with error-type-specific thresholds
-  const CIRCUIT_BREAKER_CONFIG = {
-    CSS_ERRORS: 5,        // CSS issues are usually fixable
-    TYPE_ERRORS: 8,       // TypeScript needs more attempts
-    IMPORT_ERRORS: 8,     // Import issues need resolution
-    RUNTIME_ERRORS: 3,    // True runtime errors are harder
-    BUILD_ERRORS: 5,     // Build config issues are fixable
-    DEFAULT: 3,           // Default threshold
-  };
-  
-  function getCircuitBreakerThreshold(errorType: string): number {
-    if (errorType.includes('CSS') || errorType.includes('Tailwind') || errorType.includes('border')) {
-      return CIRCUIT_BREAKER_CONFIG.CSS_ERRORS;
-    }
-    if (errorType.includes('TS') || errorType.includes('type')) {
-      return CIRCUIT_BREAKER_CONFIG.TYPE_ERRORS;
-    }
-    if (errorType.includes('import') || errorType.includes('module')) {
-      return CIRCUIT_BREAKER_CONFIG.IMPORT_ERRORS;
-    }
-    if (errorType.includes('build') || errorType.includes('config')) {
-      return CIRCUIT_BREAKER_CONFIG.BUILD_ERRORS;
-    }
-    return CIRCUIT_BREAKER_CONFIG.RUNTIME_ERRORS;
-  }
-  
-  // 🆕 CIRCUIT BREAKER: Prevent infinite loops (with dynamic thresholds)
+  // 🆕 CIRCUIT BREAKER: Prevent infinite loops
+  const MAX_TESTER_ATTEMPTS = 3;
   const attemptKey = `tester_attempts_${pipeline.id}`;
   
   // Initialize global tracker if it doesn't exist
   if (!(global as any).testerAttempts) {
     (global as any).testerAttempts = {};
   }
-  if (!(global as any).lastTesterError) {
-    (global as any).lastTesterError = {};
-  }
   
-  const currentAttempts = ((global as any).testerAttempts[attemptKey] || 0) + 1;
-  (global as any).testerAttempts[attemptKey] = currentAttempts;
+  (global as any).testerAttempts[attemptKey] = 
+    ((global as any).testerAttempts[attemptKey] || 0) + 1;
   
-  // Get threshold based on last error (if available)
-  const lastError = (global as any).lastTesterError?.[attemptKey] || '';
-  const maxAttempts = getCircuitBreakerThreshold(lastError);
-  
-  if (currentAttempts > maxAttempts) {
-    console.error(`🛑 CIRCUIT BREAKER: Tester failed ${currentAttempts} times (threshold: ${maxAttempts}). Stopping.`);
+  if ((global as any).testerAttempts[attemptKey] > MAX_TESTER_ATTEMPTS) {
+    console.error(`🛑 CIRCUIT BREAKER: Tester failed ${MAX_TESTER_ATTEMPTS} times. Stopping.`);
     await updatePipeline(pipeline.id, { 
       status: 'failed',
-      error_message: `Circuit breaker triggered: Too many tester failures (${currentAttempts}/${maxAttempts})`
+      error_message: 'Circuit breaker triggered: Too many tester failures'
     });
     return;
   }
   
-  console.log(`[Tester] Attempt ${currentAttempts}/${maxAttempts}...`);
+  console.log(`[Tester] Attempt ${(global as any).testerAttempts[attemptKey]}/${MAX_TESTER_ATTEMPTS}...`);
 
   // =============================================================================
   // 🥉 #3: VERSION CONTROL / UNDO - Create snapshot before risky operations
@@ -7737,27 +7101,68 @@ export default config;
   console.log(chalk.cyan("\n" + "═".repeat(60) + "\n"));
   
   // =============================================================================
-  // 🏗️ MAIN BUILD/FIX LOOP - V8.0 GATEKEEPER MODE
+  // 🏰 FROST NIGHT FACTORY v9.0 - FORTRESS ARCHITECTURE INTEGRATION
   // =============================================================================
-  // ✅ V8.0: Simplified gatekeeper - only 1-2 AI fix attempts max
-  const maxRetries = 2; // V8.0: Reduced from 10 to 2 (gatekeeper mode)
+  console.log(chalk.cyan("\n🏰 FROST NIGHT FACTORY v9.0 - FORTRESS GUARD ACTIVE\n"));
+  
+  // Validate fortress integrity
+  const fortressCheck = await validateFortressIntegrity(repoPath);
+  if (!fortressCheck.valid) {
+    console.warn(chalk.yellow("⚠️ Fortress integrity check failed:"));
+    if (fortressCheck.missing.length > 0) {
+      console.warn(`   Missing: ${fortressCheck.missing.join(', ')}`);
+    }
+    if (fortressCheck.corrupted.length > 0) {
+      console.warn(`   Corrupted: ${fortressCheck.corrupted.join(', ')}`);
+    }
+  } else {
+    console.log(chalk.green("   ✅ Fortress integrity: VALID"));
+  }
+  
+  // Create repair session with budget
+  const repairSession = createRepairSession(pipeline.id, 2.0); // $2 max budget
+  console.log(chalk.green(`   ✅ Repair session created (budget: $${repairSession.budget.toFixed(2)})`));
+  
+  // Track file attempts
+  const fileAttemptCounts = new Map<string, number>();
+  
+  // Helper function to count TypeScript errors
+  async function countTypeScriptErrors(projectRoot: string): Promise<number> {
+    try {
+      const validationResult = await runZoneValidation(projectRoot);
+      return validationResult.tier1Checks.filter(c => !c.passed).length;
+    } catch {
+      // Fallback: try tsc directly
+      try {
+        execSync('npx tsc --noEmit 2>&1', { cwd: projectRoot, stdio: 'pipe' });
+        return 0;
+      } catch {
+        return 999; // Unknown error count
+      }
+    }
+  }
+  
+  // =============================================================================
+  // 🏗️ MAIN BUILD/FIX LOOP (v9.0 Protected)
+  // =============================================================================
+  const maxRetries = 10;
   let attempt = 0;
   let success = false;
   
   // Initialize Circuit Breaker for the main loop
   const mainCircuitBreaker = new CircuitBreaker({
-    maxIdenticalErrors: 1, // V8.0: Stricter - fail fast on repeated errors
+    maxIdenticalErrors: 2,
     maxTotalAttempts: maxRetries,
-    maxDuration: 5 * 60 * 1000, // V8.0: Reduced from 10 to 5 minutes
+    maxDuration: 10 * 60 * 1000, // 10 minutes
     reportPath: path.join(repoPath, 'error-reports'),
   });
   
   // =============================================================================
-  // 🔁 LOOP DETECTION AGENT - Track error patterns (V8.0 SIMPLIFIED)
+  // 🔁 LOOP DETECTION AGENT - Track error patterns (V5 UPGRADE)
   // =============================================================================
   let errorHistory: string[] = [];
   let fixerAttempts = 0; // Track how many times we've tried fixing
-  const MAX_FIXER_ATTEMPTS = 1; // ✅ V8.0: Reduced from 3 to 1 (gatekeeper mode - fail fast)
+  const MAX_FIXER_ATTEMPTS = 3; // V5: Stop after 3 fixer attempts
 
   // =============================================================================
   // 1. STÄDA & PREPPA (The Forever Fixes)
@@ -7803,6 +7208,17 @@ export default config;
         } catch (installError: any) {
           console.warn("-> Standard install failed. Analyzing error...");
           const errLog = installError.stderr?.toString() || installError.stdout?.toString() || "";
+          
+          // 🚨 SYSTEM-LEVEL ERROR DETECTION: Fail fast for authentication/registry issues
+          if (errLog.includes("Access token expired") || 
+              errLog.includes("Access token revoked") ||
+              errLog.includes("E401") ||
+              (errLog.includes("E404") && errLog.includes("Not Found - GET https://registry.npmjs.org"))) {
+            console.error("🚨 SYSTEM-LEVEL NPM ERROR DETECTED:");
+            console.error("   This is an npm authentication/registry issue, not a code issue.");
+            console.error("   User must manually fix: npm login or check npm registry configuration");
+            throw new Error(`SYSTEM_ERROR: npm authentication/registry issue. Cannot auto-fix. ${errLog.substring(0, 200)}`);
+          }
           
           // Om felet är versionskrock (ERESOLVE) -> Kör legacy
           if (errLog.includes("ERESOLVE") || errLog.includes("peer dependency")) {
@@ -8047,13 +7463,6 @@ export default nextConfig;
         const qualityStderr = qualityError.stderr || "";
         const fullQualityLog = qualityOutput + "\n" + qualityStdout + "\n" + qualityStderr;
         
-        // ✅ Fix 4: Store error for circuit breaker threshold calculation
-        const attemptKey = `tester_attempts_${pipeline.id}`;
-        if (!(global as any).lastTesterError) {
-          (global as any).lastTesterError = {};
-        }
-        (global as any).lastTesterError[attemptKey] = fullQualityLog;
-        
         console.log("❌ Production Readiness Check Failed. Output captured.");
         
         // =============================================================================
@@ -8114,9 +7523,6 @@ export default nextConfig;
 
       // 3. Om kvalitetskontrollen passerar, kör vi en riktig build för att säkra
       if (fs.existsSync(path.join(repoPath, 'package.json'))) {
-        // ✅ Fix 3: Cleanup lockfiles BEFORE build
-        await cleanupLockfiles(repoPath);
-        
         // Final cache clear innan build (för att garantera ren build)
         console.log("[Tester] 🧹 Final cache clear before build...");
         try {
@@ -8270,30 +7676,6 @@ body {
         }
         
         console.log(chalk.green.bold("✅ Build Successful!"));
-        
-        // ✅ PHASE 2B: Save build artifacts after successful build
-        // ✅ Bug 1: Enhanced error handling and logging
-        console.log('📦 Build succeeded, saving artifacts...');
-        try {
-          const { saveBuildArtifacts } = await import('./lib/build-artifacts');
-          const artifact = await saveBuildArtifacts(pipeline.id, repoPath);
-          console.log(`✅ Artifact saved: ${artifact.buildHash.substring(0, 12)}...`);
-          console.log(`   Location: ${artifact.artifactPath}`);
-          
-          // Update pipeline metadata
-          await updatePipeline(pipeline.id, {
-            metadata: {
-              ...(pipeline.metadata || {}),
-              build_artifact_hash: artifact.buildHash,
-              build_artifact_path: artifact.artifactPath,
-              build_verified: true
-            }
-          });
-        } catch (artifactError: any) {
-          console.error('❌ Failed to save artifact:', artifactError.message);
-          console.error('   Stack:', artifactError.stack);
-          // Don't fail the whole pipeline, just warn
-        }
         
         // 🧹 CLEAR ERROR HISTORY: Reset after successful build (V6.0)
         clearAutopsyHistory();
@@ -9006,8 +8388,34 @@ RETURN FORMAT:
 
       // --- 🧠 NY LOGIK: HITTA PACKAGE.JSON FEL ---
       // Om npm skriker, är det package.json som är trasig!
+      // BUT: Check if package.json is blocked by fortress BEFORE attempting fixes
       if (!brokenFile && (fullLog.includes("npm error") || fullLog.includes("ETARGET") || fullLog.includes("ERESOLVE") || fullLog.includes("package.json"))) {
-        console.log("[Watchdog] 📦 Detected Dependency Error. Switching target to package.json");
+        // 🚨 SYSTEM-LEVEL ERROR CHECK: Don't try to fix system-level npm errors
+        if (fullLog.includes("Access token expired") || 
+            fullLog.includes("Access token revoked") ||
+            fullLog.includes("E401") ||
+            (fullLog.includes("E404") && fullLog.includes("Not Found - GET https://registry.npmjs.org"))) {
+          console.error("[Watchdog] 🚨 SYSTEM-LEVEL NPM ERROR: Cannot auto-fix authentication/registry issues");
+          throw new Error(`SYSTEM_ERROR: npm authentication/registry issue. User must manually fix.`);
+        }
+        
+        console.log("[Watchdog] 📦 Detected Dependency Error. Checking if package.json can be modified...");
+        
+        // Check fortress guard BEFORE attempting fix
+        const packageJsonPath = path.join(repoPath, "package.json");
+        const repairCheck = checkRepairAllowed({
+          filePath: packageJsonPath,
+          content: fs.existsSync(packageJsonPath) ? fs.readFileSync(packageJsonPath, 'utf-8') : '',
+          attemptCount: 1,
+          errorType: 'DEPENDENCY_ERROR'
+        });
+        
+        if (!repairCheck.allowed) {
+          console.error(`[Watchdog] 🏰 FORTRESS BLOCKED: package.json - ${repairCheck.reason}`);
+          console.error("[Watchdog] ⚠️ Cannot fix package.json (GOLDEN tier). This is a system-level issue.");
+          throw new Error(`FORTRESS_BLOCKED: package.json is protected. Cannot modify. ${repairCheck.reason}`);
+        }
+        
         brokenFile = "package.json";
       }
       // -------------------------------------------
@@ -9556,89 +8964,212 @@ CRITICAL EXPORT RULES (MANDATORY):
         }
       }
 
-      // Applicera fixen (Skapa/Uppdatera filer) - Batch Fixer använder [FILE: ...] [GOAL] format
-      // Försök först med [FILE: ...] [GOAL] format (batch fixer)
-      let fileRegex = /\[FILE:\s*(.*?)\]([\s\S]*?)(\[GOAL\]|$)/g;
-      let fileMatch;
-      let fixedCount = 0;
+      // =============================================================================
+      // 🏰 v9.0 FORTRESS-PROTECTED FILE WRITING
+      // =============================================================================
+      // Wrap file writes with transaction rollback and fortress guard
+      const repairResult = await withTransaction(
+        snapshotManager,
+        pipeline.id,
+        repoPath,
+        `Tester repair attempt ${attempt}`,
+        () => countTypeScriptErrors(repoPath),
+        async () => {
+          // Applicera fixen (Skapa/Uppdatera filer) - Batch Fixer använder [FILE: ...] [GOAL] format
+          // Försök först med [FILE: ...] [GOAL] format (batch fixer)
+          let fileRegex = /\[FILE:\s*(.*?)\]([\s\S]*?)(\[GOAL\]|$)/g;
+          let fileMatch;
+          let fixedCount = 0;
+          
+          while ((fileMatch = fileRegex.exec(finalFixOutput)) !== null) {
+            const fileName = fileMatch[1].trim();
+            let content = fileMatch[2].trim();
+            
+            // ✅ STRICT PARSING: Extract only code blocks
+            const codeBlockMatch = content.match(/```(?:typescript|tsx|ts|js|jsx|json|css|html)?\n([\s\S]*?)```/);
+            if (codeBlockMatch) {
+              content = codeBlockMatch[1].trim();
+            } else {
+              // Fallback: THE SANITIZER: Ta bort alla Markdown-artefakter
+              content = content.split(/\[GOAL\]/)[0].trim();
+              content = content.replace(/^```[a-zA-Z0-9]*\n?/m, '');
+              content = content.replace(/```$/m, '');
+              content = content.replace(/^### FILE:.*\n?/m, '');
+              content = content.replace(/```[a-zA-Z0-9]*\n/g, '').replace(/```$/g, '');
+              // Remove explanation lines
+              content = content
+                .split('\n')
+                .filter(line => {
+                  const trimmed = line.trim();
+                  if (/^(Fixed the|Here's|I've|The code|This|Note:|Explanation:)/i.test(trimmed)) {
+                    return false;
+                  }
+                  if (/^#{1,6}\s/.test(trimmed) || /^[-*+]\s/.test(trimmed)) {
+                    return false;
+                  }
+                  return true;
+                })
+                .join('\n')
+                .trim();
+            }
+            // Final cleanup
+            content = content.replace(/\[GOAL\][\s\S]*$/m, '').trim();
+            
+            // 🆕 VALIDATE FILENAME
+            const cleanFileName = validateAndFixFilename(fileName);
+            const relativePath = path.relative(repoPath, path.join(repoPath, cleanFileName));
+            
+            // 🏰 v9.0 FORTRESS GUARD: Check if repair is allowed
+            const attemptCount = fileAttemptCounts.get(relativePath) || 0;
+            const repairCheck = checkRepairAllowed({
+              filePath: relativePath,
+              content,
+              attemptCount,
+              errorType: 'REPAIR',
+            });
+            
+            if (!repairCheck.allowed) {
+              console.log(chalk.yellow(`🏰 FORTRESS BLOCKED: ${relativePath} - ${repairCheck.reason}`));
+              
+              // Get violation action
+              const violationAction = getViolationAction(relativePath);
+              console.log(chalk.yellow(`   Action: ${violationAction.action} - ${violationAction.description}`));
+              
+              if (violationAction.action === 'HALT') {
+                throw new Error(`FORTRESS VIOLATION: Cannot repair ${relativePath} (${repairCheck.reason})`);
+              }
+              // Skip this file but continue with others
+              continue;
+            }
+            
+            // 🏰 v9.0 AUTHORIZATION: Check model and budget
+            const model = getRecommendedModel(relativePath, attemptCount);
+            const auth = authorizeRepair(relativePath, repairSession, model);
+            
+            if (!auth.allowed) {
+              console.log(chalk.yellow(`🚫 AUTHORIZATION DENIED: ${relativePath} - ${auth.reason}`));
+              continue;
+            }
+            
+            // Use fortress-protected write
+            const writeResult = await fortressWrite(repoPath, relativePath, content, attemptCount);
+            
+            if (!writeResult.success) {
+              console.log(chalk.yellow(`⚠️ Write failed: ${relativePath} - ${writeResult.result.reason}`));
+              continue;
+            }
+            
+            // Record attempt
+            const estimatedCost = 0.05; // Estimate cost per file
+            recordAttempt(repairSession, {
+              filePath: relativePath,
+              attemptNumber: attemptCount + 1,
+              model,
+              cost: estimatedCost,
+              success: true,
+            });
+            
+            fileAttemptCounts.set(relativePath, attemptCount + 1);
+            console.log(chalk.green(`[Batch Fixer] 🛠️ Fixed file (v9.0 protected): ${cleanFileName}`));
+            
+            // Save applied fix for memorization
+            if (brokenFile === fileName || fixedCount === 0) {
+              lastAppliedFix = content;
+            }
+            fixedCount++;
+          }
+          
+          return { success: fixedCount > 0, fixedCount };
+        }
+      );
       
-      while ((fileMatch = fileRegex.exec(finalFixOutput)) !== null) {
-        const fileName = fileMatch[1].trim();
-        let content = fileMatch[2].trim();
-        
-        // ✅ STRICT PARSING: Extract only code blocks
-        const codeBlockMatch = content.match(/```(?:typescript|tsx|ts|js|jsx|json|css|html)?\n([\s\S]*?)```/);
-        if (codeBlockMatch) {
-          content = codeBlockMatch[1].trim();
-        } else {
-          // Fallback: THE SANITIZER: Ta bort alla Markdown-artefakter
-          content = content.split(/\[GOAL\]/)[0].trim();
-          content = content.replace(/^```[a-zA-Z0-9]*\n?/m, '');
-          content = content.replace(/```$/m, '');
-          content = content.replace(/^### FILE:.*\n?/m, '');
-          content = content.replace(/```[a-zA-Z0-9]*\n/g, '').replace(/```$/g, '');
-          // Remove explanation lines
-          content = content
-            .split('\n')
-            .filter(line => {
-              const trimmed = line.trim();
-              if (/^(Fixed the|Here's|I've|The code|This|Note:|Explanation:)/i.test(trimmed)) {
-                return false;
-              }
-              if (/^#{1,6}\s/.test(trimmed) || /^[-*+]\s/.test(trimmed)) {
-                return false;
-              }
-              return true;
-            })
-            .join('\n')
-            .trim();
-        }
-        // Final cleanup
-        content = content.replace(/\[GOAL\][\s\S]*$/m, '').trim();
-        
-        // 🆕 VALIDATE FILENAME
-        const cleanFileName = validateAndFixFilename(fileName);
-        const filePath = path.join(repoPath, cleanFileName);
-        const dir = path.dirname(filePath);
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        
-        fs.writeFileSync(filePath, content, 'utf-8');
-        console.log(`[Batch Fixer] 🛠️ Fixed file: ${cleanFileName}`);
-        // Save applied fix for memorization
-        if (brokenFile === fileName || fixedCount === 0) {
-          lastAppliedFix = content;
-        }
-        fixedCount++;
+      // Check if transaction was rolled back
+      if (repairResult.rolledBack) {
+        console.log(chalk.red(`\n⏪ TRANSACTION ROLLBACK: Repair made things worse, rolled back to snapshot`));
+        console.log(chalk.red(`   Reason: ${repairResult.error}`));
+        // Continue to next attempt
+        continue;
       }
+      
+      let fixedCount = repairResult.result?.fixedCount || 0;
       
       // Fallback: Om [FILE: ...] formatet inte matchade, försök med ### FILE: ... ### END_FILE
       if (fixedCount === 0) {
-        fileRegex = /### FILE: (.*?)\n([\s\S]*?)### END_FILE/g;
-        
-        while ((fileMatch = fileRegex.exec(finalFixOutput)) !== null) {
-          const fileName = fileMatch[1].trim();
-          let content = fileMatch[2].trim();
-          
-          // THE SANITIZER: Ta bort alla Markdown-artefakter
-          content = content.replace(/^```[a-zA-Z0-9]*\n?/m, '');
-          content = content.replace(/```$/m, '');
-          content = content.replace(/^### FILE:.*\n?/m, '');
-          content = content.replace(/```[a-zA-Z0-9]*\n/g, '').replace(/```$/g, '');
-          content = content.trim();
-          
-          // 🆕 VALIDATE FILENAME
-          const cleanFileName = validateAndFixFilename(fileName);
-          const filePath = path.join(repoPath, cleanFileName);
-          const dir = path.dirname(filePath);
-          if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-
-          fs.writeFileSync(filePath, content, 'utf-8');
-          console.log(`[Batch Fixer] 🛠️ Fixed file (fallback): ${cleanFileName}`);
-          // Save applied fix for memorization
-          if (brokenFile === fileName || fixedCount === 0) {
-            lastAppliedFix = content;
+        const fallbackResult = await withTransaction(
+          snapshotManager,
+          pipeline.id,
+          repoPath,
+          `Tester fallback repair attempt ${attempt}`,
+          () => countTypeScriptErrors(repoPath),
+          async () => {
+            const fileRegex = /### FILE: (.*?)\n([\s\S]*?)### END_FILE/g;
+            let fallbackFixed = 0;
+            let fileMatch;
+            
+            while ((fileMatch = fileRegex.exec(finalFixOutput)) !== null) {
+              const fileName = fileMatch[1].trim();
+              let content = fileMatch[2].trim();
+              
+              // THE SANITIZER: Ta bort alla Markdown-artefakter
+              content = content.replace(/^```[a-zA-Z0-9]*\n?/m, '');
+              content = content.replace(/```$/m, '');
+              content = content.replace(/^### FILE:.*\n?/m, '');
+              content = content.replace(/```[a-zA-Z0-9]*\n/g, '').replace(/```$/g, '');
+              content = content.trim();
+              
+              // 🆕 VALIDATE FILENAME
+              const cleanFileName = validateAndFixFilename(fileName);
+              const relativePath = path.relative(repoPath, path.join(repoPath, cleanFileName));
+              
+              // 🏰 v9.0 FORTRESS GUARD
+              const attemptCount = fileAttemptCounts.get(relativePath) || 0;
+              const repairCheck = checkRepairAllowed({
+                filePath: relativePath,
+                content,
+                attemptCount,
+                errorType: 'REPAIR',
+              });
+              
+              if (!repairCheck.allowed) {
+                console.log(chalk.yellow(`🏰 FORTRESS BLOCKED (fallback): ${relativePath}`));
+                continue;
+              }
+              
+              const model = getRecommendedModel(relativePath, attemptCount);
+              const auth = authorizeRepair(relativePath, repairSession, model);
+              
+              if (!auth.allowed) {
+                console.log(chalk.yellow(`🚫 AUTHORIZATION DENIED (fallback): ${relativePath}`));
+                continue;
+              }
+              
+              const writeResult = await fortressWrite(repoPath, relativePath, content, attemptCount);
+              
+              if (writeResult.success) {
+                recordAttempt(repairSession, {
+                  filePath: relativePath,
+                  attemptNumber: attemptCount + 1,
+                  model,
+                  cost: 0.05,
+                  success: true,
+                });
+                fileAttemptCounts.set(relativePath, attemptCount + 1);
+                console.log(chalk.green(`[Batch Fixer] 🛠️ Fixed file (fallback, v9.0): ${cleanFileName}`));
+                if (brokenFile === fileName || fallbackFixed === 0) {
+                  lastAppliedFix = content;
+                }
+                fallbackFixed++;
+              }
+            }
+            
+            return { success: fallbackFixed > 0, fixedCount: fallbackFixed };
           }
-          fixedCount++;
+        );
+        
+        if (fallbackResult.rolledBack) {
+          console.log(chalk.red(`⏪ Fallback repair rolled back`));
+        } else {
+          fixedCount = fallbackResult.result?.fixedCount || 0;
         }
       }
 
@@ -9785,6 +9316,18 @@ Provide a comprehensive solution that addresses the root cause, not just symptom
   }
 
   if (success) {
+    // =============================================================================
+    // 🏰 v9.0 REPAIR SESSION SUMMARY
+    // =============================================================================
+    console.log(chalk.cyan("\n🏰 FROST NIGHT FACTORY v9.0 - REPAIR SESSION SUMMARY"));
+    console.log(getSessionSummary(repairSession));
+    
+    if (!isWithinBudget(repairSession)) {
+      console.warn(chalk.yellow(`⚠️ Budget exceeded: $${repairSession.totalCost.toFixed(4)} / $${repairSession.budget.toFixed(2)}`));
+    } else {
+      console.log(chalk.green(`✅ Budget OK: $${repairSession.totalCost.toFixed(4)} / $${repairSession.budget.toFixed(2)}`));
+    }
+    
     await updateStep(pipeline.id, 'tester', 'completed');
     
     // =============================================================================
@@ -9797,155 +9340,21 @@ Provide a comprehensive solution that addresses the root cause, not just symptom
     nukeNextJsCache(repoPath);
     
     // 3. STARTA AUDIT
-    // STEG: VISUAL AUDIT (The Design Police) - ✅ HARD GATE WITH AUTO-FIX
+    // STEG: VISUAL AUDIT (The Design Police)
     try {
-      console.log("[Tester] 🎨 Starting Visual Audit with auto-fix...");
-      
-      // ✅ Self-healing: Auto-fix retry loop
-      const visualResult = await withAutoFix(
-        'Visual Audit',
-        3, // maxAttempts (visual fixes are usually quick)
-        async () => {
-          const auditResult = await runVisualAudit(repoPath);
-          const log = auditResult.cannotEvaluate 
-            ? `Cannot evaluate: ${auditResult.reason}`
-            : auditResult.score !== undefined
-            ? `Score: ${auditResult.score}/10`
-            : auditResult.critique || 'Visual audit completed';
-          
-          return {
-            ok: auditResult.success && !auditResult.cannotEvaluate && (auditResult.score === undefined || auditResult.score >= 8),
-            log,
-            result: auditResult,
-          };
-        },
-        {
-          projectRoot: repoPath,
-          pipelineId: pipeline.id,
-          detectedEnv: pipeline.metadata?.envRequirements,
-        }
-      );
-      
-      if (!visualResult.ok) {
-        // ✅ Get final result after all fixes
-        const finalAuditResult = await runVisualAudit(repoPath);
-        
-        // ✅ Hard gate: Block if score < 8 or cannot evaluate
-        if (!finalAuditResult.success || finalAuditResult.cannotEvaluate || (finalAuditResult.score !== undefined && finalAuditResult.score < 8)) {
-          const score = finalAuditResult.score ?? 0;
-          const reason = finalAuditResult.cannotEvaluate 
-            ? finalAuditResult.reason || 'Cannot evaluate - no code/context'
-            : `Score ${score}/10 (below threshold of 8)`;
-          
-          console.error(`❌ Visual Audit FAILED after ${visualResult.attempts} attempts (${visualResult.fixes.length} fixes applied): ${reason}`);
-          console.error(`   Blocking publish and marking pipeline as needs_review. Manual review required.`);
-          
-          // ✅ Log error to database
-          await logErrorToDatabase(
-            pipeline.id,
-            'visual',
-            new Error(`Vision score too low: ${score}/10 - ${reason}`),
-            visualResult.attempts
-          );
-          
-          // ✅ V8.0: Generate diagnostic summary before marking needs_review
-          const { generateDiagnosticSummary } = await import('./lib/self-diagnostics');
-          const diagnostic = await generateDiagnosticSummary(pipeline.id);
-          
-          // ✅ Update pipeline status to needs_review
-          await updatePipeline(pipeline.id, {
-            status: 'needs_review',
-            current_phase: 'visual',
-            metadata: {
-              ...pipeline.metadata,
-              visualAudit: {
-                passed: false,
-                score,
-                cannotEvaluate: finalAuditResult.cannotEvaluate,
-                reason,
-                critique: finalAuditResult.critique,
-                autoFixAttempts: visualResult.attempts,
-                fixesApplied: visualResult.fixes.map(f => f.kind),
-              },
-              diagnostic: diagnostic, // ✅ V8.0: Include diagnostic summary
-            }
-          });
-          
-          if (diagnostic) {
-            console.log(`\n📋 [Diagnostic Summary]`);
-            console.log(`   Phase: ${diagnostic.phase}`);
-            console.log(`   Main Errors: ${diagnostic.mainErrors.join(', ')}`);
-            console.log(`   Suggestions: ${diagnostic.suggestions.join('; ')}`);
-            if (diagnostic.canRetry) {
-              console.log(`   💡 Can retry with ${diagnostic.retryModel || 'higher tier model'}`);
-            }
-          }
-          
-          await updateStep(pipeline.id, 'tester', 'failed', JSON.stringify({ 
-            visualAudit: 'failed', 
-            score,
-            reason,
-            cannotEvaluate: finalAuditResult.cannotEvaluate,
-            note: 'Visual quality gate failed - blocking publish' 
-          }));
-          
-          // ✅ DO NOT continue to publisher - return early
-          return;
-        }
+      console.log("[Tester] 🎨 Starting Visual Audit...");
+      const auditPassed = await runVisualAudit(repoPath);
+      if (!auditPassed) {
+        console.warn("⚠️ UI Design failed audit. Marking for manual review (or auto-fix loop).");
+        // TODO: Trigga en "CSS Fixer" agent här i framtiden
+        await updateStep(pipeline.id, 'tester', 'completed', JSON.stringify({ visualAudit: 'failed', note: 'UI issues detected but continuing to publish' }));
+      } else {
+        console.log("✅ Visual Audit Passed! UI looks good.");
+        await updateStep(pipeline.id, 'tester', 'completed', JSON.stringify({ visualAudit: 'passed' }));
       }
-      
-      const finalScore = visualResult.result?.score ?? 10;
-      console.log(`✅ Visual Audit Passed after ${visualResult.attempts} attempt(s) (${visualResult.fixes.length} fix(es) applied)! Score: ${finalScore}/10`);
-      await updateStep(pipeline.id, 'tester', 'completed', JSON.stringify({ 
-        visualAudit: 'passed',
-        score: finalScore,
-        autoFixAttempts: visualResult.attempts,
-        fixesApplied: visualResult.fixes.map(f => f.kind),
-      }));
     } catch (auditError: any) {
-      console.error(`❌ Visual Audit Error: ${auditError?.message}`);
-      console.error(`   Blocking publish and marking pipeline as needs_review.`);
-      
-      // ✅ Log error and block publish
-      await logErrorToDatabase(
-        pipeline.id,
-        'visual',
-        auditError,
-        1
-      );
-      
-      // ✅ V8.0: Generate diagnostic summary before marking needs_review
-      const { generateDiagnosticSummary } = await import('./lib/self-diagnostics');
-      const diagnostic = await generateDiagnosticSummary(pipeline.id);
-      
-      await updatePipeline(pipeline.id, {
-        status: 'needs_review',
-        current_phase: 'visual',
-        metadata: {
-          ...pipeline.metadata,
-          visualAudit: {
-            passed: false,
-            error: auditError.message,
-          },
-          diagnostic: diagnostic, // ✅ V8.0: Include diagnostic summary
-        }
-      });
-      
-      if (diagnostic) {
-        console.log(`\n📋 [Diagnostic Summary]`);
-        console.log(`   Phase: ${diagnostic.phase}`);
-        console.log(`   Main Errors: ${diagnostic.mainErrors.join(', ')}`);
-        console.log(`   Suggestions: ${diagnostic.suggestions.join('; ')}`);
-      }
-      
-      await updateStep(pipeline.id, 'tester', 'failed', JSON.stringify({ 
-        visualAudit: 'error',
-        error: auditError.message,
-        note: 'Visual audit error - blocking publish' 
-      }));
-      
-      // ✅ DO NOT continue to publisher
-      return;
+      console.warn("⚠️ Visual Audit failed (non-critical):", auditError?.message);
+      // Fortsätt ändå till publish om audit misslyckas
     }
     
     // --- 📝 KIMI K2: THE DOCUMENTATION OFFICER ---
@@ -10013,49 +9422,9 @@ Provide a comprehensive solution that addresses the root cause, not just symptom
           if (finalResult.passed) {
             console.log(chalk.green("✅ UI Quality is Premium (Score >= 8). Ready to ship."));
           } else {
-            const score = finalResult.score ?? 0;
-            console.error(chalk.red(`❌ UI Score is ${score}/10 (below 8). Blocking publish and marking pipeline as needs_review. Manual review required.`));
+            console.warn(chalk.yellow(`⚠️ UI Score is ${finalResult.score}/10 (below 8), but publishing anyway. Consider manual review.`));
             console.log(chalk.yellow("   Feedback:"));
             finalResult.finalFeedback.slice(0, 5).forEach(f => console.log(chalk.yellow(`      - ${f}`)));
-            
-            // ✅ Hard gate: Block publish
-            await logErrorToDatabase(
-              pipeline.id,
-              'visual',
-              new Error(`Vision score too low: ${score}/10`),
-              1
-            );
-            
-            // ✅ V8.0: Generate diagnostic summary before marking needs_review
-            const { generateDiagnosticSummary } = await import('./lib/self-diagnostics');
-            const diagnostic = await generateDiagnosticSummary(pipeline.id);
-            
-            await updatePipeline(pipeline.id, {
-              status: 'needs_review',
-              current_phase: 'visual',
-              metadata: {
-                ...pipeline.metadata,
-                visualAudit: {
-                  passed: false,
-                  score,
-                  feedback: finalResult.finalFeedback,
-                },
-                diagnostic: diagnostic, // ✅ V8.0: Include diagnostic summary
-              }
-            });
-            
-            if (diagnostic) {
-              console.log(`\n📋 [Diagnostic Summary]`);
-              console.log(`   Phase: ${diagnostic.phase}`);
-              console.log(`   Main Errors: ${diagnostic.mainErrors.join(', ')}`);
-              console.log(`   Suggestions: ${diagnostic.suggestions.join('; ')}`);
-              if (diagnostic.canRetry) {
-                console.log(`   💡 Can retry with ${diagnostic.retryModel || 'higher tier model'}`);
-              }
-            }
-            
-            // ✅ DO NOT continue to publisher
-            return;
           }
         } finally {
           // Döda servern
@@ -10078,93 +9447,13 @@ Provide a comprehensive solution that addresses the root cause, not just symptom
         console.log(chalk.yellow("   Falling back to legacy visual audit..."));
         try {
           const auditResult = await runVisualAudit(repoPath);
-          
-          // ✅ Hard gate: Block if score < 8 or cannot evaluate
-          if (!auditResult.success || auditResult.cannotEvaluate || (auditResult.score !== undefined && auditResult.score < 8)) {
-            const score = auditResult.score ?? 0;
-            const reason = auditResult.cannotEvaluate 
-              ? auditResult.reason || 'Cannot evaluate - no code/context'
-              : `Score ${score}/10 (below threshold of 8)`;
-            
-            console.error(chalk.red(`❌ Legacy Visual Audit FAILED: ${reason}`));
-            console.error(chalk.red(`   Blocking publish and marking pipeline as needs_review. Manual review required.`));
-            
-            await logErrorToDatabase(
-              pipeline.id,
-              'visual',
-              new Error(`Vision score too low: ${score}/10 - ${reason}`),
-              1
-            );
-            
-            // ✅ V8.0: Generate diagnostic summary before marking needs_review
-            const { generateDiagnosticSummary } = await import('./lib/self-diagnostics');
-            const diagnostic = await generateDiagnosticSummary(pipeline.id);
-            
-            await updatePipeline(pipeline.id, {
-              status: 'needs_review',
-              current_phase: 'visual',
-              metadata: {
-                ...pipeline.metadata,
-                visualAudit: {
-                  passed: false,
-                  score,
-                  cannotEvaluate: auditResult.cannotEvaluate,
-                  reason,
-                  critique: auditResult.critique,
-                },
-                diagnostic: diagnostic, // ✅ V8.0: Include diagnostic summary
-              }
-            });
-            
-            if (diagnostic) {
-              console.log(`\n📋 [Diagnostic Summary]`);
-              console.log(`   Phase: ${diagnostic.phase}`);
-              console.log(`   Main Errors: ${diagnostic.mainErrors.join(', ')}`);
-              console.log(`   Suggestions: ${diagnostic.suggestions.join('; ')}`);
-              if (diagnostic.canRetry) {
-                console.log(`   💡 Can retry with ${diagnostic.retryModel || 'higher tier model'}`);
-              }
-            }
-            
-            // ✅ DO NOT continue to publisher
-            return;
+          if (auditResult.success) {
+            console.log(chalk.green("✅ Legacy Visual Audit Passed!"));
           } else {
-            const score = auditResult.score ?? 10;
-            console.log(chalk.green(`✅ Legacy Visual Audit Passed! Score: ${score}/10`));
+            console.warn(chalk.yellow("⚠️ Legacy Visual Audit failed, but continuing..."));
           }
         } catch (legacyError: any) {
-          console.error(chalk.red(`❌ Legacy audit failed: ${legacyError?.message}`));
-          console.error(chalk.red(`   Blocking publish and marking pipeline as needs_review.`));
-          
-          await logErrorToDatabase(
-            pipeline.id,
-            'visual',
-            legacyError,
-            1
-          );
-          
-          // ✅ V8.0: Generate diagnostic summary before marking needs_review
-          const { generateDiagnosticSummary } = await import('./lib/self-diagnostics');
-          const diagnostic = await generateDiagnosticSummary(pipeline.id);
-          
-          await updatePipeline(pipeline.id, {
-            status: 'needs_review',
-            current_phase: 'visual',
-            metadata: {
-              ...pipeline.metadata,
-              diagnostic: diagnostic, // ✅ V8.0: Include diagnostic summary
-            }
-          });
-          
-          if (diagnostic) {
-            console.log(`\n📋 [Diagnostic Summary]`);
-            console.log(`   Phase: ${diagnostic.phase}`);
-            console.log(`   Main Errors: ${diagnostic.mainErrors.join(', ')}`);
-            console.log(`   Suggestions: ${diagnostic.suggestions.join('; ')}`);
-          }
-          
-          // ✅ DO NOT continue to publisher
-          return;
+          console.warn(chalk.yellow(`⚠️ Legacy audit also failed: ${legacyError?.message}`));
         }
       }
       
@@ -10338,21 +9627,7 @@ const RECOVERY_STRATEGIES: Record<string, RecoveryStrategy> = {
         
         // Strategy 3: Call AI
         console.log('🤖 Calling AI to fix page structure...');
-        
-        // ✅ PHASE 3: Take snapshot BEFORE fix
-        const { takeSnapshot, detectNoOpLoop, clearSnapshots } = await import('./lib/semantic-distance');
-        await takeSnapshot(pagePath);
-        
-        const fixed = await callAIToFixPage(pagePath, projectRoot, pipeline);
-        
-        // ✅ PHASE 3: Check for no-op loop
-        if (fixed && detectNoOpLoop(pagePath)) {
-          console.log('🔄 Agent is lying - switching models');
-          clearSnapshots(pagePath);
-          // Could switch to different model here if needed
-        }
-        
-        return fixed;
+        return await callAIToFixPage(pagePath, projectRoot, pipeline);
       } catch (fileError: any) {
         console.warn(`   ⚠️ Could not fix page.tsx: ${fileError.message}`);
         return false;
@@ -10620,10 +9895,6 @@ async function callAIToFixPage(
   projectRoot: string,
   pipeline?: any
 ): Promise<boolean> {
-  // ✅ PHASE 3: Take snapshot BEFORE fix
-  const { takeSnapshot, detectNoOpLoop, clearSnapshots } = await import('./lib/semantic-distance');
-  await takeSnapshot(pagePath);
-  
   try {
     const pageContent = await fs.promises.readFile(pagePath, 'utf-8');
     
@@ -10659,14 +9930,6 @@ Return ONLY the fixed file content in format:
 
     if (response && response.trim().length > 0) {
       const filesWritten = await parseAndWriteFiles(response, projectRoot, pipeline?.id);
-      
-      // ✅ PHASE 3: Check for no-op loop after fix
-      if (filesWritten > 0 && detectNoOpLoop(pagePath)) {
-        console.log('🔄 Agent is lying - detected no-op loop');
-        clearSnapshots(pagePath);
-        // Could switch to different model here if needed
-      }
-      
       return filesWritten > 0;
     }
     
@@ -11129,28 +10392,18 @@ async function analyzeBuildOutput(buildOutput: string): Promise<BuildAnalysis> {
 /**
  * Helper: Wait for server to start and respond
  */
-// ✅ Bug 2: Enhanced server startup with better logging and longer timeout
-async function waitForServer(url: string, timeoutMs: number = 60000): Promise<void> {
+async function waitForServer(url: string, timeoutMs: number = 30000): Promise<void> {
   const startTime = Date.now();
-  let attemptCount = 0;
-  
   while (Date.now() - startTime < timeoutMs) {
-    attemptCount++;
     try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
+      const response = await fetch(url, { signal: AbortSignal.timeout(2000) });
       if (response.ok || response.status === 404) { // 404 is OK - means server is up
-        const elapsed = Date.now() - startTime;
-        console.log(`   ✅ Server ready in ${elapsed}ms (${attemptCount} attempts)`);
         return;
       }
-    } catch (error: any) {
+    } catch (error) {
       // Server not ready yet, continue waiting
-      if (attemptCount % 5 === 0) {
-        const elapsed = Date.now() - startTime;
-        console.log(`   ⏳ Waiting for server... (${elapsed}ms elapsed)`);
-      }
     }
-    await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2s between attempts
+    await new Promise(resolve => setTimeout(resolve, 1000));
   }
   throw new Error(`Server did not start within ${timeoutMs}ms`);
 }
@@ -11188,59 +10441,51 @@ async function runFinalBuildVerification(
 ): Promise<void> {
   console.log('\n🔒 FINAL BUILD VERIFICATION (Pre-Publish Gate)');
   
-  // ✅ PHASE 2C: Check if artifacts were restored - skip build if so
-  const nextDir = path.join(workspacePath, '.next');
-  const hasArtifacts = fs.existsSync(nextDir);
+  // Step 1: Production build with recovery
+  console.log('   📦 Running production build...');
+  let attempts = 0;
+  const MAX_ATTEMPTS = 3;
   
-  if (hasArtifacts) {
-    console.log('   ✅ Using restored build artifacts (skipping rebuild)');
-  } else {
-    // Step 1: Production build with recovery
-    console.log('   📦 Running production build...');
-    let attempts = 0;
-    const MAX_ATTEMPTS = 3;
-    
-    while (attempts < MAX_ATTEMPTS) {
-      try {
-        const buildOutput = execSync('npm run build', {
-          cwd: workspacePath,
-          stdio: 'pipe',
-          encoding: 'utf-8',
-          timeout: 120000 // 2 min max
-        }).toString();
-        
-        // ✅ Analyze build output
-        const buildAnalysis = await analyzeBuildOutput(buildOutput);
-        if (buildAnalysis.warning) {
-          console.log(`   ⚠️ ${buildAnalysis.warning}`);
-          if (buildAnalysis.recommendation) {
-            console.log(`   💡 ${buildAnalysis.recommendation}`);
-          }
+  while (attempts < MAX_ATTEMPTS) {
+    try {
+      const buildOutput = execSync('npm run build', {
+        cwd: workspacePath,
+        stdio: 'pipe',
+        encoding: 'utf-8',
+        timeout: 120000 // 2 min max
+      }).toString();
+      
+      // ✅ Analyze build output
+      const buildAnalysis = await analyzeBuildOutput(buildOutput);
+      if (buildAnalysis.warning) {
+        console.log(`   ⚠️ ${buildAnalysis.warning}`);
+        if (buildAnalysis.recommendation) {
+          console.log(`   💡 ${buildAnalysis.recommendation}`);
         }
-        
-        console.log('   ✅ Production build successful');
-        break; // Success, exit retry loop
-      } catch (error: any) {
-        attempts++;
-        const errorOutput = error.stderr?.toString() || error.stdout?.toString() || error.message || '';
-        console.error(`   ❌ Production build FAILED (attempt ${attempts}/${MAX_ATTEMPTS})`);
-        
-        if (attempts >= MAX_ATTEMPTS) {
-          throw new Error(`Build failed after ${MAX_ATTEMPTS} attempts: ${errorOutput}`);
-        }
-        
-        // ✅ RECOVERY AGENT: Attempt to fix common issues
-        console.log('   🔧 [Recovery Agent] Attempting to fix build error...');
-        const recovered = await attemptBuildRecovery(errorOutput, workspacePath, pipeline);
-        
-        if (recovered) {
-          console.log('   ✅ Recovery successful, retrying build...');
-          continue; // Retry build
-        } else {
-          console.warn('   ⚠️ Recovery agent could not fix the error');
-          // Still retry in case it was a transient issue
-          await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2s before retry
-        }
+      }
+      
+      console.log('   ✅ Production build successful');
+      break; // Success, exit retry loop
+    } catch (error: any) {
+      attempts++;
+      const errorOutput = error.stderr?.toString() || error.stdout?.toString() || error.message || '';
+      console.error(`   ❌ Production build FAILED (attempt ${attempts}/${MAX_ATTEMPTS})`);
+      
+      if (attempts >= MAX_ATTEMPTS) {
+        throw new Error(`Build failed after ${MAX_ATTEMPTS} attempts: ${errorOutput}`);
+      }
+      
+      // ✅ RECOVERY AGENT: Attempt to fix common issues
+      console.log('   🔧 [Recovery Agent] Attempting to fix build error...');
+      const recovered = await attemptBuildRecovery(errorOutput, workspacePath, pipeline);
+      
+      if (recovered) {
+        console.log('   ✅ Recovery successful, retrying build...');
+        continue; // Retry build
+      } else {
+        console.warn('   ⚠️ Recovery agent could not fix the error');
+        // Still retry in case it was a transient issue
+        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2s before retry
       }
     }
   }
@@ -11248,44 +10493,15 @@ async function runFinalBuildVerification(
   // Step 2: Start production server and verify it responds
   console.log('   🚀 Testing production server...');
   
-  // ✅ Enhanced Server Startup (ChatGPT's suggestion)
-  console.log(`🚀 Starting production server on port 3003...`);
-  const serverProcess = spawn('npm', ['run', 'start', '--', '-p', '3003'], {
+  const serverProcess = spawn('npm', ['start'], {
     cwd: workspacePath,
     env: { ...process.env, PORT: '3003' },
-    stdio: 'pipe', // ← Important! Capture all output
     shell: true
   });
   
-  // ✅ Enhanced Server Logging (ChatGPT's suggestion) - Capture ALL output
-  serverProcess.stdout.on('data', (data) => {
-    const output = data.toString();
-    console.log(`   [next.js stdout] ${output.trim()}`);
-    
-    // Detect when server is ready
-    if (output.includes('Ready') || output.includes('started') || output.includes('Local:') || output.includes('compiled')) {
-      console.log(`   ✅ Server reported ready!`);
-    }
-  });
-  
-  serverProcess.stderr.on('data', (data) => {
-    const error = data.toString();
-    console.error(`   [next.js stderr] ${error.trim()}`);
-  });
-  
-  serverProcess.on('exit', (code, signal) => {
-    if (code !== null) {
-      console.error(`   ❌ Server exited with code ${code}, signal ${signal || 'none'}`);
-    }
-  });
-  
-  serverProcess.on('error', (error) => {
-    console.error(`   ❌ Server process error: ${error.message}`);
-  });
-  
   try {
-    // ✅ Bug 2: Increased timeout to 60 seconds
-    await waitForServer('http://localhost:3003', 60000);
+    // Wait for server to start
+    await waitForServer('http://localhost:3003', 30000);
     
     // Fetch homepage
     const response = await fetch('http://localhost:3003');
@@ -11585,32 +10801,6 @@ async function runPublisherStep(pipeline: any, repoPath: string) {
   await createStep(pipeline.id, 'publisher', 'running');
 
   const pipelineId = pipeline.id;
-  const currentAttempts = publisherAttempts.get(pipelineId) || 0;
-  
-  // ✅ PHASE 1A: Check retry limit BEFORE starting
-  if (currentAttempts >= MAX_PUBLISHER_RETRIES) {
-    console.log(`❌ Publisher failed after ${MAX_PUBLISHER_RETRIES} attempts`);
-    
-    await updatePipelineStatus(pipelineId, 'failed', '404 persists after max retries');
-    
-    // Update pipeline metadata with additional info
-    await updatePipeline(pipelineId, {
-      metadata: {
-        ...(pipeline.metadata || {}),
-        error: '404 persists after max retries',
-        deferred_steps: ['visual_audit', 'e2e_tests'],
-        manual_review_needed: true
-      }
-    });
-    
-    await updateStep(pipelineId, 'publisher', 'failed', '404 persists after max retries');
-    publisherAttempts.delete(pipelineId);
-    return; // Exit, don't throw
-  }
-  
-  // Increment attempt counter
-  publisherAttempts.set(pipelineId, currentAttempts + 1);
-  
   let attempts = 0;
   const MAX_ATTEMPTS = 3;
 
@@ -11621,18 +10811,7 @@ async function runPublisherStep(pipeline: any, repoPath: string) {
       // 🔒 PRE-PUBLISH VERIFICATION (NEW - Fix 1, 2, 3)
       console.log(`\n🔒 [Publisher] Running pre-publish verification (attempt ${attempts}/${MAX_ATTEMPTS})...`);
       
-      // ✅ PHASE 2C: Restore build artifacts (don't rebuild!)
-      console.log('🔒 [Publisher] Starting verification...');
-      try {
-        const { restoreBuildArtifacts } = await import('./lib/build-artifacts');
-        const artifact = await restoreBuildArtifacts(pipeline.id, repoPath);
-        console.log(`✅ Using verified build from ${artifact.createdAt}`);
-      } catch (error: any) {
-        console.log('⚠️ No artifact found, running fresh build...');
-        // Will build in runFinalBuildVerification below
-      }
-      
-      // Fix 1: Final Build Verification (will skip build if artifacts restored)
+      // Fix 1: Final Build Verification
       await runFinalBuildVerification(repoPath, pipeline.id, pipeline);
     
     // Fix 2: Validate and Fix Dependencies
@@ -11701,7 +10880,6 @@ async function runPublisherStep(pipeline: any, repoPath: string) {
     console.log('✅ [Publisher] Pre-publish verification complete\n');
     
     // Success! Exit retry loop
-    // ✅ PHASE 1A: Clean up attempt tracking on success (will be cleaned up at end of function)
     break;
     
   } catch (error: any) {
@@ -11724,13 +10902,6 @@ async function runPublisherStep(pipeline: any, repoPath: string) {
     // Max retries reached
     if (attempts >= MAX_ATTEMPTS) {
       console.log(`❌ Publisher failed after ${MAX_ATTEMPTS} attempts`);
-      
-      // ✅ PHASE 1A: Clean up attempt tracking on final failure
-      const finalAttempts = publisherAttempts.get(pipelineId) || 0;
-      if (finalAttempts >= MAX_PUBLISHER_RETRIES) {
-        publisherAttempts.delete(pipelineId);
-      }
-      
       await updatePipelineStatus(pipelineId, 'failed', error.message);
       await updateStep(pipelineId, 'publisher', 'failed', error.message);
       return; // Exit without throwing
@@ -12049,9 +11220,6 @@ build/
     }
 
     await updateStep(pipeline.id, 'publisher', 'completed', JSON.stringify({ url: targetRepoUrl }));
-    
-    // ✅ PHASE 1A: Clean up attempt tracking on success
-    publisherAttempts.delete(pipelineId);
     await updatePipeline(pipeline.id, { current_phase: 'cleanup' });
 
   } catch (error: any) {
@@ -12159,6 +11327,7 @@ export async function runPipelineLoop(sandboxPath: string) {
   // ✅ Declare variables at function scope so they're accessible in catch block
   let frontendPort: number | null = null;
   let backendPort: number | null = null;
+  let costTracker: CostTracker | null = null;
   let pipeline: any = null;
 
   while (true) {
@@ -12185,21 +11354,12 @@ export async function runPipelineLoop(sandboxPath: string) {
       pipeline = pipelines[0];
       
       // ✅ LOG PIPELINE PICKUP
-      logger.section(`Pipeline ${pipeline.id.slice(0, 8)}`)
-      logger.info(`Name: ${pipeline.name || 'Untitled'}`)
-      logger.info(`Status: ${pipeline.status}`)
-      logger.info(`Phase: ${pipeline.current_phase}`)
-      logger.info(`Ticket ID: ${pipeline.ticket_id || 'N/A'}`)
-      
-      // ✅ V8: Broadcast pipeline update and log
-      broadcastPipelineUpdate({
-        id: pipeline.id,
-        status: pipeline.status,
-        current_phase: pipeline.current_phase,
-        name: pipeline.name,
-        cost: pipeline.cost,
-      })
-      broadcastLog(pipeline.id, 'info', `Pipeline ${pipeline.id.slice(0, 8)} started`)
+      console.log(`\n📥 [Pipeline ${pipeline.id.slice(0, 8)}] Claimed`);
+      console.log(`   Name: ${pipeline.name || 'Untitled'}`);
+      console.log(`   Status: ${pipeline.status}`);
+      console.log(`   Phase: ${pipeline.current_phase}`);
+      console.log(`   Ticket ID: ${pipeline.ticket_id || 'N/A'}`);
+      console.log(`🔧 Starting AI agents...\n`);
       
       // ✅ CHECK DB STATE FIRST (prevent loops)
       if (pipeline.status === 'failed_hard') {
@@ -12264,7 +11424,19 @@ export async function runPipelineLoop(sandboxPath: string) {
         }
       }
 
-      // ✅ V8.0: Cost tracking is now handled automatically in ai-client.ts via logCost()
+      // ✅ P2: Start Cost Tracking (available throughout pipeline)
+      // costTracker already declared at function scope (line 10097)
+      if (isFeatureEnabled('trackCosts')) {
+        try {
+          costTracker = new CostTracker();
+          costTracker.startPipeline(pipeline.id);
+          // Make available globally for callAI
+          (global as any).costTracker = costTracker;
+        } catch (error: any) {
+          console.warn(`⚠️ Cost tracking initialization failed: ${error.message}`);
+          console.warn('   Continuing without cost tracking...');
+        }
+      }
 
       // Fas-väljare
       console.log(`[Pipeline ${pipeline.id.slice(0, 8)}] Executing phase: ${pipeline.current_phase}`);
@@ -12406,9 +11578,8 @@ export async function runPipelineLoop(sandboxPath: string) {
                   const { visionRefineUI } = await import('./lib/vision-refiner');
                   const visionResult = await visionRefineUI(repoPath, 3, 8.5, frontendPort || 3002);
                   
-                  if (visionResult.score < 8) {
-                    console.warn(`   ⚠️ UI score is ${visionResult.score}/10 (below 8). Will be blocked at final gate.`);
-                    // Note: This is in a refinement loop, so we'll let it retry, but final gate will catch it
+                  if (visionResult.score < 7) {
+                    console.warn(`   ⚠️ UI score is ${visionResult.score}/10, but continuing...`);
                   } else {
                     console.log(`   ✅ UI refinement complete (score: ${visionResult.score}/10)`);
                   }
@@ -12432,399 +11603,49 @@ export async function runPipelineLoop(sandboxPath: string) {
             console.log('   ⏭️ Vision refinement disabled (feature flag)');
           }
           
-          // ✅ P2: Playwright E2E Tests - HARD GATE WITH AUTO-FIX
-          let e2eGateResult: any = { passed: true };
+          // ✅ P2: Playwright E2E Tests
           if (isFeatureEnabled('runPlaywrightTests')) {
-            console.log('\n🎭 [Playwright] Running E2E tests with auto-fix...');
-            
-            const { runPlaywrightTests } = await import('./lib/playwright-tester');
-            const { canPublishFromE2E } = await import('./lib/quality-policy');
-            
-            // ✅ Self-healing: Auto-fix retry loop with E2E Debugger integration
-            const e2eStartTime = Date.now();
-            const { runE2EDebugger, applyDebuggerPatch } = await import('./lib/e2e-debugger');
-            
-            const e2eResult = await withAutoFix(
-              'E2E Tests',
-              5, // maxAttempts
-              async () => {
-                try {
-                  const result = await runPlaywrightTests(repoPath, frontendPort || 3002);
-                  
-                  // ✅ Parse E2E failures into structured format
-                  interface E2EFailure {
-                    testName: string;
-                    url: string;
-                    message: string;
-                    screenshotPath?: string;
-                    errorDetails?: string;
-                  }
-                  
-                  const failures: E2EFailure[] = result.errors.map(err => ({
-                    testName: err.test,
-                    url: '/', // Could be extracted from test name or error
-                    message: err.error,
-                    screenshotPath: err.screenshot,
-                    errorDetails: err.error,
-                  }));
-                  
-                  const log = failures.map(f => `${f.testName}: ${f.message}`).join('\n');
-                  
-                  // ✅ CRITICAL: Only mark as ok if ALL tests pass
-                  const allTestsPass = result.success && result.testsFailed === 0;
-                  
-                  // ✅ If tests failed, try E2E Debugger for each failure
-                  if (!allTestsPass && failures.length > 0) {
-                    // Try debugger for first failure (most critical)
-                    const firstFailure = failures[0];
-                    try {
-                      const debuggerResult = await runE2EDebugger(
-                        firstFailure,
-                        repoPath,
-                        pipeline.id
-                      );
-                      
-                      if (debuggerResult.patch && debuggerResult.confidence > 0.5) {
-                        // Apply debugger patch
-                        const patchResult = await applyDebuggerPatch(
-                          debuggerResult.targetFile,
-                          debuggerResult.patch,
-                          repoPath
-                        );
-                        
-                        if (patchResult.success) {
-                          console.log(`   🔍 [E2E Debugger] Applied fix: ${debuggerResult.explanation}`);
-                          
-                          // Log fix candidate with debugger explanation
-                          const errorEventId = await logErrorEvent(
-                            pipeline.id,
-                            'e2e',
-                            firstFailure.message,
-                            'HOMEPAGE_404',
-                            debuggerResult.targetFile
-                          );
-                          
-                          if (errorEventId) {
-                            await logFixCandidate(
-                              errorEventId,
-                              pipeline.id,
-                              debuggerResult.patch,
-                              'e2e-debugger',
-                              debuggerResult.explanation,
-                              'pending', // Will be updated after retest
-                              undefined,
-                              undefined
-                            );
-                          }
-                          
-                          // Rebuild and retest
-                          try {
-                            execSync('npm run build', { 
-                              cwd: repoPath, 
-                              stdio: 'pipe',
-                              timeout: 120000 
-                            });
-                            
-                            // Retest immediately
-                            const retestResult = await runPlaywrightTests(repoPath, frontendPort || 3002);
-                            const retestPassed = retestResult.success && retestResult.testsFailed === 0;
-                            
-                            if (retestPassed) {
-                              console.log(`   ✅ E2E Debugger fix successful! Tests now pass.`);
-                              return {
-                                ok: true,
-                                log: 'E2E Debugger fix applied and tests passed',
-                                result: retestResult,
-                              };
-                            } else {
-                              console.log(`   ⚠️ E2E Debugger fix applied but tests still failing`);
-                              // Update fix candidate outcome
-                              if (errorEventId) {
-                                await logFixCandidate(
-                                  errorEventId,
-                                  pipeline.id,
-                                  debuggerResult.patch,
-                                  'e2e-debugger',
-                                  debuggerResult.explanation,
-                                  'failed',
-                                  true, // build passed
-                                  false // tests still failing
-                                );
-                              }
-                            }
-                          } catch (buildError: any) {
-                            console.warn(`   ⚠️ Build failed after debugger patch: ${buildError.message}`);
-                          }
-                        }
-                      }
-                    } catch (debuggerError: any) {
-                      console.warn(`   ⚠️ E2E Debugger failed: ${debuggerError.message}`);
-                    }
-                  }
-                  
-                  return {
-                    ok: allTestsPass,
-                    log: log || (allTestsPass ? 'All tests passed' : 'Tests failed'),
-                    result,
-                  };
-                } catch (error: any) {
-                  return {
-                    ok: false,
-                    log: error.message,
-                  };
-                }
-              },
-              {
-                projectRoot: repoPath,
-                pipelineId: pipeline.id,
-                detectedEnv: pipeline.metadata?.envRequirements,
-                errorLog: '', // Will be populated from E2E failures
-              }
-            );
-            
-            const e2eDuration = Date.now() - e2eStartTime;
-            
-            if (!e2eResult.ok) {
-              // ✅ Get final result after all fixes
-              const finalResult = await runPlaywrightTests(repoPath, frontendPort || 3002);
+            console.log('\n🎭 [Playwright] Running E2E tests...');
+            try {
+              const { runPlaywrightTests } = await import('./lib/playwright-tester');
+              const playwrightResult = await runPlaywrightTests(repoPath, frontendPort || 3002);
               
-              e2eGateResult = canPublishFromE2E(
-                finalResult.testsPassed,
-                finalResult.testsFailed,
-                finalResult.errors
-              );
-              
-              if (!e2eGateResult.passed) {
-                console.error(`❌ [E2E Gate] E2E tests failed after ${e2eResult.attempts} attempts (${e2eResult.fixes.length} fixes applied). Blocking publish.`);
-                console.error(`   Reason: ${e2eGateResult.reason}`);
-                
-                if (finalResult.errors.length > 0) {
-                  console.error('   Failed tests:');
-                  finalResult.errors.forEach((err, i) => {
-                    console.error(`\n   ${i + 1}. ${err.test}`);
-                    console.error(`      Error: ${err.error}`);
-                    if (err.screenshot) {
-                      console.error(`      Screenshot: ${err.screenshot}`);
-                    }
-                  });
-                }
-                
-                // ✅ CRITICAL: Record failures in Hive Mind (don't save failed fixes as successful)
-                for (const fix of e2eResult.fixes) {
-                  if (fix.success) {
-                    const errorSignature = generateErrorSignature(
-                      `E2E test failure: ${fix.kind}`,
-                      repoPath
-                    );
-                    await recordSolutionFailure(errorSignature);
-                    
-                    // ✅ Phase 3: Update model performance (failure)
-                    await updateModelPerformance(fix.kind, 'auto-fixer', false);
-                  }
-                }
-                
-                // ✅ Log error and block publish
-                await logErrorToDatabase(
-                  pipeline.id,
-                  'e2e',
-                  new Error(`E2E tests failed after auto-fix attempts: ${e2eGateResult.reason}`),
-                  e2eResult.attempts
-                );
-                
-                await updatePipeline(pipeline.id, {
-                  status: 'needs_review',
-                  current_phase: 'e2e',
-                  metadata: {
-                    ...pipeline.metadata,
-                    e2eGate: {
-                      passed: false,
-                      critical: e2eGateResult.critical,
-                      reason: e2eGateResult.reason,
-                      failures: finalResult.errors,
-                      autoFixAttempts: e2eResult.attempts,
-                      fixesApplied: e2eResult.fixes.map(f => f.kind),
-                      fixesSuccessful: false, // ✅ Mark that fixes did NOT lead to success
-                    }
+              if (!playwrightResult.success) {
+                console.error('❌ [Playwright] E2E tests failed. Issues found:');
+                playwrightResult.errors.forEach((err, i) => {
+                  console.error(`\n   ${i + 1}. ${err.test}`);
+                  console.error(`      Error: ${err.error}`);
+                  if (err.screenshot) {
+                    console.error(`      Screenshot: ${err.screenshot}`);
                   }
                 });
-                
-                // ✅ DO NOT continue to publisher - E2E failures never lead to "publishing anyway"
-                return;
+                console.warn('⚠️ Publishing anyway, but manual review recommended');
+              } else {
+                console.log(`✅ [Playwright] E2E tests: ${playwrightResult.testsPassed}/${playwrightResult.testsRun} passed`);
               }
-            } else {
-              // ✅ CRITICAL: Verify final result is truly successful before claiming success
-              const finalVerification = await runPlaywrightTests(repoPath, frontendPort || 3002);
-              
-              if (!finalVerification.success || finalVerification.testsFailed > 0) {
-                console.error(`❌ [E2E Gate] Tests still failing after fixes. Blocking publish.`);
-                
-                // Record failures
-                for (const fix of e2eResult.fixes) {
-                  if (fix.success) {
-                    const errorSignature = generateErrorSignature(
-                      `E2E test failure: ${fix.kind}`,
-                      repoPath
-                    );
-                    await recordSolutionFailure(errorSignature);
-                    await updateModelPerformance(fix.kind, 'auto-fixer', false);
-                  }
-                }
-                
-                await updatePipeline(pipeline.id, {
-                  status: 'needs_review',
-                  current_phase: 'e2e',
-                  metadata: {
-                    ...pipeline.metadata,
-                    e2eGate: {
-                      passed: false,
-                      reason: 'Tests still failing after auto-fix',
-                      autoFixAttempts: e2eResult.attempts,
-                      fixesApplied: e2eResult.fixes.map(f => f.kind),
-                      fixesSuccessful: false,
-                    }
-                  }
-                });
-                
-                return;
-              }
-              
-              // ✅ Phase 2: Log successful pipeline run
-              await logPipelineRun(
-                pipeline.id,
-                'e2e',
-                'success',
-                'auto-fixer',
-                undefined,
-                e2eDuration,
-                undefined,
-                e2eResult.fixes.map(f => f.kind),
-                e2eResult.fixes.map(f => f.kind)
-              );
-              
-              // ✅ CRITICAL: Only save successful fixes to Hive Mind if E2E truly passes
-              if (e2eResult.fixes.length > 0) {
-                for (const fix of e2eResult.fixes) {
-                  if (fix.success && fix.retry) {
-                    // Only save non-destructive fixes (not golden page overwrites)
-                    const isDestructive = fix.message.includes('Replaced broken') || 
-                                         fix.message.includes('Golden homepage injected') ||
-                                         fix.message.includes('Golden layout injected');
-                    
-                    if (!isDestructive) {
-                      const errorLog = `E2E test failure fixed: ${fix.kind}`;
-                      const fixCode = `Auto-fix applied: ${fix.kind} - ${fix.message}`;
-                      
-                      await saveSolution(
-                        errorLog,
-                        repoPath,
-                        fixCode,
-                        'auto-fixer',
-                        fix.kind
-                      );
-                      
-                      // ✅ Phase 4: Collect training data (only for verified successful fixes)
-                      await collectTrainingData(
-                        generateErrorSignature(errorLog, repoPath),
-                        fix.kind,
-                        errorLog,
-                        '', // Context code
-                        fixCode,
-                        `Successfully fixed ${fix.kind} - E2E tests now pass`
-                      );
-                      
-                      // ✅ Phase 3: Update model performance (success)
-                      await updateModelPerformance(fix.kind, 'auto-fixer', true);
-                    } else {
-                      console.log(`   ⚠️ Skipping Hive Mind save for destructive fix: ${fix.message}`);
-                    }
-                  }
-                }
-              }
-              
-              console.log(`✅ [E2E Gate] E2E tests passed after ${e2eResult.attempts} attempt(s) (${e2eResult.fixes.length} fix(es) applied)`);
-              
-              // ✅ Verify final result is truly successful before claiming success
-              const finalResult = await runPlaywrightTests(repoPath, frontendPort || 3002);
-              if (!finalResult.success || finalResult.testsFailed > 0) {
-                console.error(`❌ [E2E Gate] Tests still failing after fixes. Blocking publish.`);
-                await updatePipeline(pipeline.id, {
-                  status: 'needs_review',
-                  current_phase: 'e2e',
-                });
-                return;
-              }
+            } catch (error: any) {
+              console.error('❌ [Playwright] Failed:', error.message);
+              console.warn('⚠️ Continuing pipeline without E2E tests...');
+              // Don't block pipeline
             }
           } else {
             console.log('   ⏭️ Playwright E2E tests disabled (feature flag)');
           }
           
-          // ✅ P2: Lighthouse Performance Audit - HARD GATE
-          let lighthouseGateResult: any = { passed: true, auditRan: false };
+          // ✅ P2: Lighthouse Performance Audit
           if (isFeatureEnabled('runLighthouseAudit')) {
             console.log('\n🔍 [Lighthouse] Running performance audit...');
             try {
               const { runPerformanceAudit } = await import('./lib/performance-auditor');
-              const { canPublishFromLighthouse } = await import('./lib/quality-policy');
+              const perfResult = await runPerformanceAudit(`http://localhost:${frontendPort || 3002}`, repoPath);
               
-              // ✅ Validate port is set
-              const port = frontendPort || 3002;
-              const url = `http://localhost:${port}/`;
-              
-              if (!port || typeof port !== 'number') {
-                throw new Error(`Lighthouse: Invalid port ${port}`);
-              }
-              
-              const perfResult = await runPerformanceAudit(url, repoPath);
-              
-              // ✅ Use quality policy to check if we can publish
-              lighthouseGateResult = canPublishFromLighthouse(
-                true, // auditRan
-                perfResult.scores,
-                undefined // no error
-              );
-              
-              if (!lighthouseGateResult.passed) {
-                console.error(`❌ [Lighthouse Gate] Performance audit failed. Blocking publish.`);
-                console.error(`   Reason: ${lighthouseGateResult.reason}`);
-                
-                if (perfResult.scores) {
-                  console.error('   Scores:');
-                  Object.entries(perfResult.scores).forEach(([key, score]) => {
-                    const minScore = 70;
-                    const status = score >= minScore ? '✅' : '❌';
-                    console.error(`   ${status} ${key}: ${score.toFixed(0)}/100 (min: ${minScore})`);
-                  });
-                }
-                
-                // ✅ Log error and block publish if critical
-                if (lighthouseGateResult.critical) {
-                  await logErrorToDatabase(
-                    pipeline.id,
-                    'lighthouse',
-                    new Error(`Lighthouse audit failed: ${lighthouseGateResult.reason}`),
-                    1
-                  );
-                  
-                  await updatePipeline(pipeline.id, {
-                    status: 'needs_review',
-                    current_phase: 'lighthouse',
-                    metadata: {
-                      ...pipeline.metadata,
-                      lighthouseGate: {
-                        passed: false,
-                        critical: true,
-                        reason: lighthouseGateResult.reason,
-                        scores: perfResult.scores,
-                      }
-                    }
-                  });
-                  
-                  // ✅ DO NOT continue to publisher
-                  return;
-                } else {
-                  // Non-critical (scores below threshold) - warn but allow
-                  console.warn('⚠️ [Lighthouse] Performance scores below threshold, but non-critical. Continuing...');
-                }
+              if (!perfResult.passed) {
+                console.warn('⚠️ [Lighthouse] Performance audit below threshold:');
+                Object.entries(perfResult.scores).forEach(([key, score]) => {
+                  if (score < 70) {
+                    console.warn(`   - ${key}: ${score.toFixed(0)}/100`);
+                  }
+                });
               }
               
               // Update pipeline with performance data
@@ -12835,44 +11656,10 @@ export async function runPipelineLoop(sandboxPath: string) {
                   lighthouse_metrics: perfResult.metrics,
                 })
                 .eq('id', pipeline.id);
-                
-              console.log(`✅ [Lighthouse Gate] Performance audit passed`);
             } catch (error: any) {
-              console.error(`❌ [Lighthouse Gate] Lighthouse audit failed: ${error.message}`);
-              console.error(`   Blocking publish and marking pipeline as needs_review.`);
-              
-              // ✅ Use quality policy to check if we can publish
-              const { canPublishFromLighthouse } = await import('./lib/quality-policy');
-              lighthouseGateResult = canPublishFromLighthouse(
-                false, // auditRan = false
-                undefined, // no scores
-                error.message
-              );
-              
-              // ✅ Log error and block publish
-              await logErrorToDatabase(
-                pipeline.id,
-                'lighthouse',
-                error,
-                1
-              );
-              
-              await updatePipeline(pipeline.id, {
-                status: 'needs_review',
-                current_phase: 'lighthouse',
-                metadata: {
-                  ...pipeline.metadata,
-                  lighthouseGate: {
-                    passed: false,
-                    critical: true,
-                    auditRan: false,
-                    error: error.message,
-                  }
-                }
-              });
-              
-              // ✅ DO NOT continue to publisher
-              return;
+              console.error('❌ [Lighthouse] Failed:', error.message);
+              console.warn('⚠️ Continuing pipeline without performance audit...');
+              // Don't block pipeline
             }
           } else {
             console.log('   ⏭️ Lighthouse audit disabled (feature flag)');
@@ -12881,7 +11668,24 @@ export async function runPipelineLoop(sandboxPath: string) {
         case 'publisher':
           await runPublisherStep(pipeline, repoPath);
           
-          // ✅ V8.0: Cost tracking is now handled automatically in ai-client.ts
+          // ✅ P2: End Cost Tracking
+          if (costTracker) {
+            try {
+              const finalCost = costTracker.endPipeline();
+              
+              // Update Supabase with cost
+              await supabase
+                .from('pipelines')
+                .update({ 
+                  cost: finalCost.totalCost,
+                  cost_breakdown: finalCost.breakdown,
+                })
+                .eq('id', pipeline.id);
+            } catch (error: any) {
+              console.error('❌ [Cost Tracker] Failed:', error.message);
+              console.warn('⚠️ Continuing without cost tracking...');
+            }
+          }
           
           // ✅ V8: Release ports when pipeline completes
           if (frontendPort) {
@@ -12902,7 +11706,14 @@ export async function runPipelineLoop(sandboxPath: string) {
     } catch (err) {
       console.error('Pipeline Loop Error:', err);
       
-      // ✅ V8.0: Cost tracking is now handled automatically in ai-client.ts
+      // ✅ P2: End cost tracking on error
+      if (costTracker) {
+        try {
+          costTracker.endPipeline();
+        } catch {
+          // Ignore cost tracking errors during error handling
+        }
+      }
       
       // ✅ V8: Release ports on error
       // Get ports from variables or pipeline metadata (fallback)

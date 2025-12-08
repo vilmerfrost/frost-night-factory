@@ -7,7 +7,18 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "runner": "cd agent-runner && npm start"
+    "runner": "cd agent-runner && npm start",
+    "update-type-registry": "npx tsx scripts/update-type-registry.ts",
+    "test": "vitest",
+    "test:watch": "vitest --watch",
+    "test:coverage": "vitest --coverage",
+    "v85:validate": "npx tsx scripts/v85-validate.ts",
+    "v85:test": "npx tsx scripts/v85-test.ts",
+    "generate-layout-templates": "npx tsx scripts/generate-layout-templates.ts",
+    "validate-layout-contracts": "npx tsx scripts/validate-layout-contracts.ts",
+    "v90:test-fortress": "npx tsx scripts/v90-test-fortress.ts",
+    "generate-fortress": "npx tsx scripts/generate-fortress.ts",
+    "generate-domain-types": "npx tsx scripts/generate-domain-types.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",
@@ -31,7 +42,8 @@
     "tailwind-merge": "^2.6.0",
     "typescript": "^5.4.2",
     "use-debounce": "^10.0.0",
-    "wait-port": "^1.1.0"
+    "wait-port": "^1.1.0",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@pact-foundation/pact": "^16.0.2",
@@ -39,14 +51,20 @@
     "@types/node": "^20.11.24",
     "@types/react": "^18.2.61",
     "@types/react-dom": "^18.2.19",
+    "@vitest/coverage-v8": "^1.0.4",
     "autoprefixer": "^10.4.22",
+    "chokidar": "^3.6.0",
     "chrome-launcher": "^1.2.1",
     "eslint": "^8.57.0",
     "eslint-config-next": "14.1.0",
+    "husky": "^9.0.11",
     "lighthouse": "^12.8.2",
     "openapi-typescript": "^7.10.1",
     "postcss": "^8.5.6",
+    "prom-client": "^15.1.0",
     "supabase": "^1.143.2",
-    "tailwindcss": "^3.4.17"
+    "tailwindcss": "^3.4.17",
+    "tsx": "^4.20.6",
+    "vitest": "^1.0.4"
   }
 }

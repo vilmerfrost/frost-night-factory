@@ -7,6 +7,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
+import { parsePackageJson, parseJsonWithComments } from '../../agent-runner/lib/dependency-detective';
+import { writeJsonSafely } from '../../agent-runner/lib/file-writer';
 
 interface DependencyScanResult {
   found: Set<string>;
@@ -139,7 +141,7 @@ function getInstalledPackages(projectPath: string): { dependencies: Set<string>;
   }
   
   try {
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+    const pkg = parsePackageJson(fs.readFileSync(pkgPath, 'utf-8'));
     const deps = new Set(Object.keys(pkg.dependencies || {}));
     const devDeps = new Set(Object.keys(pkg.devDependencies || {}));
     
@@ -166,7 +168,7 @@ function isDevDependency(packageName: string): boolean {
 /**
  * Main function: Detect and install missing dependencies
  */
-export function runDependencyDetective(projectPath: string): DependencyScanResult {
+export async function runDependencyDetective(projectPath: string): Promise<DependencyScanResult> {
   console.log("\n🔍 DEPENDENCY DETECTIVE: Scanning for missing packages...");
   
   const result: DependencyScanResult = {
@@ -236,7 +238,7 @@ export function runDependencyDetective(projectPath: string): DependencyScanResul
   // ✅ Permanent Guard: Ensure packages are added to package.json before installing
   const packageJsonPath = path.join(projectPath, 'package.json');
   if (fs.existsSync(packageJsonPath)) {
-    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+    const packageJson = parsePackageJson(fs.readFileSync(packageJsonPath, 'utf-8'));
     
     // Add missing packages to package.json dependencies/devDependencies
     if (!packageJson.dependencies) packageJson.dependencies = {};
@@ -272,8 +274,8 @@ export function runDependencyDetective(projectPath: string): DependencyScanResul
       }
     }
     
-    // Write updated package.json
-    fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2));
+    // Write updated package.json (atomic write to prevent corruption)
+    await writeJsonSafely(packageJsonPath, packageJson);
     console.log(`   ✅ Updated package.json with modern versions`);
   }
   

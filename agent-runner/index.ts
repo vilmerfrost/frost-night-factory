@@ -5,6 +5,33 @@ import fs from "fs";
 import { dispatcherLoop } from "./dispatcher";
 import { runPipelineLoop } from "./pipeline-runner";
 
+// ═══════════════════════════════════════════════════════════════════
+// 🔥 GLOBAL ERROR HANDLERS: Prevent silent crashes
+// ═══════════════════════════════════════════════════════════════════
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('🔥 CRITICAL: Unhandled Rejection at:', promise);
+  console.error('   Reason:', reason);
+  console.error('   Stack:', reason instanceof Error ? reason.stack : 'No stack trace');
+  
+  // Optional: Log to Supabase 'pipeline_errors' table
+  // TODO: Implement error logging to database
+  
+  // Don't exit - let the process continue but log the error
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('🔥 CRITICAL: Uncaught Exception:', error.message);
+  console.error('   Stack:', error.stack);
+  
+  // Log to console before exiting
+  console.error('   Process will exit in 5 seconds...');
+  
+  // Give time for logs to flush
+  setTimeout(() => {
+    process.exit(1);
+  }, 5000);
+});
+
 console.log("❄️  Frost Night Factory Agent Runner");
 console.log("Starting dispatcher and pipeline runner...\n");
 

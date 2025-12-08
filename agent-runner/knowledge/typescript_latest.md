@@ -1,141 +1,98 @@
-Here is a unified rulebook a coder should follow for each stack, focused on breaking changes, new features, and current best practices as of 2024/2025.
-
-## TypeScript rules
-
-1. **Always use strict mode and modern config**
-- Enable all strict flags: `"strict": true`, plus `"noImplicitOverride"`, `"noPropertyAccessFromIndexSignature"`, `"noUncheckedIndexedAccess"`, `"exactOptionalPropertyTypes"`, and `"useUnknownInCatchVariables": true`.  
-- Set `"moduleResolution": "bundler"` or `"node16"` for modern bundlers, and use `"module": "esnext"` with `"target": "es2020"` (or later) unless you have legacy constraints.
-
-2. **Prefer precise types over `any`**
-- For unknown input or external data, use `unknown` and narrow, not `any`.  
-- Treat `any` as a last-resort escape hatch; consider enabling `"noImplicitAny"` and `"noUnsafeAny"` (via linters).
-
-3. **Use modern type system features**
-- Use `satisfies` to validate object shapes while preserving literal types, instead of wide annotations.  
-- Use template literal types, discriminated unions, mapped types, and conditional types to model domain invariants rather than ad‑hoc runtime checks.
-
-4. **Keep types and runtime separate but aligned**
-- Avoid complex runtime branching that the type system cannot model; refactor to smaller, typed functions instead.  
-- When wrapping JS libraries, provide `.d.ts` or use `declare module` stubs, but gradually replace them with accurate types.
-
-5. **Organize projects with references and modules**
-- Use project references for monorepos and large codebases and enable incremental builds.  
-- Use ES modules consistently (`import`/`export`) and avoid mixing CommonJS and ESM in new code.
+Use **TypeScript 5.6+ with `strict: true` as a non‑negotiable baseline** and treat the type system as the source of truth for your API surface and invariants.
 
 ---
 
-## React (v19-era) rules
+### 1. `tsconfig` / strictness rules
 
-1. **Adopt modern React features**
-- Prefer function components with hooks; do not write new class components.  
-- Use React 18/19 concurrent features and transitions for async UI work instead of manual `isLoading` state scattered across the tree.
+The coder must:
 
-2. **Use Server Components and Server Actions where appropriate**
-- For frameworks that support React Server Components (RSC), move data fetching, heavy computation, and secure operations to server components or server actions instead of client components.  
-- Keep server actions free of client-only APIs (no `window`, `document`, or browser-only libraries) and treat them as async functions with clear input/output contracts.
-
-3. **Form handling with `useFormStatus` and related hooks**
-- Use `useFormStatus` (and framework-specific helpers) inside forms to drive pending/disabled states from the submission status instead of manually tracking submission flags.  
-- Prefer progressive enhancement: forms should work with standard HTML submit behavior, then use React enhancements for UX.
-
-4. **Avoid legacy APIs**
-- Do not use legacy lifecycle methods, `UNSAFE_*`, or legacy context; use hooks (`useEffect`, `useLayoutEffect`, `useContext`, `useMemo`, etc.).  
-- Avoid manually managing global event listeners outside React; if needed, wrap them in custom hooks.
+- Enable **full strict mode** and keep it on for the entire codebase:
+  - `strict: true`
+  - Do not selectively disable `strictNullChecks`, `noImplicitAny`, `noUncheckedIndexedAccess`, etc., except for very narrow legacy shims.
+- Use **ESM** with modern module resolution:
+  - `"module": "NodeNext"` or `"Bundler"` depending on toolchain.
+  - `"moduleResolution": "NodeNext"` or `"Bundler"`.
+- Target modern JS:
+  - `"target": "ES2020"` or newer; lean on native async/await, `Promise.allSettled`, etc.
+- Use incremental and composite builds for large repos:
+  - `"incremental": true`, `"composite": true` for libraries and multi‑project setups.[4]
+- Treat **`noEmit` + separate bundler** (tsup, esbuild, Vite, Turbopack) as the default for apps.
 
 ---
 
-## Next.js (v15/v16 direction) rules
+### 2. Type system usage rules
 
-1. **Use the App Router and async Request APIs**
-- Use the `app/` directory, React Server Components by default, and async server components for data fetching.  
-- Implement route handlers (`app/api/.../route.ts`) and server actions for data mutations instead of older `pages/api` where possible.
+The coder must:
 
-2. **Respect caching and revalidation semantics**
-- Use `fetch` with `cache`, `revalidate`, and `next` options instead of ad‑hoc in‑memory caches.  
-- Mark truly dynamic routes with `dynamic = "force-dynamic"` or similar flags and avoid disabling caching globally unless strictly necessary.
-
-3. **Use Turbopack and modern bundling**
-- Prefer Turbopack (or the default modern bundler) for local dev and builds; avoid custom Webpack-only plugins for new projects.  
-- Keep imports and side effects clean to enable better tree-shaking and code splitting.
-
-4. **Co-locate logic by layer**
-- Keep server-only code (database access, secrets) in server components, route handlers, or server utilities, never in client components.  
-- Mark client components explicitly (`"use client"`) and keep them focused on interactivity and view logic.
-
----
-
-## Python: Pydantic v2 rules
-
-1. **Use Pydantic v2 APIs and `BaseModel` patterns**
-- Use the new v2 configuration and validators (`model_config`, `field_validator`, `model_validator`) instead of v1-style decorators.  
-- Prefer type-hinted `BaseModel` fields and avoid dynamic `dict`-style models for domain data.
-
-2. **Lean on the standard library typing**
-- Use standard types (`list`, `dict`, `typing.Annotated`, `Literal`, `Union`/`|`, `TypedDict`) with Pydantic integration for validation.  
-- Use `Annotated` for constraints (e.g., min/max length) instead of custom validators whenever possible.
-
-3. **Strictness and parsing**
-- Prefer strict types (e.g., strict integers, strict booleans) where accepting coercions might hide bugs.  
-- Use `model_validate` and `model_dump` consistently for input parsing and output serialization.
+- **Avoid `any`**:
+  - Prefer `unknown` at boundaries and refine via type guards.
+  - If `any` is unavoidable, isolate it and document why.
+- Prefer **type inference** over redundant annotations:
+  - Let TS infer local variables and returns where obvious; annotate public APIs, exports, and boundaries.
+- Use **`never`** to model impossible states and exhaustiveness:
+  - Exhaustive `switch` on discriminated unions must fall through to `const _exhaustive: never = value`.
+- Treat **discriminated unions** as the default for domain modeling:
+  - Define tagged unions for state machines, API variants, and UI states.
+- Use **`as const`** for literal types, configuration objects, and discriminants.
+- Prefer **interfaces for object shapes**, **type aliases for unions, conditional types, mapped types**, and utility compositions.
+- Avoid over‑nested types; introduce **named helper types** instead of unreadable inline mapped/conditional monstrosities.
 
 ---
 
-## Python: FastAPI latest patterns
+### 3. Advanced / newer TS features to rely on
 
-1. **Use async-first endpoints and dependency injection**
-- Declare endpoints `async def` unless there is a concrete reason not to, and keep blocking I/O in thread pools or background tasks.  
-- Model inputs/outputs with Pydantic v2 models, keeping request/response schemas explicit and versioned.
+The coder must:
 
-2. **Structure applications modularly**
-- Split routers by domain (e.g., `users`, `orders`), and register them in a central app.  
-- Use dependency injection for DB sessions, authentication, and configuration instead of global state.
-
-3. **Security and performance**
-- Use standardized security dependencies for auth (OAuth2, JWT) rather than ad‑hoc header parsing.  
-- Enable HTTP/2 where supported and configure uvicorn/gunicorn workers appropriately; avoid heavy work in request handlers.
-
----
-
-## Rust rules (async, Tokio, perf)
-
-1. **Use async/await with modern runtimes**
-- Use `async fn` and `await` pervasively for I/O-bound work instead of manual futures chaining.  
-- Use Tokio (or another modern runtime) with structured concurrency (tasks, `JoinHandle`s) and avoid spawning unbounded background tasks without cancellation.
-
-2. **Ownership, borrowing, and ergonomics**
-- Prefer passing references and slices instead of cloning large structures; only clone when necessary and explicit.  
-- Use `Result` and `?` for error handling, and define domain-specific error types instead of `String` or `Box<dyn Error>` everywhere.
-
-3. **Performance best practices**
-- Avoid unnecessary allocations; use `&str`, slices, and `SmallVec`-style optimizations where appropriate.  
-- Benchmark with `cargo bench`/`criterion` before micro-optimizing, and profile hot paths; avoid unsafe code unless there is a demonstrated need and it is well-audited.
+- Use **template literal types**, **key remapping in mapped types**, and **intrinsic string manipulation types** (`Uppercase`, `Lowercase`, etc.) for strongly typed keys and DSLs.[4]
+- Use **satisfies** (TS 4.9+) for config objects:
+  - `const config = { ... } satisfies SomeConfigSpec;` to keep narrow values but check shape.
+- Use **`in` and control‑flow narrowing** aggressively:
+  - Rely on TS’s *control flow analysis* instead of manual casts.
+- Prefer **utility types** (`Partial`, `Pick`, `Omit`, `Record`, `Awaited`, `ReturnType`, `Parameters`, etc.) for transformation of models instead of re‑declaring shapes.[5][8]
+- For async code:
+  - Use `Awaited<T>` for promise unwrapping.
+  - Strongly type async boundaries and handlers; never rely on `Promise<any>`.
 
 ---
 
-## Go rules (modules, generics, concurrency)
+### 4. Interop, libraries, and ecosystem
 
-1. **Use Go modules and semantic versioning correctly**
-- Always use modules (`go.mod`) and semantic versioning for libraries; avoid `replace` hacks in production.  
-- Keep module paths stable across major versions, and use separate module paths for breaking changes (`v2`, `v3`, etc.).
+The coder must:
 
-2. **Use generics thoughtfully**
-- Use type parameters for collections, utilities, and reusable algorithms where it increases safety and reduces duplication.  
-- Keep generic constraints simple and readable; do not over-abstract when a concrete type is clearer.
-
-3. **Concurrency best practices**
-- Use goroutines with clear ownership and lifetimes, tied to `context.Context` for cancellation.  
-- Use channels for coordination, not as generic “queues” everywhere; prefer mutexes or atomics where they better express intent.
-
-4. **Error handling and API design**
-- Return `error` as the last value and check it immediately; avoid panics for expected failures.  
-- Design small, focused interfaces; accept interfaces, return concrete types.
+- For **JS interop**:
+  - Use `.d.ts` or `declare module` shims with proper types; avoid `require`/CJS unless constrained.[4]
+  - For JS codebases, use `// @ts-check` with JSDoc and progressively add `.d.ts` files.[4]
+- For **library authors**:
+  - Use `"declaration": true`, `"declarationMap": true`, `"stripInternal": true`.
+  - Avoid exporting internal helper generics; keep public API minimal and documented.
+- For **React/Next.js**:
+  - Treat TS types as the canonical contract:
+    - Strongly type `props`, `loader` data, `actions`, and server components.
+    - Use `React.FC` only when you need `children` typed generically; otherwise use plain function components with typed props.
 
 ---
 
-## How to apply this
+### 5. Error handling / safety rules
 
-When coding in any of these stacks:
+The coder must:
 
-- Turn on strictness and let the type system (TS, Pydantic, Rust, Go generics) guide designs.  
-- Prefer modern, framework-endorsed patterns (React Server Components/Actions, Next.js App Router, async Rust/Tokio, async FastAPI) over legacy APIs.  
-- Keep boundaries explicit: server vs client, sync vs async, domain types vs transport types.
+- Never throw or accept **untyped errors**:
+  - In boundaries, type thrown/returned errors (e.g., `Result<T, E>` patterns).
+- Use **narrow exception types** in wrappers and expose typed error unions to callers.
+- Validate untrusted data at edges and **encode the result in types**:
+  - Use schema validators (Zod, Valibot, etc.) with inferred TS types, or TS 5+ `satisfies` + runtime checks.
+
+---
+
+### 6. Project structure and maintenance
+
+The coder must:
+
+- Use **path aliases** via `baseUrl` / `paths` only when needed; keep them shallow and mirror physical layout.
+- Keep **`tsconfig.json` minimal but strict**; avoid piling experimental flags without a concrete need.
+- Enforce rules with **ESLint + `@typescript-eslint`**:
+  - Ban `any` (with explicit escape hatches).
+  - Enforce `no-floating-promises`, `no-misused-promises`, and consistent type import/export style.
+- Regularly track **TypeScript release notes and breaking changes** from the official docs and blog, and upgrade with `--noErrorTruncation` CI runs to catch regressions early.[4][9]
+
+These rules are intended as *must‑follow* constraints: deviations require a documented justification in code review.

@@ -121,6 +121,24 @@ export function pathToAlias(absolutePath: string, projectRoot: string): string |
 }
 
 /**
+ * Windows casing map: PascalCase → lowercase imports
+ */
+const CASING_MAP: Record<string, string> = {
+  '@/components/ui/Card': '@/components/ui/card',
+  '@/components/ui/Button': '@/components/ui/button',
+  '@/components/ui/Input': '@/components/ui/input',
+  '@/components/ui/Badge': '@/components/ui/badge',
+  '@/components/ui/Alert': '@/components/ui/alert',
+  '@/components/ui/Dialog': '@/components/ui/dialog',
+  '@/components/ui/Table': '@/components/ui/table',
+  '@/components/ui/Toast': '@/components/ui/toast',
+  '@/components/ui/Select': '@/components/ui/select',
+  '@/components/ui/Tabs': '@/components/ui/tabs',
+  '@/components/ui/Label': '@/components/ui/label',
+  '@/components/ui/Textarea': '@/components/ui/textarea',
+};
+
+/**
  * Rewrite imports in a single file
  */
 export function rewriteFileImports(
@@ -176,6 +194,23 @@ export function rewriteFileImports(
       } else if (content.includes(oldImport2)) {
         content = content.replace(oldImport2, newImport2);
         result.rewritten++;
+      }
+    }
+    
+    // ✅ WINDOWS CASING FIX: Also fix PascalCase imports to lowercase
+    if (imp.importPath.startsWith('@/components/ui/')) {
+      const pascalPath = imp.importPath;
+      const lowercasePath = pascalPath.toLowerCase();
+      
+      if (pascalPath !== lowercasePath && CASING_MAP[pascalPath]) {
+        const correctPath = CASING_MAP[pascalPath];
+        const oldPattern = new RegExp(`from ['"]${pascalPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['"]`, 'g');
+        const newPattern = `from '${correctPath}'`;
+        
+        if (oldPattern.test(content)) {
+          content = content.replace(oldPattern, newPattern);
+          result.rewritten++;
+        }
       }
     }
   }

@@ -7,6 +7,45 @@ import * as path from 'path';
 import { GOLDEN_COMPONENTS } from '../../agent-runner/lib/golden-components';
 
 /**
+ * Fix import paths: Replace relative paths with @/ alias
+ */
+function fixImportPaths(content: string): string {
+  // Replace relative imports like '../../lib/utils' with '@/lib/utils'
+  content = content.replace(
+    /from\s+['"]\.\.\/.*\/lib\/utils['"]/g,
+    "from '@/lib/utils'"
+  );
+  
+  // Replace relative imports like '../../../components/ui/Button' with '@/components/ui/Button'
+  content = content.replace(
+    /from\s+['"]\.\.\/.*\/components\/ui\/([^'"]+)['"]/g,
+    "from '@/components/ui/$1'"
+  );
+  
+  // Replace relative imports like '../../components/layout/AppShell' with '@/components/layout/AppShell'
+  content = content.replace(
+    /from\s+['"]\.\.\/.*\/components\/layout\/([^'"]+)['"]/g,
+    "from '@/components/layout/$1'"
+  );
+  
+  // Replace any other deep relative paths (../../../../...) with @/ alias
+  content = content.replace(
+    /from\s+['"]\.\.\/\.\.\/\.\.\/\.\.\/(.+?)['"]/g,
+    "from '@/$1'"
+  );
+  content = content.replace(
+    /from\s+['"]\.\.\/\.\.\/\.\.\/(.+?)['"]/g,
+    "from '@/$1'"
+  );
+  content = content.replace(
+    /from\s+['"]\.\.\/\.\.\/(.+?)['"]/g,
+    "from '@/$1'"
+  );
+  
+  return content;
+}
+
+/**
  * Generate scaffold structure - creates directories and skeleton files
  * This ensures the project structure exists BEFORE AI starts coding
  */
@@ -125,7 +164,10 @@ export type Timestamp = string;
         
         // Only copy if doesn't exist (don't overwrite existing)
         if (!fs.existsSync(destPath)) {
-          fs.copyFileSync(sourcePath, destPath);
+          let fileContent = fs.readFileSync(sourcePath, 'utf-8');
+          // Fix imports: replace relative paths with @/ alias
+          fileContent = fixImportPaths(fileContent);
+          fs.writeFileSync(destPath, fileContent, 'utf-8');
           console.log(`   ✨ Injected Golden UI Component: ${file}`);
         }
       }
@@ -148,7 +190,10 @@ export type Timestamp = string;
         
         // Only copy if doesn't exist (don't overwrite existing)
         if (!fs.existsSync(destPath)) {
-          fs.copyFileSync(sourcePath, destPath);
+          let fileContent = fs.readFileSync(sourcePath, 'utf-8');
+          // Fix imports: replace relative paths with @/ alias
+          fileContent = fixImportPaths(fileContent);
+          fs.writeFileSync(destPath, fileContent, 'utf-8');
           console.log(`   ✨ Injected Golden Layout Component: ${file}`);
         }
       }
@@ -169,7 +214,10 @@ export type Timestamp = string;
       const destPath = path.join(projectLibDir, file);
       
       if (fs.existsSync(sourcePath) && !fs.existsSync(destPath)) {
-        fs.copyFileSync(sourcePath, destPath);
+        let fileContent = fs.readFileSync(sourcePath, 'utf-8');
+        // Fix imports: replace relative paths with @/ alias
+        fileContent = fixImportPaths(fileContent);
+        fs.writeFileSync(destPath, fileContent, 'utf-8');
         console.log(`   ✨ Injected Golden Lib File: ${file}`);
       }
     });
@@ -181,13 +229,32 @@ export type Timestamp = string;
     fs.mkdirSync(uiDir, { recursive: true });
   }
   
-  Object.entries(GOLDEN_COMPONENTS).forEach(([name, content]) => {
-    const componentPath = path.join(uiDir, name);
-    if (!fs.existsSync(componentPath)) {
-      fs.writeFileSync(componentPath, content);
-      console.log(`   ✨ Injected Legacy Golden Component: ${name}`);
-    }
-  });
+  // ✅ DEFENSIVE: Null check before Object.entries
+  if (!GOLDEN_COMPONENTS || typeof GOLDEN_COMPONENTS !== 'object') {
+    console.error('🚨 [Scaffold] GOLDEN_COMPONENTS is undefined or invalid!');
+    console.error('   Type:', typeof GOLDEN_COMPONENTS);
+    console.error('   Value:', GOLDEN_COMPONENTS);
+    throw new Error('GOLDEN_COMPONENTS failed to import - check export syntax in golden-components.ts');
+  }
+  
+  try {
+    Object.entries(GOLDEN_COMPONENTS).forEach(([name, content]) => {
+      if (typeof content !== 'string') {
+        console.warn(`   ⚠️ Skipping ${name}: content is not a string`);
+        return;
+      }
+      const componentPath = path.join(uiDir, name);
+      if (!fs.existsSync(componentPath)) {
+        // Fix imports: replace relative paths with @/ alias
+        const fixedContent = fixImportPaths(content);
+        fs.writeFileSync(componentPath, fixedContent);
+        console.log(`   ✨ Injected Legacy Golden Component: ${name}`);
+      }
+    });
+  } catch (error: any) {
+    console.error('🚨 [Scaffold] Error injecting GOLDEN_COMPONENTS:', error.message);
+    throw new Error(`Failed to inject golden components: ${error.message}`);
+  }
   
   console.log("✅ Scaffold complete. File structure enforced.");
 }

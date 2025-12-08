@@ -1,16 +1,16 @@
 "use client"
 
 import * as React from "react"
-import { AppShell } from "@/components/layout/AppShell"
-import { DashboardShell } from "@/components/layout/DashboardShell"
-import { FormPage } from "@/components/layout/FormPage"
-import { DataTablePage } from "@/components/layout/DataTablePage"
-import { HeroSection } from "@/components/layout/HeroSection"
-import { StatsGrid } from "@/components/layout/StatsGrid"
-import { FeatureGrid } from "@/components/layout/FeatureGrid"
-import { ToolShowcase } from "@/components/layout/ToolShowcase"
-import { CTASection } from "@/components/layout/CTASection"
-import type { PageBlueprint, SectionConfig } from "@/lib/blueprints"
+import { AppShell } from '../../../../components/layout/AppShell'
+import { DashboardShell } from '../../../../components/layout/DashboardShell'
+import { FormPage } from '../../../../components/layout/FormPage'
+import { DataTablePage } from '../../../../components/layout/DataTablePage'
+import { HeroSection } from '../../../../components/layout/HeroSection'
+import { StatsGrid } from '../../../../components/layout/StatsGrid'
+import { FeatureGrid } from '../../../../components/layout/FeatureGrid'
+import { ToolShowcase } from '../../../../components/layout/ToolShowcase'
+import { CTASection } from '../../../../components/layout/CTASection'
+import type { PageBlueprint, SectionConfig } from '../../../../lib/blueprints'
 
 function renderSection(section: SectionConfig, index: number) {
   switch (section.kind) {

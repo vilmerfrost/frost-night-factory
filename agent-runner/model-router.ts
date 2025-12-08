@@ -45,7 +45,7 @@ const MODELS: Record<string, ModelConfig> = {
   },
   'claude-haiku': {
     provider: 'anthropic',
-    model: 'claude-3-5-haiku-20241022',
+    model: 'claude-haiku-4-5-20251001',
     inputCost: 0.80,
     outputCost: 4.00,
     maxTokens: 200000,
@@ -153,9 +153,9 @@ export function selectModel(config: {
     return { provider: 'deepseek', model: 'deepseek-chat' };
   }
   
-  // K2 for research synthesis
+  // K2 for research synthesis - use stable preview (avoids timeouts)
   if (config.role === 'RESEARCHER' && config.step === 'synthesis') {
-    return { provider: 'kimi', model: 'kimi-k2-thinking' };
+    return { provider: 'kimi', model: 'moonshot-v1-128k' }; // ✅ Stable preview instead of k2-thinking
   }
   
   // Planner
@@ -173,9 +173,9 @@ export function selectModel(config: {
     return { provider: 'groq', model: 'llama-3.3-70b-versatile' };
   }
   
-  // Prompt engineer
+  // Prompt engineer - use correct model names (Dec 2024/Jan 2025)
   if (config.role === 'PROMPT_ENGINEER') {
-    return { provider: 'google', model: 'gemini-2.0-flash' };
+    return { provider: 'google', model: 'gemini-2.0-flash-exp' }; // ✅ CORRECT: gemini-2.0-flash-exp (fastest)
   }
   
   // Fallback

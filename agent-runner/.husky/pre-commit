@@ -1,0 +1,16 @@
+# Add pre-commit content
+@"
+@echo off
+echo 🔍 Running pre-commit validation...
+npm run validate-syntax
+if %ERRORLEVEL% NEQ 0 (
+    echo ❌ COMMIT BLOCKED: Syntax errors detected
+    exit /b 1
+)
+echo ✅ Pre-commit passed
+"@ | Out-File -FilePath ".husky\pre-commit" -Encoding ASCII
+
+# Test it
+echo "console.log('test');" > test-good.js
+git add test-good.js
+git commit -m "test husky" 2>&1

@@ -10,17 +10,17 @@ import {
   DashboardStatsSchema,
   InvoiceCreateSchema,
   InvoiceUpdateSchema,
-} from '@/lib/schemas';
+} from '../../../../../lib/schemas';
 import type {
   Invoice,
   DashboardStats,
   InvoiceCreate,
   InvoiceUpdate,
-} from '@/lib/schemas';
+} from '../../../../../lib/schemas';
 import {
   MOCK_INVOICES,
   MOCK_DASHBOARD_STATS,
-} from '@/lib/mock-data';
+} from '../../../../../lib/mock-data';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 

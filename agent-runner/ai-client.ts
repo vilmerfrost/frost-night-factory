@@ -30,12 +30,39 @@ const openai = new OpenAI({
 
 // ✅ Kimi K2 (Moonshot) client for research synthesis
 let kimiClient: OpenAI | null = null
-if (process.env.MOONSHOT_API_KEY) {
-  kimiClient = new OpenAI({
-    apiKey: process.env.MOONSHOT_API_KEY,
-    baseURL: 'https://api.moonshot.cn/v1'
-  })
+
+function initKimiClient(): void {
+  const apiKey = process.env.MOONSHOT_API_KEY || process.env.KIMI_API_KEY;
+  
+  if (!apiKey) {
+    console.warn('⚠️  [Kimi] MOONSHOT_API_KEY not set - Kimi features disabled');
+    return;
+  }
+  
+  // Debug logging
+  console.log('🔍 [Kimi] Initializing client...');
+  console.log(`   API Key exists: ${!!apiKey}`);
+  console.log(`   API Key length: ${apiKey.length}`);
+  console.log(`   API Key prefix: ${apiKey.substring(0, 10)}***`);
+  
+  try {
+    kimiClient = new OpenAI({
+      apiKey: apiKey.trim(), // Remove any whitespace
+      baseURL: 'https://api.moonshot.ai/v1', // ✅ FIXED: Use .ai (not .cn)
+      defaultHeaders: {
+        'User-Agent': 'Frost-Agent/1.0',
+      },
+    });
+    
+    console.log(`✅ [Kimi] Client initialized successfully`);
+  } catch (error: any) {
+    console.error(`❌ [Kimi] Failed to initialize client: ${error.message}`);
+    kimiClient = null;
+  }
 }
+
+// Initialize on module load
+initKimiClient();
 
 // ═══════════════════════════════════════════════════════════════════
 // COST ESTIMATES (as of Dec 2024)
@@ -43,7 +70,7 @@ if (process.env.MOONSHOT_API_KEY) {
 const COST_PER_1M_TOKENS = {
   // Claude
   'claude-sonnet-4-5': { input: 300, output: 1500, cacheWrite: 375, cacheRead: 30 }, // $3/$15/$3.75/$0.30 per 1M
-  'claude-3-5-haiku-20241022': { input: 80, output: 400, cacheWrite: 100, cacheRead: 8 },    // $0.80/$4/$1/$0.08 per 1M
+  'claude-haiku-4-5-20251001': { input: 80, output: 400, cacheWrite: 100, cacheRead: 8 },    // $0.80/$4/$1/$0.08 per 1M
   
   // OpenAI
   'gpt-4o': { input: 250, output: 1000, cacheWrite: 250, cacheRead: 25 },
@@ -172,6 +199,16 @@ CRITICAL CODE STRUCTURE RULES:
 3. **Next.js Route Segment Config**:
    - Route configs (dynamic, revalidate, etc.) go AFTER imports
    - But BEFORE the component export
+
+4. **CRITICAL: NO STUBS OR PLACEHOLDERS**:
+   - You MUST write the FULL implementation
+   - NO // TODO comments
+   - NO empty function bodies
+   - NO return null without conditional logic
+   - NO placeholder strings or mocked data
+   - If you write a stub, you FAIL
+   - Every function must have real, working code
+   - Every component must render actual UI, not placeholders
 `;
 
 export async function callAI(opts: AICallOptions): Promise<string> {
@@ -376,8 +413,29 @@ export async function callAI(opts: AICallOptions): Promise<string> {
     } else if (safeModel.includes('moonshot') || safeModel.includes('kimi')) {
       // ✅ Kimi K2 (Moonshot) API for research synthesis
       if (!kimiClient) {
-        throw new Error('Kimi/Moonshot API key not configured')
+        // Try to reinitialize
+        initKimiClient();
+        if (!kimiClient) {
+          throw new Error('Kimi/Moonshot API key not configured. Set MOONSHOT_API_KEY or KIMI_API_KEY');
+        }
       }
+      
+      // Determine correct model name (check more specific first)
+      // 🔧 FIXED: Use stable preview models instead of thinking (avoids timeouts)
+      let modelName: string;
+      if (safeModel.includes('k2-instruct')) {
+        modelName = 'moonshot-v1-128k'; // ✅ Stable fast model
+      } else if (safeModel.includes('k2-thinking') || safeModel.includes('k2')) {
+        // Use stable preview instead of thinking (avoids tool-calling bugs)
+        modelName = 'moonshot-v1-128k'; // ✅ Stable preview (was kimi-k2-thinking)
+        console.log(`   ℹ️  Using stable moonshot-v1-128k instead of k2-thinking (avoids timeouts)`);
+      } else {
+        // Fallback to stable moonshot model
+        console.warn(`⚠️  [Kimi] Unknown model "${safeModel}", using moonshot-v1-128k as fallback`);
+        modelName = 'moonshot-v1-128k';
+      }
+      
+      console.log(`🤖 [Kimi] Using model: ${modelName} for ${safeRole}`);
       
       // Extract system messages (Kimi uses standard OpenAI format)
       let systemMessages = messages.filter(m => m.role === 'system').map(m => m.content)
@@ -388,15 +446,42 @@ export async function callAI(opts: AICallOptions): Promise<string> {
         systemMessages = [CODE_GENERATION_RULES, ...systemMessages]
       }
       
-      const result = await kimiClient.chat.completions.create({
-        model: safeModel.includes('k2-thinking') || safeModel.includes('256k') ? 'kimi-k2-thinking' : 'moonshot-v1-8k',
-        messages: [
-          ...(systemMessages.length > 0 ? [{ role: 'system', content: systemMessages.join('\n\n') }] : []),
-          ...nonSystemMessages.map(m => ({ role: m.role as any, content: m.content }))
-        ],
-        temperature,
-        max_tokens: opts.maxTokens || 150000 // Leverage K2's long output capacity
-      })
+      // ✅ Stable models use standard timeout (no extended timeout needed)
+      const timeoutMs = 120000; // 2 minutes (stable models don't need extended timeout)
+      
+      // Create AbortController for timeout
+      const abortController = new AbortController()
+      const timeoutId = setTimeout(() => {
+        abortController.abort()
+      }, timeoutMs)
+      
+      let result: any
+      try {
+        result = await kimiClient.chat.completions.create({
+          model: modelName,
+          messages: [
+            ...(systemMessages.length > 0 ? [{ role: 'system', content: systemMessages.join('\n\n') }] : []),
+            ...nonSystemMessages.map(m => ({ role: m.role as any, content: m.content }))
+          ],
+          temperature,
+          max_tokens: opts.maxTokens || 150000 // Leverage K2's long output capacity
+        }, {
+          signal: abortController.signal, // ✅ Extended timeout for K2 thinking (10 min)
+          timeout: timeoutMs // Also set timeout option
+        })
+        
+        clearTimeout(timeoutId)
+      } catch (error: any) {
+        clearTimeout(timeoutId)
+        if (error.name === 'AbortError' || abortController.signal.aborted) {
+          throw new Error(`Kimi K2 thinking request timed out after ${timeoutMs / 1000 / 60} minutes`)
+        }
+        throw error
+      }
+      
+      response = result.choices[0]?.message?.content || ''
+      tokensIn = result.usage?.prompt_tokens || 0
+      tokensOut = result.usage?.completion_tokens || 0
       
       response = result.choices[0]?.message?.content || ''
       tokensIn = result.usage?.prompt_tokens || 0
@@ -460,7 +545,31 @@ export async function callAI(opts: AICallOptions): Promise<string> {
     return response
     
   } catch (error: any) {
-    console.error(`❌ [AI] ${safeRole} failed:`, error.message)
+    // Enhanced error logging for Kimi/Moonshot
+    if (safeModel.includes('moonshot') || safeModel.includes('kimi')) {
+      console.error(`❌ [AI] ${safeRole} failed (Kimi/Moonshot):`, {
+        message: error.message,
+        status: error.status,
+        type: error.type,
+        code: error.code,
+        headers: error.headers ? Object.fromEntries(error.headers.entries()) : undefined,
+        requestID: error.requestID,
+      });
+      
+      // Check for specific error types
+      if (error.status === 401) {
+        console.error('   🔑 Authentication Error - Check:');
+        console.error('      1. MOONSHOT_API_KEY is set correctly');
+        console.error('      2. API key is valid (not expired)');
+        console.error('      3. API key has correct format (no extra spaces)');
+        console.error('      4. Using correct endpoint: https://api.moonshot.ai/v1');
+      } else if (error.status === 429) {
+        console.error('   ⏱️  Rate Limit Error - Wait before retrying');
+      }
+    } else {
+      console.error(`❌ [AI] ${safeRole} failed:`, error.message);
+    }
+    
     throw error
   }
 }
@@ -486,7 +595,7 @@ export function selectModel(
   
   // REVIEWER: Cheap model is fine
   if (role === 'REVIEWER') {
-    return 'claude-3-5-haiku-20241022'
+    return 'claude-haiku-4-5-20251001'
   }
   
   // PYTHON_FIXER: Use DeepSeek for Python error fixing
@@ -503,6 +612,6 @@ export function selectModel(
     }
   }
   
-  return 'claude-3-5-haiku-20241022' // default cheap
+  return 'claude-haiku-4-5-20251001' // default cheap
 }
 

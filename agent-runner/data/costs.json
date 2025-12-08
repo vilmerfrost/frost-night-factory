@@ -1,61 +1,133 @@
 [
   {
-    "pipelineId": "a7e0b2bd-3fa8-4141-95aa-14ed6c80c450",
-    "timestamp": "2025-12-05T07:40:57.085Z",
-    "totalCost": 0.010667700000000002,
+    "pipelineId": "92e636a1-f167-41af-8e13-5c2f8e7656be",
+    "timestamp": "2025-12-07T01:36:20.714Z",
+    "totalCost": 0.04912421,
     "breakdown": [
       {
         "step": "tester",
-        "model": "claude-3-5-haiku-20241022",
-        "cost": 0.0030340000000000002,
+        "model": "claude-haiku-4-5-20251001",
+        "cost": 0.004571,
         "tokens": {
-          "input": 2176,
-          "output": 286
+          "input": 2630,
+          "output": 647
         }
       },
       {
         "step": "tester",
         "model": "deepseek-chat",
-        "cost": 0.00024626,
+        "cost": 0.00048916,
         "tokens": {
-          "input": 468,
-          "output": 109
+          "input": 1388,
+          "output": 104
         }
       },
       {
         "step": "tester",
         "model": "deepseek-chat",
-        "cost": 0.0017060600000000001,
+        "cost": 0.0017412500000000002,
         "tokens": {
-          "input": 3308,
-          "output": 739
+          "input": 4135,
+          "output": 568
         }
       },
       {
         "step": "tester",
-        "model": "claude-3-5-haiku-20241022",
-        "cost": 0.0028789999999999996,
+        "model": "claude-haiku-4-5-20251001",
+        "cost": 0.0051470000000000005,
         "tokens": {
-          "input": 1769,
-          "output": 370
-        }
-      },
-      {
-        "step": "tester",
-        "model": "deepseek-chat",
-        "cost": 0.0003244,
-        "tokens": {
-          "input": 680,
-          "output": 128
+          "input": 2630,
+          "output": 839
         }
       },
       {
         "step": "tester",
         "model": "deepseek-chat",
-        "cost": 0.0024779800000000003,
+        "cost": 0.00060826,
         "tokens": {
-          "input": 3914,
-          "output": 1292
+          "input": 1548,
+          "output": 173
+        }
+      },
+      {
+        "step": "tester",
+        "model": "deepseek-chat",
+        "cost": 0.0018025400000000005,
+        "tokens": {
+          "input": 4362,
+          "output": 568
+        }
+      },
+      {
+        "step": "tester",
+        "model": "deepseek-reasoner",
+        "cost": 0.00591047,
+        "tokens": {
+          "input": 521,
+          "output": 2568
+        }
+      },
+      {
+        "step": "tester",
+        "model": "claude-haiku-4-5-20251001",
+        "cost": 0.005057000000000001,
+        "tokens": {
+          "input": 2630,
+          "output": 809
+        }
+      },
+      {
+        "step": "tester",
+        "model": "deepseek-chat",
+        "cost": 0.00057698,
+        "tokens": {
+          "input": 1534,
+          "output": 148
+        }
+      },
+      {
+        "step": "tester",
+        "model": "deepseek-chat",
+        "cost": 0.0017914700000000003,
+        "tokens": {
+          "input": 4321,
+          "output": 568
+        }
+      },
+      {
+        "step": "tester",
+        "model": "deepseek-reasoner",
+        "cost": 0.00621488,
+        "tokens": {
+          "input": 521,
+          "output": 2707
+        }
+      },
+      {
+        "step": "tester",
+        "model": "claude-haiku-4-5-20251001",
+        "cost": 0.005554999999999999,
+        "tokens": {
+          "input": 2630,
+          "output": 975
+        }
+      },
+      {
+        "step": "tester",
+        "model": "deepseek-chat",
+        "cost": 0.0005929700000000001,
+        "tokens": {
+          "input": 1691,
+          "output": 124
+        }
+      },
+      {
+        "step": "tester",
+        "model": "deepseek-reasoner",
+        "cost": 0.00906623,
+        "tokens": {
+          "input": 4451,
+          "output": 3022
         }
       }
     ]

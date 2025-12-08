@@ -1,75 +1,173 @@
-Here is a compact “must follow” rule set, grouped by stack. It is opinionated and assumes you are targeting 2024/2025-era tooling.
+Next.js 15 and 16 introduce a stricter, more explicit model around **async rendering, caching, and Turbopack**. Below are implementation rules you should follow when writing or reviewing code in a modern Next.js codebase (2024–2025).
 
 ---
 
-## Next.js 15/16 rules
+## Core upgrade constraints (v15 → v16)
 
-- Treat all request-bound APIs as async only (`cookies()`, `headers()`, `draftMode()`, `params`, `searchParams`, etc.); always `await` them inside server components, route handlers, and metadata functions.  
-- Adopt the new caching model: be explicit with `fetch` cache options, tag-based revalidation, and any higher-level cache helpers; never rely on legacy implicit caching semantics.  
-- Use Turbopack as the default bundler; keep custom Webpack configs minimal and plan to migrate any non-trivial loader/plugin logic to Turbopack-compatible equivalents.  
-- Prefer the App Router with server components for all new routes; use server actions for mutations and avoid `api/` routes unless you truly need a separate HTTP API surface.  
-- Treat middleware as legacy and move cross-cutting network logic (auth, rewrites, proxies) to the new proxy-style / boundary mechanisms when available in your version.  
-- Make routing and layouts “cache-aware”: design layouts that can be shared and prefetch-friendly, avoid overly nested client components that defeat streaming and prefetch optimizations.  
-- Always provide `default` slots for parallel routes when required by your version, and keep route conventions (sitemaps, metadata, image routes) updated to the latest async signatures.
+- **Use React 19+ and App Router only.** No new Pages Router features; treat `/app` as mandatory for new work.[3]
+- **Assume async by default for request APIs and route params.** Many framework-provided arguments are now async (v15) and extended further in v16 (“everything is async now”).[3][5]
+- **Target Turbopack, not webpack.** Turbopack is the **default bundler** in v16 for dev and prod; only opt out with `next build --webpack` when you have proven incompatibilities.[1][2]
+- **Adopt the new explicit caching model.** v15 introduces breaking changes in fetch/caching semantics; v16 completes this with **Cache Components** and an explicit `"use cache"` model.[1][2][3]
 
 ---
 
-## React 19-era rules
+## Async Request APIs & “everything is async”
 
-- Prefer React Server Components when supported by your framework; keep client components as small leaf nodes responsible only for interactivity.  
-- Use Server Actions for mutations instead of client-side data posting where possible; treat them as part of your data layer and centralize validation/authorization there.  
-- Use `useFormStatus` and related helpers for in-flight UI states when wiring forms to server actions; never hand-roll status flags when the framework provides them.  
-- Avoid legacy patterns like `useEffect`-driven data fetching for initial render; use framework-level data fetching primitives and server components instead.  
-- Keep components pure and props-driven; avoid global mutable singletons in React land, preferring context or framework-level dependency injection.
+1. **Assume all server entrypoints can be `async`:**  
+   - Route handlers (`app/**/route.ts`)  
+   - Server Components and layouts where you do data fetching  
+   - Metadata and image routes
 
----
+2. **Handle async `params` in v16:**
+   - Metadata routes' `params` argument is now **async**, and values like `id` from `generateImageMetadata` are `Promise<string>`.[1]  
+   - Rule: Always `await` `params` if you destructure, and type them as `Promise<Params>` in TS when necessary.
 
-## Python: Pydantic v2 & FastAPI
+3. **Async Request APIs in v15 (breaking):**
+   - v15 introduces **Async Request APIs** as a breaking change in the rendering/caching model.[3][6]  
+   - Rule: Do not rely on older sync assumptions around `request`, `params`, and streaming; audit all custom helpers that previously assumed sync access to these.
 
-- Use Pydantic v2 models and validators only; avoid legacy v1-style `@validator` usage in new code and migrate to the v2 pattern (e.g., `field_validators`, `model_validators`).  
-- Configure Pydantic v2’s serialization and validation settings explicitly (e.g., strict modes, `from_attributes`) rather than relying on defaults.  
-- In FastAPI, type everything: request bodies, responses, dependencies, and path/query params with proper Pydantic models and standard Python types.  
-- Use async endpoints by default (`async def`) and ensure that I/O inside them is also async; never block the event loop with CPU-heavy or sync I/O.  
-- Centralize configuration, security, and observability (logging, metrics, tracing) via dependency injection rather than ad-hoc globals.  
-- Use background tasks, lifespan events, and dependency overrides for cross-cutting concerns (open/close DB connections, caches, etc.).
+4. **Do not block the event loop with expensive sync work in any server entry.** With everything async, large CPU work should go to background jobs or workers; keep route handlers I/O‑bound.
 
 ---
 
-## TypeScript latest rules
+## Caching, PPR, and Cache Components
 
-- Always enable strict mode (`strict: true`) and treat all type errors as build-breaking; no `skipLibCheck` unless you have an explicit, documented exception.  
-- Avoid `any`; prefer `unknown` plus proper narrowing or generics; if `any` is unavoidable, confine it to well-documented boundaries.  
-- Use modern type features (e.g., satisfies operator, template literal types, discriminated unions, `infer` in conditional types) to encode invariants in the type system instead of runtime checks when practical.  
-- Maintain strict null checking: never assume values are present without explicit checks or provable invariants.  
-- Export reusable types for API contracts and domain objects, and use them end-to-end (backend, frontend, tests) to prevent type drift.  
-- Prefer `as const` and readonly types for configuration-like data to avoid accidental mutation.
+### v15: New caching semantics (breaking)
+
+- `fetch` semantics changed; caching and revalidation are part of a new “simplified rendering and caching model.”[3]  
+- Rule: Treat all `fetch` calls in server components/handlers as **explicitly configured**:
+  - Always specify `cache`, `next: { revalidate }`, or tags; do not depend on old implicit defaults.
+  - Audit all legacy `fetch` usages when upgrading to v15.
+
+### v16: Cache Components (PPR completion)
+
+- v16 **formalizes caching with Cache Components** and a `"use cache"` directive (PPR evolved into this model).[1][2]
+- Key rules:
+
+  - **Dynamic by default, static when opted-in:**
+    - In v15, dynamic behavior could “infect” the whole route.  
+    - In v16, the model is **explicit**:
+      - Components/functions are dynamic unless you mark cacheable via `"use cache"`.[2]
+      - Route-level `experimental.ppr`/`experimental_ppr` flags are removed; use Cache Components instead.[1][2]
+
+  - **Use `"use cache"` at the component/function level** to:
+    - Opt into static caching
+    - Let the compiler automatically derive cache keys and PPR behavior[2]
+    - Avoid ad-hoc manual cache key schemes
+
+  - **Use tag-based revalidation with the new signature:**
+    - `revalidateTag()` now requires a **`cacheLife` profile** as the second argument for stale‑while‑revalidate behavior, e.g. `revalidateTag('products', 'swr')`.[1]
+    - Use `updateTag(tag)` within Actions for “read-your-writes” semantics instead of misusing revalidateTag.[1]
+
+  - **Cache invalidation rules:**
+    - On mutations, always:
+      - Call `updateTag` from your Server Action (React Actions) to keep local reads consistent  
+      - Or call `revalidateTag(tag, profile)` when you want SWR semantics visible to all users[1][2]
 
 ---
 
-## Rust (async, Tokio, perf)
+## Routing, navigation, and prefetching
 
-- Use async Rust with Tokio (or your chosen runtime) consistently; do not mix blocking I/O with async code except behind explicit `spawn_blocking`-style isolation.  
-- Structure async code around clear boundaries: top-level `main` sets up the runtime; services and handlers expose async functions; avoid deeply nested `.await` in business logic by factoring into smaller async helpers.  
-- Use structured concurrency patterns (e.g., `select!`, cancellation, timeouts) rather than unbounded tasks that live “forever”.  
-- Favor zero-cost abstractions: avoid unnecessary heap allocations (e.g., `String` vs `&str`) and cloning; use borrowing where possible.  
-- Use `#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]` and similar traits as needed for core types; implement `Send`/`Sync` expectations via type choices rather than `unsafe`.  
-- Benchmark and profile critical paths; prefer simple, predictable code over clever tricks unless measurements prove the need.
+- **Enhanced routing in v16:** Layout-deduped prefetching and incremental prefetching.[1][2]
+- Rules for Links and layouts:
+
+  - **Assume prefetch cache is smarter but stricter:**
+    - Prefetch downloads **shared layouts once**; don’t code around repeated layout loads.[1][2]
+    - Incremental prefetching:
+      - Only fetches parts not in cache
+      - Cancels requests when links leave the viewport
+      - Re-prefetches when data is invalidated[1][2]
+
+  - **Do not rely on prefetch side effects.**
+    - Prefetch cache can cancel or reprioritize requests; all logic must tolerate prefetch not completing.
+
+  - **Parallel routes must have explicit `default.tsx`/`default.js`:**
+    - In v16, all parallel slots must have a `default` file; builds fail if missing.[1]
+    - If you previously relied on implicit behavior, create `default` that calls `notFound()` or returns `null` for the old UX.[1]
 
 ---
 
-## Go (modules, generics, concurrency)
+## Turbopack and build system rules
 
-- Use Go modules exclusively; each repository is a module with semantic versioning and tidy `go.mod` / `go.sum`; never vendor manually unless policy demands it.  
-- Apply generics sparingly and only where they reduce duplication without harming clarity (e.g., repository helpers, utility data structures); avoid over-abstracting business logic.  
-- Treat goroutines as a managed resource: always have a clear ownership and cancellation strategy (contexts, wait groups) and avoid fire-and-forget unless truly one-shot.  
-- Pass `context.Context` as the first parameter to any function that does I/O, RPC, or significant work; always honor cancellation and deadlines.  
-- Use channels for coordination, not as general-purpose queues when a simpler mutex or atomic variable would suffice.  
-- Keep packages small and cohesive; avoid cyclic dependencies and keep public APIs minimal and well-documented.
+- **Turbopack is the default bundler in v16:** 2–5× faster builds, up to 10× faster Fast Refresh.[1][2]
+- Rules:
+
+  - **Run Turbopack unless you have a known plugin that only works on webpack.**
+    - If so, use `next build --webpack` explicitly and document the reason, with an issue to remove it.[1]
+
+  - **Babel configuration under Turbopack:**
+    - Turbopack now **auto-enables Babel if it finds a Babel config**, instead of erroring out.[1]
+    - Rule: Keep any Babel config minimal and intentional; if present, it will be honored and can affect perf.
+
+  - **Dev/build directories and lockfile behavior:**
+    - `next dev` and `next build` now use **separate output directories**, allowing concurrent runs.[1]
+    - There is a **lockfile** to prevent multiple dev/build instances on the same project.[1]  
+    - Rule: Do not hack around the lockfile; instead, use separate working copies or dedicated commands.
+
+  - **React Compiler support (stable in Turbopack):**
+    - v16 has **built-in React Compiler integration** (automatic memoization).[1][2]
+    - Avoid manual `useMemo`/`useCallback` micro-optimizations that fight the compiler; follow React Compiler’s constraints (no side effects in render, pure components).
 
 ---
 
-## Cross-stack “musts”
+## Image, metadata, and security changes
 
-- Prefer explicitness over magic: configuration and behavior should be discoverable from code and documented conventions.  
-- Enforce formatting, linting, type-checking, and tests in CI; no merging with failing static checks.  
-- Treat deprecations and breaking-change notes in release docs as hard requirements; update patterns proactively rather than leaving compatibility shims in place.
+- **`next/legacy/image` is deprecated:** Use the modern `next/image` only.[1][2]
+- **Security-related config changes:**
+  - `images.domains` is deprecated; use **`images.remotePatterns`** for remote domains.[1]
+  - Local `next/image` sources with query strings now require **`images.localPatterns`** to prevent enumeration attacks.[1]
+  - Rule: Never “open up” remotePatterns or localPatterns too broadly; constrain patterns precisely to expected hosts and paths.
+
+- **Image caching defaults:**
+  - `images.minimumCacheTTL` default changed from 60 seconds to **4 hours**, reducing revalidation cost for images without cache-control headers.[1]  
+  - Rule: For frequently-changing images, explicitly override TTL or use cache-control on the origin.
+
+- **Metadata image route params async in v16:**
+  - `generateImageMetadata` `id` is now `Promise<string>`; handle as async.[1]  
+  - Rule: Refactor any sync metadata-generation code to async and ensure all external I/O is awaited.
+
+---
+
+## Middleware → `proxy.ts` and network boundary
+
+- **`middleware.ts` is deprecated** in favor of **`proxy.ts`**.[1]
+- Rules:
+
+  - Move cross-cutting network logic (auth, redirects, header rewriting) into `proxy.ts` at the project root or relevant segment.
+  - Treat `proxy.ts` as the **network boundary**, not as a general-purpose application layer. Do not put app-level business logic there.
+
+---
+
+## DevX and misc behavior changes
+
+- **Terminal output and logging in v16:**
+  - Redesigned dev/build output with clearer formatting and performance metrics.[1]
+  - Rule: Treat warnings and perf hints as actionable; don’t mute them by default.
+
+- **Automatic smooth scroll is removed by default:**
+  - To re-enable, add `data-scroll-behavior="smooth"` on the HTML document.[1]
+
+- **Modern Sass:**
+  - `sass-loader` bumped to v16 with modern Sass API.[1]  
+  - Rule: Update any custom Sass config; stop relying on deprecated Sass patterns.
+
+---
+
+## Practical coding rules checklist
+
+When touching a Next.js 15/16 codebase:
+
+- Use **App Router**, React 19+, and Turbopack; no new Pages Router code.  
+- Treat **all request/route/metadata params as potentially async**; refactor sync helpers.  
+- For caching:
+  - Always specify caching behavior on `fetch` and **use `"use cache"`** where you want static/PPR behavior.
+  - Use `revalidateTag(tag, profile)` and `updateTag(tag)` correctly; never rely on legacy single-arg `revalidateTag()`.[1]
+- For routing:
+  - Provide `default.tsx/js` in every parallel route slot; handle `notFound()` explicitly when needed.[1]
+- For images:
+  - Use `next/image` only with `remotePatterns`/`localPatterns` configured; no `images.domains` or `next/legacy/image`.[1]
+- For infra:
+  - Keep Babel configs minimal under Turbopack.
+  - Do not work around build/dev lockfiles; separate invocations or repos instead.  
+
+If you want, I can next produce equivalent MUST‑follow rule sets for React 19, Pydantic v2/FastAPI, TypeScript, Rust, and Go.

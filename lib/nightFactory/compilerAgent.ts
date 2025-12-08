@@ -394,12 +394,38 @@ These ${errors.length} errors require your intelligence to fix.
 
 `;
 
+  /**
+   * Get code context around error line
+   */
+  function getCodeContext(fileContent: string, lineNum: number | null, contextLines: number = 10): string {
+    if (!lineNum) return fileContent;
+    
+    const lines = fileContent.split('\n');
+    const start = Math.max(0, lineNum - contextLines - 1);
+    const end = Math.min(lines.length, lineNum + contextLines);
+    
+    const context = lines.slice(start, end);
+    const lineNumbers = Array.from({ length: end - start }, (_, i) => start + i + 1);
+    
+    return context.map((line, idx) => {
+      const num = lineNumbers[idx];
+      const marker = num === lineNum ? '>>> ' : '    ';
+      return `${marker}${num.toString().padStart(4, ' ')} | ${line}`;
+    }).join('\n');
+  }
+
   for (const [file, fileErrors] of errorsByFile) {
     const filePath = path.join(projectPath, file);
     let content = '';
+    let contextAroundFirstError = '';
     
     if (fs.existsSync(filePath)) {
       content = fs.readFileSync(filePath, 'utf-8');
+      // Get context around first error
+      const firstError = fileErrors[0];
+      if (firstError.line) {
+        contextAroundFirstError = getCodeContext(content, firstError.line, 10);
+      }
     }
     
     prompt += `
@@ -408,7 +434,12 @@ These ${errors.length} errors require your intelligence to fix.
 ERRORS:
 ${fileErrors.map(e => `  Line ${e.line}: [${e.code}] ${e.message}`).join('\n')}
 
-CURRENT CONTENT:
+${contextAroundFirstError ? `CODE CONTEXT (around first error line ${fileErrors[0].line}):
+\`\`\`tsx
+${contextAroundFirstError}
+\`\`\`
+
+` : ''}FULL FILE CONTENT:
 \`\`\`tsx
 ${content}
 \`\`\`

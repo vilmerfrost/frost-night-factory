@@ -202,8 +202,8 @@ async function fixHomepage404(ctx: FixContext): Promise<FixResult> {
   
   // ✅ Case 1: File doesn't exist → inject golden homepage (safe)
   if (!fileExists) {
-    const goldenHomepage = `import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+    const goldenHomepage = `import { Button } from '../../components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
 
 export default function HomePage() {
   return (
@@ -301,8 +301,8 @@ export default function HomePage() {
     }
     
     // Small/broken file - safe to overwrite with golden page
-    const goldenHomepage = `import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+    const goldenHomepage = `import { Button } from '../../components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
 
 export default function HomePage() {
   return (
@@ -696,7 +696,7 @@ async function fixImportError(ctx: FixContext): Promise<FixResult> {
   const errorLog = ctx.errorLog || '';
   const errorLower = errorLog.toLowerCase();
   
-  // ✅ Check if this is a contract-related error (e.g., "ExtractedInvoiceData not exported from '@/lib/types'")
+  // ✅ Check if this is a contract-related error (e.g., "ExtractedInvoiceData not exported from '../../lib/types'")
   const isContractError = errorLower.includes('types.ts') || 
                           errorLower.includes('schemas.ts') ||
                           errorLower.includes('has no exported member') ||

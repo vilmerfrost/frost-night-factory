@@ -18,7 +18,11 @@ if (!googleApiKey) {
 }
 
 const genAI = googleApiKey ? new GoogleGenerativeAI(googleApiKey) : null;
-const modelName = "gemini-2.0-flash-exp";
+// ✅ CORRECT MODEL NAMES (Dec 2024/Jan 2025)
+// gemini-2.5-pro-exp-03-25 (BEST - Free tier experimental, 2M token context)
+// gemini-2.0-flash-exp (FASTEST - 2x faster than 1.5 Pro)
+// gemini-2.0-flash-lite (LIGHTEST - Ultra-fast, minimal latency)
+const modelName = process.env.GEMINI_MODEL || "gemini-2.0-flash-exp";
 const geminiModel = genAI ? genAI.getGenerativeModel({ model: modelName }) : null;
 
 // ============================================================
@@ -126,6 +130,312 @@ async function callWithRetry<T>(
     }
   }
   throw new Error('Unreachable');
+}
+
+// ============================================================
+// CLAUDE 4.5 HAIKU: Fast JSON Transformer (Pipeline Context)
+// ============================================================
+
+/**
+ * CLAUDE 4.5 HAIKU: Ultra-fast JSON transformer for pipeline context.
+ * Used for converting raw AI outputs to structured JSON.
+ * 
+ * Key features:
+ * - Cheap ($0.25/1M input, $1.25/1M output)
+ * - Fast (< 2s response time)
+ * - Excellent at structured output
+ * - Fail-fast on invalid JSON
+ */
+export async function generateClaudeHaikuJSON<T>(
+  rawText: string,
+  jsonSchema: string,
+  phase: string,
+  maxRetries: number = 2
+): Promise<{ success: boolean; data?: T; error?: string; raw_text_audit: string }> {
+  // Store raw text for audit trail
+  const auditTrail = rawText;
+  
+  if (!anthropic) {
+    console.warn("⚠️ Claude Haiku: No Anthropic key. Falling back to Gemini for JSON conversion.");
+    return fallbackToGeminiJSON<T>(rawText, jsonSchema, phase, auditTrail);
+  }
+
+  const systemPrompt = `You are a JSON Transformer Agent. Your ONLY task is to convert raw text into valid JSON.
+
+CRITICAL RULES:
+1. Output ONLY valid JSON - NO markdown, NO code fences, NO explanations, NO text before/after
+2. Follow the schema EXACTLY
+3. If data is missing, use null or empty arrays
+4. If the input is already JSON, clean and validate it
+5. FAIL FAST: If conversion is impossible, return {"error": "reason"}
+6. NEVER wrap output in \`\`\`json\`\`\` code blocks
+7. NEVER add comments or explanations
+8. Start with { and end with } - nothing else
+
+TARGET SCHEMA:
+${jsonSchema}`;
+
+  const userPrompt = `Convert this ${phase} phase output to valid JSON.
+
+CRITICAL INSTRUCTIONS:
+1. Return ONLY a JSON object, nothing else
+2. NO markdown code fences (\`\`\`)
+3. NO explanations before or after
+4. NO comments
+5. Start directly with { and end with }
+6. For "full_raw_output" field: Include the COMPLETE, ENTIRE raw text from the AI agent output - DO NOT summarize or truncate it
+7. Preserve ALL details, ALL text, ALL information from the raw input
+
+RAW INPUT (INCLUDE EVERYTHING IN full_raw_output):
+${rawText}
+
+Remember: Output ONLY valid JSON matching the schema above. The "full_raw_output" field must contain the COMPLETE raw text.`;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`🔧 Claude 4.5 Haiku (Attempt ${attempt}/${maxRetries}): Converting ${phase} to JSON...`);
+      
+      const msg = await anthropic.messages.create({
+        model: "claude-haiku-4-5", // Claude Haiku 4.5 (Latest stable version)
+        max_tokens: 4096,
+        temperature: 0, // Zero temp for deterministic JSON
+        messages: [
+          { role: "user", content: `${systemPrompt}\n\n${userPrompt}` }
+        ],
+      });
+
+      const textBlock = msg.content[0];
+      if (textBlock.type !== 'text') {
+        throw new Error("Unexpected response type from Claude Haiku");
+      }
+
+      let jsonStr = textBlock.text.trim();
+      
+      // ═══════════════════════════════════════════════════════════════════
+      // 🔧 STEG 2: Force Claude att ALLTID outputta valid JSON
+      // ═══════════════════════════════════════════════════════════════════
+      // Kill markdown fences om Claude är tjockhuvad:
+      jsonStr = jsonStr
+        .replace(/^```json\s*/i, '')  // Remove opening ```json
+        .replace(/^```\s*/i, '')      // Remove opening ```
+        .replace(/\s*```$/i, '')      // Remove closing ```
+        .trim();
+      
+      // Remove any text before first { or after last }
+      const firstBrace = jsonStr.indexOf('{');
+      const lastBrace = jsonStr.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        jsonStr = jsonStr.substring(firstBrace, lastBrace + 1);
+      }
+
+      // ═══════════════════════════════════════════════════════════════════
+      // 🔧 STEG 1: Sanitize research-filen innan JSON-parse
+      // ═══════════════════════════════════════════════════════════════════
+      // Sanitize först
+      let sanitized = jsonStr
+        .replace(/[\r\n]+/g, ' ')           // Replace newlines med space
+        .replace(/  +/g, ' ')                // Collapse multiple spaces
+        .trim();
+
+      // ═══════════════════════════════════════════════════════════════════
+      // 🔧 JSON REPAIR: Fix common issues before parsing
+      // ═══════════════════════════════════════════════════════════════════
+      // Fix trailing commas FIRST (before other repairs)
+      sanitized = sanitized.replace(/,(\s*[}\]])/g, '$1');
+      
+      // Fix unterminated strings (common issue with long text fields)
+      // More robust: handle escaped quotes properly
+      sanitized = sanitized.replace(/("(?:[^"\\]|\\.)*?)(?=\s*[,}\]\n]|$)/g, (match) => {
+        // Count unescaped quotes
+        const unescapedQuotes = match.match(/(?<!\\)"/g);
+        if (unescapedQuotes && unescapedQuotes.length % 2 !== 0) {
+          // String is not closed, close it
+          return match.trim() + '"';
+        }
+        return match;
+      });
+      
+      // Fix missing commas between array elements or object properties
+      sanitized = sanitized.replace(/("\s*)(\s*")/g, '$1,$2'); // Missing comma between strings
+      sanitized = sanitized.replace(/("\s*)(\s*\{)/g, '$1,$2'); // Missing comma before object
+      sanitized = sanitized.replace(/(\}\s*)(\s*")/g, '$1,$2'); // Missing comma after object
+      sanitized = sanitized.replace(/(\]\s*)(\s*")/g, '$1,$2'); // Missing comma after array
+      
+      // Try to extract JSON if wrapped in other text
+      const jsonMatch = sanitized.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        sanitized = jsonMatch[0];
+      }
+
+      // FAIL FAST: Validate JSON
+      let parsed: T;
+      try {
+        parsed = JSON.parse(sanitized) as T;
+      } catch (parseError: any) {
+        // If parsing fails, log first 500 chars for debugging (increased from 200)
+        console.error('❌ JSON parse failed:', parseError.message);
+        console.error('Error position:', parseError.message.match(/position (\d+)/)?.[1] || 'unknown');
+        console.error('First 500 chars:', sanitized.substring(0, 500));
+        console.error('Last 200 chars:', sanitized.substring(Math.max(0, sanitized.length - 200)));
+        
+        // Try to repair truncated JSON
+        console.warn(`⚠️ JSON parse failed, attempting advanced repair...`);
+        
+        // Advanced repair: Try to find the error position and fix it
+        const errorPosMatch = parseError.message.match(/position (\d+)/);
+        if (errorPosMatch) {
+          const errorPos = parseInt(errorPosMatch[1]);
+          const beforeError = sanitized.substring(0, errorPos);
+          const atError = sanitized.substring(errorPos, Math.min(errorPos + 50, sanitized.length));
+          
+          console.error(`Context at error position ${errorPos}:`, atError);
+          
+          // Try to fix common issues at error position
+          let repaired = sanitized;
+          
+          // If error is "Expected ',' or ']'", try adding comma
+          if (parseError.message.includes("Expected ',' or ']'")) {
+            // Find the position and try to insert comma
+            const insertPos = errorPos;
+            repaired = repaired.substring(0, insertPos) + ',' + repaired.substring(insertPos);
+          }
+          
+          // If error is "Expected ',' or '}'", try adding comma
+          if (parseError.message.includes("Expected ',' or '}'")) {
+            const insertPos = errorPos;
+            repaired = repaired.substring(0, insertPos) + ',' + repaired.substring(insertPos);
+          }
+          
+          // Try to close unclosed objects/arrays
+          const openBraces = (repaired.match(/\{/g) || []).length;
+          const closeBraces = (repaired.match(/\}/g) || []).length;
+          const openBrackets = (repaired.match(/\[/g) || []).length;
+          const closeBrackets = (repaired.match(/\]/g) || []).length;
+          
+          repaired += ']'.repeat(Math.max(0, openBrackets - closeBrackets));
+          repaired += '}'.repeat(Math.max(0, openBraces - closeBraces));
+          
+          try {
+            parsed = JSON.parse(repaired) as T;
+            console.log(`✅ JSON advanced repair successful`);
+          } catch (repairError: any) {
+            // Final fallback: try simple brace/bracket closing
+            const simpleRepaired = sanitized + ']'.repeat(Math.max(0, openBrackets - closeBrackets)) + '}'.repeat(Math.max(0, openBraces - closeBraces));
+            try {
+              parsed = JSON.parse(simpleRepaired) as T;
+              console.log(`✅ JSON simple repair successful`);
+            } catch (finalError) {
+              throw new Error(`JSON parse failed even after repair: ${parseError.message}. Error at position ${errorPos}. First 500 chars: ${sanitized.substring(0, 500)}`);
+            }
+          }
+        } else {
+          // No position info, try simple repair
+          const openBraces = (sanitized.match(/\{/g) || []).length;
+          const closeBraces = (sanitized.match(/\}/g) || []).length;
+          const openBrackets = (sanitized.match(/\[/g) || []).length;
+          const closeBrackets = (sanitized.match(/\]/g) || []).length;
+          
+          let repaired = sanitized;
+          repaired += ']'.repeat(Math.max(0, openBrackets - closeBrackets));
+          repaired += '}'.repeat(Math.max(0, openBraces - closeBraces));
+          
+          try {
+            parsed = JSON.parse(repaired) as T;
+            console.log(`✅ JSON repair successful`);
+          } catch (repairError) {
+            throw new Error(`JSON parse failed even after repair: ${parseError.message}. First 500 chars: ${sanitized.substring(0, 500)}`);
+          }
+        }
+      }
+      
+      // Check for error response from the model
+      if ((parsed as Record<string, unknown>).error) {
+        throw new Error(`Model returned error: ${(parsed as Record<string, unknown>).error}`);
+      }
+
+      console.log(`✅ Claude 4.5 Haiku: ${phase} JSON conversion successful!`);
+      return {
+        success: true,
+        data: parsed,
+        raw_text_audit: auditTrail
+      };
+
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`❌ Claude Haiku (Attempt ${attempt}): ${errorMessage}`);
+      
+      if (attempt === maxRetries) {
+        console.warn("⚠️ Claude Haiku failed. Falling back to Gemini...");
+        return fallbackToGeminiJSON<T>(rawText, jsonSchema, phase, auditTrail);
+      }
+      
+      // Wait before retry
+      await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+    }
+  }
+
+  // Should never reach here
+  return { success: false, error: "Unexpected failure", raw_text_audit: auditTrail };
+}
+
+/**
+ * Fallback to Gemini for JSON conversion if Claude Haiku is unavailable
+ */
+async function fallbackToGeminiJSON<T>(
+  rawText: string,
+  jsonSchema: string,
+  phase: string,
+  auditTrail: string
+): Promise<{ success: boolean; data?: T; error?: string; raw_text_audit: string }> {
+  if (!geminiModel) {
+    return { 
+      success: false, 
+      error: "No AI model available for JSON conversion",
+      raw_text_audit: auditTrail 
+    };
+  }
+
+  try {
+    console.log(`🔄 Gemini Flash: Converting ${phase} to JSON (fallback)...`);
+    
+    const prompt = `Convert this ${phase} output to valid JSON matching this schema:
+
+SCHEMA:
+${jsonSchema}
+
+RAW INPUT:
+${rawText}
+
+IMPORTANT: Return ONLY valid JSON, no markdown code blocks, no explanations.`;
+
+    const result = await geminiModel.generateContent(prompt);
+    let jsonStr = result.response.text().trim();
+    
+    // Clean markdown if present
+    if (jsonStr.includes("```json")) {
+      jsonStr = jsonStr.split("```json")[1].split("```")[0].trim();
+    } else if (jsonStr.includes("```")) {
+      jsonStr = jsonStr.split("```")[1].split("```")[0].trim();
+    }
+
+    const parsed = JSON.parse(jsonStr) as T;
+    
+    console.log(`✅ Gemini Flash: ${phase} JSON conversion successful (fallback)`);
+    return {
+      success: true,
+      data: parsed,
+      raw_text_audit: auditTrail
+    };
+
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`❌ Gemini JSON fallback failed: ${errorMessage}`);
+    return {
+      success: false,
+      error: `JSON conversion failed: ${errorMessage}`,
+      raw_text_audit: auditTrail
+    };
+  }
 }
 
 // ============================================================

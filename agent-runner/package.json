@@ -14,7 +14,11 @@
     "audit:performance": "tsx lib/performance-auditor.ts",
     "costs:report": "tsx -e \"import { CostTracker } from './lib/cost-tracker'; const stats = CostTracker.getStatistics(); console.log('Total Spent:', '$' + stats.totalSpent.toFixed(2)); console.log('Avg Cost:', '$' + stats.averageCostPerPipeline.toFixed(4)); console.log('Total Pipelines:', stats.totalPipelines); console.log('Most Expensive Step:', stats.mostExpensiveStep);\"",
     "playwright:install": "playwright install chromium",
-    "health-check": "tsx -e \"import('./lib/integration-tester').then(m => console.log('Integration tester loaded'))\""
+    "health-check": "tsx -e \"import('./lib/integration-tester').then(m => console.log('Integration tester loaded'))\"",
+    "test:kimi": "tsx ../scripts/test-kimi-api.ts",
+    "validate-syntax": "tsx ../scripts/validate-syntax.ts .",
+    "fix-imports": "tsx ../scripts/fix-imports.ts .",
+    "diagnose-syntax": "tsx ../scripts/diagnose-syntax.ts ."
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",
@@ -29,7 +33,8 @@
     "postgres": "^3.4.7",
     "puppeteer": "^24.31.0",
     "react": "^19.2.1",
-    "wait-port": "^1.1.0"
+    "wait-port": "^1.1.0",
+    "zod": "^4.1.13"
   },
   "devDependencies": {
     "@types/crypto-js": "^4.2.2",

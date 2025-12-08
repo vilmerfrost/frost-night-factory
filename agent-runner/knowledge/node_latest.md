@@ -1,63 +1,108 @@
-Here is a concise, opinionated rule set you can drop into a team “engineering standards” doc. It focuses on Node.js and then adds the language/framework rules you asked for.
+Below are **non‑negotiable rules** you should follow when targeting **latest Node.js (v22–v24, npm 11)** as of 2024/2025.
 
-## Node.js runtime rules
+---
 
-- Target active LTS or latest current (Node 22+ / 24+) only; do not support EOL majors.  
-- Use native ESM (`"type": "module"`) for all new services; treat CommonJS as legacy and isolate behind adapters.  
-- Use the built‑in `fetch`, Web Streams, WebSocket client, `URL`, and `URLPattern`; do not pull `node-fetch`, `axios`, or custom URL parsers unless you have a hard requirement.  
-- Turn on the permission model in production (`--experimental-permission` / newer flags as available) and explicitly scope FS, child process, and network access; no service runs with full system access.  
-- Prefer the built‑in test runner (`node:test`) over external test frameworks for unit/integration tests unless a specific missing feature is documented.  
-- Treat all deprecated core APIs as forbidden; add lint rules or codemods to block them and replace legacy crypto, legacy URL parser, and old HTTP parser usage.  
-- Default to HTTP/2+ capable clients/servers where supported; validate that your HTTP stack is using the modern parser and Undici‑based client.
+## 1. Runtime & Language Baseline
 
-## Next.js (v15/v16 style) rules
+- Target **Node.js ≥ 22 (prefer 24 for new projects)** and ensure CI runs on the same major line.[3][4]  
+- Assume **V8 ≥ 13.x**: you can rely on:
+  - **Top‑level await**, `import`/ESM, `WeakRef`, `FinalizationRegistry`, `Intl` updates, etc.[6]  
+- Treat **CommonJS as legacy plumbing**:
+  - New libraries: **export ESM first**, provide CJS only via **dual packages** with `"exports"` conditions.
+  - Use `"type": "module"` per package; avoid mixed CJS/ESM in the same file.
 
-- Prefer the app router and React Server Components for new routes; do not create new pages in the old pages router.  
-- Use the new async Request APIs (`request`, `Response`, `headers`, `cookies`) in route handlers; avoid legacy `NextApiRequest` / `NextApiResponse` in new code.  
-- Treat data fetching as server‑first: use server components and route handlers for async data, and keep client components lean.  
-- Make caching explicit with the new caching primitives (`revalidate`, `cache`, route segment config); do not rely on implicit caching semantics.  
-- Use Turbopack (or the recommended bundler for the current major) in dev by default; only fall back to Webpack if a blocking issue is documented.
+---
 
-## React (v19 style) rules
+## 2. Module & Package Rules
 
-- Treat React’s server features as first‑class: use Server Components and Server Actions where appropriate in frameworks that support them.  
-- Use Server Actions for mutations and form handling instead of ad‑hoc fetch calls from the client when the framework supports it.  
-- Use `useFormStatus` (and related hooks) to wire form pending/error UI; do not reimplement loading flags with ad‑hoc local state when using Server Actions.  
-- Avoid legacy patterns (UNSAFE lifecycle methods, string refs, context misuse); use modern hooks, context, and suspense patterns only.
+- Always define an explicit `"exports"` map in `package.json`; **never rely on deep imports** into `dist/*`.[6]  
+- Use **conditional exports** for environment‑specific builds:
+  - `"import"`, `"require"`, `"node"`, `"default"` conditions.
+- Avoid `require()` of ESM from CJS except where Node 22+ officially supports `require()`ing ES modules.[6]  
+- Prefer **`node:` specifiers** (e.g. `node:fs`, `node:crypto`) for core modules to avoid shadowing and improve tooling.[6]  
 
-## Python: Pydantic v2 & FastAPI
+---
 
-- Use Pydantic v2 only for new services; do not introduce new Pydantic v1 models.  
-- Rely on Pydantic v2’s new validation and serialization APIs (`model_validate`, `model_dump`, etc.); avoid deprecated v1 aliases and behaviors.  
-- In FastAPI, use type‑hint‑first design: path/query/body models are Pydantic v2 models or builtin types, and every endpoint is fully annotated.  
-- Use async def endpoints and async database/drivers by default; synchronous endpoints must be explicitly justified.  
-- Centralize settings/configuration in Pydantic `BaseSettings` (v2 style), wired through environment variables; no ad‑hoc `os.getenv` scattering in business logic.
+## 3. Network, HTTP & Fetch
 
-## TypeScript rules
+- Prefer **global `fetch`, `Request`, `Response`, `Headers`, WebStreams** instead of `node-fetch` or legacy HTTP libs.[2][6]  
+- Use **Undici**‑backed APIs (built‑in) for HTTP:
+  - No new usage of `http.request`/`https.request` unless you have low‑level needs.[1][2]  
+- Enable/expect **HTTP/2/HTTP/3** where supported via Undici 7+; avoid bespoke HTTP/2 clients.[1]  
 
-- Enable strict mode (`"strict": true`) and treat it as non‑negotiable for all new projects.  
-- Enable modern strictness flags: `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noImplicitOverride`, `noPropertyAccessFromIndexSignature`, etc.  
-- Use `unknown` instead of `any`; `any` requires explicit justification and code review approval.  
-- Prefer discriminated unions, template literal types, and `satisfies` to model complex domains rather than `string | number | …` catch‑alls.  
-- Treat type‑only imports/exports correctly (`import type`) and ensure `verbatimModuleSyntax` and modern module resolution are enabled for ESM interop.  
-- Do not use namespace/`/// <reference` style patterns in new code; prefer modules and project references.
+---
 
-## Rust & Tokio rules
+## 4. Permissions & Security
 
-- Use async Rust with Tokio for IO‑bound servers; do not mix multiple runtimes in a single binary.  
-- Use `tokio::main` and structured tasks with `tokio::spawn`; avoid unbounded task spawning and ensure task lifetimes are explicit.  
-- Use `tracing` (with structured fields) rather than ad‑hoc `println!` logging; propagate spans through async boundaries.  
-- Prefer `async fn` plus `impl Trait` returns over boxing futures unless you have a specific performance or API reason.  
-- Use `#[derive(Clone)]`/`Arc` for cheap shared state across tasks instead of global mutables; avoid `unsafe` unless reviewed and contained.  
-- Keep `Send`/`Sync` correctness explicit at boundaries (e.g., in trait objects used across tasks) and avoid custom `unsafe impl` unless absolutely required.
+- When running untrusted or semi‑trusted code, enable the **Node permission model**:
+  - Use `node --experimental-permission --allow-fs=./data --allow-net=api.myservice.com app.js` style flags.[1][3]  
+  - Always **default‑deny**; explicitly allow only required **fs**, **net**, **child_process**, **worker** capabilities.[1]  
+- Remove/ban deprecated and unsafe crypto:
+  - Do **not** use `crypto.createCipher()` / `crypto.createDecipher()`; use authenticated encryption (`createCipheriv`, AEAD) only.[1][3]  
+- Assume **llhttp strict mode** semantics in HTTP parsing; do not depend on lenient handling of malformed HTTP.[2]  
 
-## Go rules
+---
 
-- Use Go modules exclusively; no new GOPATH‑based projects.  
-- Organize modules with clear boundaries; avoid giant mono‑module repos unless there is an explicit, agreed‑upon reason.  
-- Use generics for reusable data structures and helper logic, but avoid over‑abstracting; prefer clear concrete APIs for most business logic.  
-- Use `context.Context` in all public APIs that may block (IO, RPC, DB); cancellations and timeouts must propagate through goroutines.  
-- Treat goroutine ownership as explicit: every spawned goroutine must have a clear lifetime and cancellation path; no fire‑and‑forget without justification.  
-- Prefer channels and structured worker patterns over ad‑hoc global state; but when simple, prefer mutexes/RWMutex over “clever” channel architectures.  
+## 5. Deprecations & Removals to Avoid
 
-These are “must‑follow” defaults: deviations should be rare, documented, and code‑reviewed.
+- Legacy URL parser and related APIs are **gone**:
+  - Only use **WHATWG `URL`**; no `url.parse()`.[1][3]  
+- Do not use deprecated HTTP parser or flags; rely on Node’s **default `llhttp`** parser.[2]  
+- In worker threads, avoid `process.exit()`; use **`worker.terminate()`** or cooperative shutdown.[1]  
+- Plan for removal of **old crypto APIs**; enforce lint rules to ban them.[1][3]  
+
+---
+
+## 6. Testing & Tooling
+
+- Use the **built‑in Node test runner (`node:test`)** for new codebases:
+  - Parallel execution is **on by default**; tests must be written to be **process‑ and file‑system‑isolated**.[1][2][3]  
+  - Use **test concurrency controls** (e.g. `--test-concurrency`) where resource contention exists.[3]  
+- Prefer **watch mode** via Node’s test runner for local dev; rely on its **affected test detection** instead of DIY file watchers.[1]  
+- Keep test files ESM where the app is ESM; avoid mixing module formats in tests.  
+
+---
+
+## 7. Performance & Concurrency
+
+- Assume **multi‑core** usage:
+  - Heavy CPU work should be moved to **Worker Threads** or offloaded to native/WebAssembly modules.[2]  
+- Use **optimized streams** and WebStreams:
+  - Do not re‑implement buffering/flow control; rely on Node’s improved stream scheduling.[2]  
+- Leverage **combined HTTP chunking**:
+  - When streaming responses, structure writes as **meaningful chunks** but let Node handle coalescing; avoid micro‑writes in tight loops.[2]  
+
+---
+
+## 8. npm & Workspace Practices (npm 11)
+
+- Use **lockfile v3** and commit it; never disable lockfile usage in CI.[1]  
+- For monorepos:
+  - Use **npm 11 workspaces** over ad‑hoc scripts or third‑party wrappers where possible.[1]  
+  - Run commands via workspace‑aware npm (`npm run <script> -w <pkg>`); avoid custom invokers.  
+- Avoid `npm link`/global linking in CI; use workspaces + `file:` or proper versioned packages.  
+- Periodically run **dependency impact analysis** (npm 11 feature) and remove unused deps; do not keep unused or transitive‑only packages in `dependencies`.[1]  
+
+---
+
+## 9. Observability & Ops
+
+- Use structured logging (`JSON`) with stable field names; avoid ad‑hoc `console.log` in production paths.  
+- Rely on **diagnostic reports, heap snapshots, and perf hooks** built into Node for performance investigation instead of 3rd‑party native profilers as default choice.  
+- For long‑running services:
+  - Enforce **unhandled rejection** and **uncaught exception** policies (either terminate and let orchestrator restart or central error handler); never silently ignore.  
+
+---
+
+## 10. Migration‑Specific Rules (v22 → v24)
+
+When upgrading existing services:
+
+- Run the official **v22→v24 migration checks and codemods** where available.[3]  
+- Enable **deprecation warnings in CI** and fail builds on new runtime deprecations until code is updated.  
+- Explicitly test:
+  - URL handling (legacy vs WHATWG).  
+  - Crypto flows (replacement of deprecated APIs).  
+  - Worker lifecycle (no `process.exit()` inside workers).  
+
+These rules are aimed at **green‑field or actively‑maintained backends** on modern Node; legacy compatibility code should be quarantined and clearly labeled.

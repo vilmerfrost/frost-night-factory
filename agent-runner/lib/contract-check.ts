@@ -59,7 +59,11 @@ export function validateContracts(projectRoot: string): { ok: boolean; errors: s
     // Create TypeScript program for contract files only
     const program = ts.createProgram({
       rootNames: contractPaths,
-      options: parsed.options,
+      options: {
+        ...parsed.options,
+        incremental: false,           // FORCE false
+        tsBuildInfoFile: undefined,   // REMOVE
+      },
     });
     
     const diagnostics = ts.getPreEmitDiagnostics(program);

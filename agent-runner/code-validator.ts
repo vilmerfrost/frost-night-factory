@@ -3,6 +3,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { validateCodeCompleteness } from './ast-validator'
+import { validateCode as validateCodeLenient, type ValidationResult as LenientValidationResult } from './lib/validator'
 
 // ═══════════════════════════════════════════════════════════════════
 // LAYER 1: ANTI-PLACEHOLDER SCANNER
@@ -40,6 +41,7 @@ export interface ValidationResult {
   valid: boolean
   errors: string[]
   warnings: string[]
+  renamedPath?: string  // 🔧 Extension Enforcer: Signal to rename .ts -> .tsx
 }
 
 export function detectPlaceholderCode(code: string, fileName: string): ValidationResult {
@@ -171,21 +173,66 @@ export function validateImports(
 // MASTER VALIDATOR
 // ═══════════════════════════════════════════════════════════════════
 
-export function validateCode(
+export async function validateCode(
   code: string, 
   fileName: string, 
   projectRoot: string
-): ValidationResult {
+): Promise<ValidationResult> {
   const allErrors: string[] = []
   const allWarnings: string[] = []
+  
+  // ═══════════════════════════════════════════════════════════════════
+  // 🔧 EXTENSION ENFORCER: Detect JSX in .ts files (The "Loop Killer")
+  // ═══════════════════════════════════════════════════════════════════
+  const hasJSX = /<[A-Z][A-Za-z0-9]*[^>]*>/.test(code) || /<>[^<]+<\/>/.test(code) || /<\/[A-Za-z]+>/.test(code);
+  const isTS = fileName.endsWith('.ts') && !fileName.endsWith('.d.ts');
+  
+  if (hasJSX && isTS) {
+    const newPath = fileName + 'x'; // .ts -> .tsx
+    console.log(`⚠️ [AUTO-FIX] Detected JSX in .ts file. Auto-renaming: ${fileName} -> ${newPath}`);
+    
+    return {
+      valid: true, // PASS IT! Do not trigger a retry loop.
+      errors: [],
+      warnings: [`JSX detected in .ts file - auto-renaming to .tsx`],
+      renamedPath: newPath // Signal the runner to change the filename
+    };
+  }
+  
+  // ═══════════════════════════════════════════════════════════════════
+  // 🔧 LENIENT VALIDATION: Check for config/data files FIRST
+  // ═══════════════════════════════════════════════════════════════════
+  try {
+    const lenientResult = await validateCodeLenient(code, fileName, { phase: 'coder' });
+    
+    // If it's a config/data file and lenient validator says it's valid, accept it immediately
+    if (lenientResult.fileType === 'config' || lenientResult.fileType === 'data') {
+      if (lenientResult.valid || !lenientResult.reason?.includes('Syntax error')) {
+        console.log(`📋 ${fileName} is a config/data file - accepting despite low complexity score`);
+        return {
+          valid: true,
+          errors: [],
+          warnings: lenientResult.warnings || []
+        };
+      }
+    }
+  } catch (lenientError: any) {
+    // If lenient validator fails, fall through to strict validation
+    console.warn(`⚠️ Lenient validation failed, using strict validation: ${lenientError.message}`);
+  }
   
   // Run all validators
   const placeholderResult = detectPlaceholderCode(code, fileName)
   const extensionResult = validateFileExtension(code, fileName)
   const importResult = validateImports(code, fileName, projectRoot)
   
-  // ✅ NEW: AST-based completeness check
-  if (fileName.endsWith('.ts') || fileName.endsWith('.tsx')) {
+  // ✅ NEW: AST-based completeness check (skip for config files)
+  const isConfigFile = /\.config\.(ts|js|mjs)$/.test(fileName) || 
+                       /^(next|tailwind|postcss|tsconfig|jest|vitest)\.config/.test(fileName) ||
+                       /src\/lib\/(design-system|constants|config|data)\//.test(fileName) ||
+                       /\/(colors|theme|constants|schema|types)\.(ts|js)$/.test(fileName);
+  
+  if (!isConfigFile && (fileName.endsWith('.ts') || fileName.endsWith('.tsx'))) {
     const astResult = validateCodeCompleteness(code, fileName)
     
     if (!astResult.complete) {

@@ -553,12 +553,15 @@ Return the complete fixed file:`;
       }
 
       try {
-        console.log(`⚡ [Fixer] Starting fix for: ${filePath}`);
+        console.log(`⚡ [Phase B] Starting fix for: ${filePath}`);
 
         const originalContent = fs.readFileSync(fullPath, 'utf-8');
         const errorSummary = fileErrors.map(e => 
           `Line ${e.line}: [${e.category}] ${e.message}`
         ).join('\n');
+
+        // ENHANCED PROMPT: Get Cheat Sheet from Type Enforcer
+        const cheatSheet = enforcer.generateFixerContext(fullPath);
 
         const prompt = `Fix these errors in the following TypeScript/React file:
 
@@ -567,6 +570,8 @@ FILE: ${filePath}
 ERRORS:
 ${errorSummary}
 
+${cheatSheet}
+
 CURRENT CODE:
 \`\`\`typescript
 ${originalContent}
@@ -574,10 +579,11 @@ ${originalContent}
 
 RULES:
 1. Fix all errors listed above
-2. Maintain code structure and functionality
-3. Ensure imports are at the top (before exports)
-4. Fix import paths if they're incorrect
-5. Return ONLY the fixed code, no explanations
+2. Use the EXACT type definitions from the cheat sheet above (do NOT invent new types)
+3. Maintain code structure and functionality
+4. Ensure imports are at the top (before exports)
+5. Fix import paths if they're incorrect
+6. Return ONLY the fixed code, no explanations
 
 Return the complete fixed file:`;
 

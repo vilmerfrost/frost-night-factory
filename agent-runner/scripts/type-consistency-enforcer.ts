@@ -199,6 +199,38 @@ export class TypeConsistencyEnforcer {
   }
 
   /**
+   * Generate cheat sheet with all type definitions
+   * The Hallucination Killer - ensures AI sees exact data structures
+   */
+  public generateCheatSheet(): string {
+    console.log("👮 [Type Enforcer] Extracting Ground Truth definitions...");
+    
+    const typesDir = path.join(this.projectPath, 'src', 'types');
+    const libTypes = path.join(this.projectPath, 'src', 'lib', 'types.ts');
+    
+    let cheatSheet = "/// --- SYSTEM: CURRENT TYPE DEFINITIONS (DO NOT HALLUCINATE) ---\n";
+
+    // 1. Scan lib/types.ts (if exists)
+    if (fs.existsSync(libTypes)) {
+      cheatSheet += `\n// File: src/lib/types.ts\n`;
+      cheatSheet += fs.readFileSync(libTypes, 'utf-8');
+    }
+
+    // 2. Scan src/types/*.ts
+    if (fs.existsSync(typesDir)) {
+      const files = fs.readdirSync(typesDir).filter(f => f.endsWith('.ts'));
+      files.forEach(f => {
+        cheatSheet += `\n// File: src/types/${f}\n`;
+        cheatSheet += fs.readFileSync(path.join(typesDir, f), 'utf-8');
+      });
+    }
+
+    cheatSheet += "\n/// --- END TYPE DEFINITIONS ---\n";
+    
+    return cheatSheet;
+  }
+
+  /**
    * Generate fixer context for a specific file
    * Returns a "cheat sheet" with relevant type definitions
    */

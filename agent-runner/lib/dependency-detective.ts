@@ -268,9 +268,9 @@ export function validatePackageJson(packageJson: any): {
 export { DEFAULT_PACKAGE_JSON };
 
 /**
- * Enforce Next.js 15 compatible tsconfig.json
+ * Enforce Next.js 15 compatible tsconfig.json with strict mode
  * Sets critical compiler options to prevent "ghost errors" (Cannot find module)
- * Writes EXACT config as specified in Grand Strategy
+ * DEFCON 2: Maintains strictness while fixing JSON import conflicts
  */
 export async function enforceNextJs15Config(projectPath: string): Promise<boolean> {
   console.log(`🔧 [Foundation Fix] Enforcing Next.js 15 tsconfig.json in ${projectPath}...`);
@@ -278,20 +278,38 @@ export async function enforceNextJs15Config(projectPath: string): Promise<boolea
   try {
     const tsConfigPath = path.join(projectPath, 'tsconfig.json');
     
-    // Write EXACT config as specified
-    const exactConfig = {
+    // Base strict config for Next.js 15 (DEFCON 2 - Do not lower)
+    const requiredConfig = {
       compilerOptions: {
+        // STRICTNESS: DEFCON 2 (Do not lower)
+        strict: true,
+        noImplicitAny: true,
+        strictNullChecks: true,
+        
+        // MODULE RESOLUTION
+        // 'bundler' is best for Next 15, but 'node' is safer for pure TS agents.
+        // We stick to standard Next.js 15 recommendation but fix the JSON issue.
+        moduleResolution: "bundler",
+        resolveJsonModule: false, // <--- CRITICAL FIX: Set to false to force explicit handling or preventing auto-inference confusion
+        esModuleInterop: true,
+        skipLibCheck: true, // Speeds up validation, ignores d.ts errors in node_modules
+        isolatedModules: true,
+        
+        // TARGET & MODULE
         target: "ES2022",
         lib: ["ES2022", "DOM", "DOM.Iterable"],
         module: "ESNext",
-        moduleResolution: "bundler",
         jsx: "preserve",
         noEmit: true,
-        strict: true,
-        resolveJsonModule: false, // CRITICAL FIX
-        isolatedModules: true,
         incremental: true,
-        paths: { "@/*": ["./src/*"] },
+        
+        // PATHS
+        baseUrl: ".",
+        paths: {
+          "@/*": ["./src/*"]
+        },
+        
+        // PLUGINS
         plugins: [{ name: "next" }]
       },
       include: ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],

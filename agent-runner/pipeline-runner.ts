@@ -5435,13 +5435,16 @@ Only fix the files that have issues. Keep everything else unchanged.
     let coderRetries = 0;
     const maxCoderRetries = 2;
     const MAX_TOTAL_LOOPS = 15;  // ✅ Increased: Give it time to work
+    const SAFETY_LIMIT = 20;  // 🛡️ Hard safety brake (prevents infinite loops)
+    let totalLoops = 0;  // 🔄 INFINITE MOMENTUM: Track total loop iterations
     let validationPassed = false;
     let previousErrorCount = Infinity;  // 📉 DYNAMIC MOMENTUM: Track error count
     let stagnationCount = 0;  // 🚨 STAGNATION BREAKER: Track consecutive stagnant loops
     let defconLevel = 0;  // 🚨 DEFCON: 0 = normal, 3 = dependency reset, 2 = config relax, 1 = force approve
 
-    while (!validationPassed && coderRetries <= MAX_TOTAL_LOOPS) {
-      console.log(`\n🔍 [Layer 1] Running pre-testing validation (attempt ${coderRetries + 1}/${MAX_TOTAL_LOOPS})...`);
+    while (!validationPassed && coderRetries <= MAX_TOTAL_LOOPS && totalLoops < SAFETY_LIMIT) {
+      totalLoops++;  // Increment total loop counter
+      console.log(`\n🔍 [Layer 1] Running pre-testing validation (attempt ${coderRetries + 1}/${MAX_TOTAL_LOOPS}, total loops: ${totalLoops}/${SAFETY_LIMIT})...`);
       console.log(`   📉 Dynamic Momentum: Previous error count: ${previousErrorCount === Infinity ? 'N/A' : previousErrorCount}`);
       
       try {
@@ -5593,12 +5596,23 @@ Only fix the files that have issues. Keep everything else unchanged.
           // Note: previousErrorCount will be updated in momentum check blocks below
           
           // ═══════════════════════════════════════════════════════════════════
-          // 📉 DYNAMIC MOMENTUM: Check if errors are decreasing
+          // 🔄 INFINITE MOMENTUM: Extend retries when making progress
           // ═══════════════════════════════════════════════════════════════════
           if (currentErrorCount < previousErrorCount) {
-            console.log(`📉 [Momentum] Progress detected (${previousErrorCount} -> ${currentErrorCount} errors). Extending retries...`);
-            // Reset retry counter to give it more time (don't consume attempt)
-            coderRetries = Math.max(0, coderRetries - 1);
+            const errorReduction = previousErrorCount - currentErrorCount;
+            console.log(`📉 [Infinite Momentum] Error count dropped (${previousErrorCount} -> ${currentErrorCount} errors, reduction: ${errorReduction}). Extending retries...`);
+            
+            // CRITICAL: Decrement the attempt counter to give it another "life"
+            // But ensure we don't loop forever if progress is tiny (e.g. 1 error at a time)
+            // Only do this if we haven't hit a hard "Safety Limit" (e.g. 20 total loops)
+            if (totalLoops < SAFETY_LIMIT) {
+              const oldRetries = coderRetries;
+              coderRetries = Math.max(0, coderRetries - 1);
+              console.log(`   🔄 Retry counter extended: ${oldRetries} -> ${coderRetries} (${totalLoops}/${SAFETY_LIMIT} total loops)`);
+            } else {
+              console.log(`   ⚠️ Safety limit reached (${SAFETY_LIMIT} loops). Not extending retries.`);
+            }
+            
             previousErrorCount = currentErrorCount;
             
             if (validation.shouldRetryPhase) {
@@ -5621,11 +5635,20 @@ Only fix the files that have issues. Keep everything else unchanged.
                   validationPassed = true;
                   break; // Exit retry loop with success
                 } else if (finalValidation.errors.length < currentErrorCount) {
-                  console.log(`✅ Progress made! Errors reduced from ${currentErrorCount} to ${finalValidation.errors.length}`);
-                  console.log(`   🔄 Continuing with momentum (${finalValidation.errors.length} remaining errors)...`);
-                  // Update error count and continue
+                  const errorReduction = currentErrorCount - finalValidation.errors.length;
+                  console.log(`✅ Progress made! Errors reduced from ${currentErrorCount} to ${finalValidation.errors.length} (reduction: ${errorReduction})`);
+                  console.log(`   🔄 Continuing with infinite momentum (${finalValidation.errors.length} remaining errors)...`);
+                  
+                  // Update error count
                   previousErrorCount = finalValidation.errors.length;
-                  coderRetries = Math.max(0, coderRetries - 1);
+                  
+                  // Extend retries if under safety limit
+                  if (totalLoops < SAFETY_LIMIT) {
+                    const oldRetries = coderRetries;
+                    coderRetries = Math.max(0, coderRetries - 1);
+                    console.log(`   🔄 Retry counter extended: ${oldRetries} -> ${coderRetries} (${totalLoops}/${SAFETY_LIMIT} total loops)`);
+                  }
+                  
                   continue;
                 } else {
                   console.log(`⚠️ Remaining errors after fixes: ${finalValidation.errors.length}`);
@@ -5682,12 +5705,15 @@ Only fix the files that have issues. Keep everything else unchanged.
               break; // Exit retry loop, continue to SQL (fixes applied)
             } else {
               // Max retries reached or shouldn't retry
-              if (coderRetries >= maxCoderRetries && currentErrorCount >= previousErrorCount) {
+              if (totalLoops >= SAFETY_LIMIT) {
+                console.error(`❌ [Layer 1] Validation failed after ${SAFETY_LIMIT} total loops (hard safety brake)`);
+                throw new Error(`Coder validation failed after ${SAFETY_LIMIT} total loops (safety brake): ${validation.errors.map(e => e.message).join('; ')}`);
+              } else if (coderRetries >= maxCoderRetries && currentErrorCount >= previousErrorCount) {
                 console.error(`❌ [Layer 1] Validation failed after ${coderRetries} retries (no progress made)`);
                 throw new Error(`Coder validation failed after ${coderRetries} retries: ${validation.errors.map(e => e.message).join('; ')}`);
               } else if (coderRetries >= MAX_TOTAL_LOOPS) {
-                console.error(`❌ [Layer 1] Validation failed after ${MAX_TOTAL_LOOPS} total loops (safety brake)`);
-                throw new Error(`Coder validation failed after ${MAX_TOTAL_LOOPS} total loops: ${validation.errors.map(e => e.message).join('; ')}`);
+                console.error(`❌ [Layer 1] Validation failed after ${MAX_TOTAL_LOOPS} retry attempts (safety brake)`);
+                throw new Error(`Coder validation failed after ${MAX_TOTAL_LOOPS} retry attempts: ${validation.errors.map(e => e.message).join('; ')}`);
               } else {
                 // Shouldn't retry but validation failed - escalate
                 console.error(`❌ [Layer 1] Validation failed and cannot auto-fix`);
@@ -5697,12 +5723,15 @@ Only fix the files that have issues. Keep everything else unchanged.
           }
         }
       } catch (validationError: any) {
-        if (coderRetries >= MAX_TOTAL_LOOPS) {
-          console.error('❌ [Layer 1] Validation error (safety brake triggered):', validationError.message);
+        if (totalLoops >= SAFETY_LIMIT) {
+          console.error(`❌ [Layer 1] Validation error (hard safety brake triggered after ${SAFETY_LIMIT} loops):`, validationError.message);
+          throw validationError;
+        } else if (coderRetries >= MAX_TOTAL_LOOPS) {
+          console.error(`❌ [Layer 1] Validation error (retry limit reached after ${MAX_TOTAL_LOOPS} attempts):`, validationError.message);
           throw validationError;
         }
         coderRetries++;
-        console.warn(`⚠️  [Layer 1] Validation error (retry ${coderRetries}/${MAX_TOTAL_LOOPS}):`, validationError.message);
+        console.warn(`⚠️  [Layer 1] Validation error (retry ${coderRetries}/${MAX_TOTAL_LOOPS}, total loops: ${totalLoops}/${SAFETY_LIMIT}):`, validationError.message);
       }
     }
 

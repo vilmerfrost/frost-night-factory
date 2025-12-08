@@ -5590,6 +5590,8 @@ Only fix the files that have issues. Keep everything else unchanged.
             defconLevel = 0; // Reset DEFCON level on progress
           }
           
+          // Note: previousErrorCount will be updated in momentum check blocks below
+          
           // ═══════════════════════════════════════════════════════════════════
           // 📉 DYNAMIC MOMENTUM: Check if errors are decreasing
           // ═══════════════════════════════════════════════════════════════════

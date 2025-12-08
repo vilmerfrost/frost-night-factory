@@ -270,6 +270,7 @@ export { DEFAULT_PACKAGE_JSON };
 /**
  * Enforce Next.js 15 compatible tsconfig.json
  * Sets critical compiler options to prevent "ghost errors" (Cannot find module)
+ * Writes EXACT config as specified in Grand Strategy
  */
 export async function enforceNextJs15Config(projectPath: string): Promise<boolean> {
   console.log(`🔧 [Foundation Fix] Enforcing Next.js 15 tsconfig.json in ${projectPath}...`);
@@ -277,80 +278,53 @@ export async function enforceNextJs15Config(projectPath: string): Promise<boolea
   try {
     const tsConfigPath = path.join(projectPath, 'tsconfig.json');
     
-    if (!fs.existsSync(tsConfigPath)) {
-      console.error(`❌ tsconfig.json not found at ${tsConfigPath}`);
-      return false;
-    }
+    // Write EXACT config as specified
+    const exactConfig = {
+      compilerOptions: {
+        target: "ES2022",
+        lib: ["ES2022", "DOM", "DOM.Iterable"],
+        module: "ESNext",
+        moduleResolution: "bundler",
+        jsx: "preserve",
+        noEmit: true,
+        strict: true,
+        resolveJsonModule: false, // CRITICAL FIX
+        isolatedModules: true,
+        incremental: true,
+        paths: { "@/*": ["./src/*"] },
+        plugins: [{ name: "next" }]
+      },
+      include: ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+      exclude: ["node_modules"]
+    };
 
-    // Read current config
-    const currentContent = fs.readFileSync(tsConfigPath, 'utf-8');
-    let config: any;
-    
-    try {
-      // Try to parse as JSON (might have comments)
-      config = parseJsonWithComments(currentContent, { fallback: {} }).data;
-    } catch {
-      // Fallback: try direct JSON parse
-      config = JSON.parse(currentContent);
-    }
-
-    // Ensure compilerOptions exists
-    if (!config.compilerOptions) {
-      config.compilerOptions = {};
-    }
-
-    // CRITICAL FIXES for Next.js 15
-    const changes: string[] = [];
-    
-    // 1. SET moduleResolution to "bundler" (Next.js 15 requirement)
-    if (config.compilerOptions.moduleResolution !== 'bundler') {
-      changes.push(`moduleResolution: ${config.compilerOptions.moduleResolution || 'undefined'} → bundler`);
-      config.compilerOptions.moduleResolution = 'bundler';
-    }
-
-    // 2. SET resolveJsonModule to false (Critical conflict fix)
-    if (config.compilerOptions.resolveJsonModule !== false) {
-      changes.push(`resolveJsonModule: ${config.compilerOptions.resolveJsonModule ?? 'undefined'} → false`);
-      config.compilerOptions.resolveJsonModule = false;
-    }
-
-    // 3. SET paths to ensure src alias
-    if (!config.compilerOptions.paths || !config.compilerOptions.paths['@/*']) {
-      if (!config.compilerOptions.paths) {
-        config.compilerOptions.paths = {};
-      }
-      changes.push(`paths: Added @/* alias`);
-      config.compilerOptions.paths['@/*'] = ['./src/*'];
-    }
-
-    // 4. SET include to Next.js 15 standard
-    const requiredIncludes = [
-      'next-env.d.ts',
-      '**/*.ts',
-      '**/*.tsx',
-      '.next/types/**/*.ts'
-    ];
-    
-    if (!config.include || !Array.isArray(config.include)) {
-      config.include = requiredIncludes;
-      changes.push(`include: Set to Next.js 15 standard`);
-    } else {
-      // Merge required includes
-      const missingIncludes = requiredIncludes.filter(inc => !config.include.includes(inc));
-      if (missingIncludes.length > 0) {
-        config.include = [...new Set([...config.include, ...missingIncludes])];
-        changes.push(`include: Added missing entries`);
+    // Read current config to check if changes are needed
+    let needsUpdate = true;
+    if (fs.existsSync(tsConfigPath)) {
+      try {
+        const currentContent = fs.readFileSync(tsConfigPath, 'utf-8');
+        const currentConfig = parseJsonWithComments(currentContent, { fallback: {} }).data;
+        
+        // Check if critical settings match
+        if (currentConfig.compilerOptions?.moduleResolution === 'bundler' &&
+            currentConfig.compilerOptions?.resolveJsonModule === false &&
+            currentConfig.compilerOptions?.paths?.['@/*']?.[0] === './src/*') {
+          needsUpdate = false;
+        }
+      } catch {
+        // If parsing fails, we'll write the exact config
       }
     }
 
-    // Write updated config
-    fs.writeFileSync(tsConfigPath, JSON.stringify(config, null, 2), 'utf-8');
-    
-    if (changes.length > 0) {
-      console.log(`✅ [Foundation Fix] tsconfig.json updated:`);
-      changes.forEach(change => console.log(`   ${change}`));
+    if (needsUpdate) {
+      fs.writeFileSync(tsConfigPath, JSON.stringify(exactConfig, null, 2), 'utf-8');
+      console.log(`✅ [Foundation Fix] tsconfig.json written with EXACT Next.js 15 config:`);
+      console.log(`   moduleResolution: bundler`);
+      console.log(`   resolveJsonModule: false (CRITICAL FIX)`);
+      console.log(`   paths: @/* → ./src/*`);
+      console.log(`   include: Next.js 15 standard`);
     } else {
-      console.log(`✅ [Foundation Fix] tsconfig.json already correct`);
+      console.log(`✅ [Foundation Fix] tsconfig.json already has correct Next.js 15 config`);
     }
     
     return true;

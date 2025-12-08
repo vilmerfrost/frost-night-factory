@@ -612,8 +612,9 @@ Return the complete fixed file:`;
       }
     }));
 
-    processedCount += chunk.length;
-    console.log(`   ✅ Batch ${batchNumber} complete (${processedCount}/${filesToFix.length} files processed)`);
+      processedCount += chunk.length;
+      console.log(`   ✅ Batch ${batchNumber} complete (${processedCount}/${structureFiles.length} files processed)`);
+    }
   }
 
   console.log(`\n🎉 Parallel Fixer Complete: Fixed ${fixedFiles.length}/${filesToFix.length} files`);
@@ -635,3 +636,146 @@ Return the complete fixed file:`;
   });
 }
 
+/**
+ * Class-based validator using TypeScript compiler API
+ * Provides robust validation using ts.createProgram
+ */
+export class PreTestingValidator {
+  /**
+   * Validate project using TypeScript compiler API
+   * Scans all .ts and .tsx files in src/ and collects diagnostics
+   */
+  async validateProject(projectRoot: string): Promise<ValidationResult> {
+    const errors: ValidationError[] = [];
+    
+    try {
+      // Import TypeScript compiler API
+      const ts = await import('typescript');
+      
+      // Find all TypeScript files in src/
+      const srcPath = path.join(projectRoot, 'src');
+      if (!fs.existsSync(srcPath)) {
+        console.warn(`⚠️ [PreTestingValidator] src/ directory not found at ${srcPath}`);
+        return {
+          passed: true,
+          errors: [],
+          shouldRetryPhase: false,
+        };
+      }
+
+      // Collect all .ts and .tsx files
+      const files: string[] = [];
+      function collectFiles(dir: string) {
+        if (!fs.existsSync(dir)) return;
+        
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          const fullPath = path.join(dir, entry.name);
+          if (entry.isDirectory() && entry.name !== 'node_modules' && !entry.name.startsWith('.')) {
+            collectFiles(fullPath);
+          } else if (entry.isFile() && (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx'))) {
+            files.push(fullPath);
+          }
+        }
+      }
+      
+      collectFiles(srcPath);
+      
+      if (files.length === 0) {
+        console.warn(`⚠️ [PreTestingValidator] No TypeScript files found in ${srcPath}`);
+        return {
+          passed: true,
+          errors: [],
+          shouldRetryPhase: false,
+        };
+      }
+
+      // Read tsconfig.json
+      const tsConfigPath = path.join(projectRoot, 'tsconfig.json');
+      let compilerOptions: ts.CompilerOptions = {
+        target: ts.ScriptTarget.ES2022,
+        module: ts.ModuleKind.ESNext,
+        moduleResolution: ts.ModuleResolutionKind.Bundler,
+        jsx: ts.JsxEmit.Preserve,
+        strict: true,
+        skipLibCheck: true,
+        esModuleInterop: true,
+        allowSyntheticDefaultImports: true,
+      };
+
+      if (fs.existsSync(tsConfigPath)) {
+        try {
+          const configContent = fs.readFileSync(tsConfigPath, 'utf-8');
+          const config = ts.parseConfigFileTextToJson(tsConfigPath, configContent);
+          if (config.config && config.config.compilerOptions) {
+            compilerOptions = { ...compilerOptions, ...config.config.compilerOptions };
+          }
+        } catch (e) {
+          console.warn(`⚠️ [PreTestingValidator] Failed to parse tsconfig.json, using defaults`);
+        }
+      }
+
+      // Create TypeScript program
+      const program = ts.createProgram(files, compilerOptions);
+      
+      // Get diagnostics
+      const diagnostics = ts.getPreEmitDiagnostics(program);
+      
+      // Convert diagnostics to ValidationError format
+      for (const diagnostic of diagnostics) {
+        if (diagnostic.file && diagnostic.start !== undefined) {
+          const filePath = diagnostic.file.fileName;
+          const relativePath = path.relative(projectRoot, filePath);
+          const { line } = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
+          
+          const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
+          const code = diagnostic.code;
+          
+          // Determine if auto-fixable based on error code
+          const autoFixable = [
+            ts.Diagnostics.Cannot_find_module_0.code,
+            ts.Diagnostics.Module_0_has_no_exported_member_1.code,
+            ts.Diagnostics.Cannot_find_name_0.code,
+          ].includes(code);
+
+          errors.push({
+            category: 'type',
+            file: relativePath,
+            line: line + 1,
+            message: `TS${code}: ${message}`,
+            autoFixable,
+          });
+        }
+      }
+
+      if (errors.length === 0) {
+        console.log('✅ [PreTestingValidator] All TypeScript checks passed!');
+        return {
+          passed: true,
+          errors: [],
+          shouldRetryPhase: false,
+        };
+      }
+
+      console.log(`⚠️ [PreTestingValidator] Found ${errors.length} TypeScript errors`);
+      return {
+        passed: false,
+        errors,
+        shouldRetryPhase: true,
+      };
+    } catch (error: any) {
+      console.error(`❌ [PreTestingValidator] Validation failed: ${error.message}`);
+      return {
+        passed: false,
+        errors: [{
+          category: 'syntax',
+          file: 'unknown',
+          line: 0,
+          message: `Validation error: ${error.message}`,
+          autoFixable: false,
+        }],
+        shouldRetryPhase: false,
+      };
+    }
+  }
+}

@@ -44,6 +44,37 @@ export interface ParseJsonResult {
 }
 
 /**
+ * Aggressive JSON truncation: Remove garbage text appended after valid JSON
+ * Finds the LAST closing brace '}' and cuts everything after it
+ * This prevents issues when AI outputs multiple files in one block
+ */
+export function sanitizeJsonString(content: string): string {
+  if (!content || typeof content !== 'string') {
+    return content || '';
+  }
+
+  // 1. Find the LAST closing brace '}' that matches the FIRST opening brace '{'
+  // A simple robust way for package.json is to find the last '}' in the file
+  const lastBrace = content.lastIndexOf('}');
+
+  if (lastBrace === -1) {
+    // No closing brace found - let the parser fail later if no brace
+    return content;
+  }
+
+  // 2. Cut everything after the last brace
+  const cleanContent = content.substring(0, lastBrace + 1);
+
+  // 3. Log if we actually truncated anything
+  if (cleanContent.length < content.length) {
+    const truncated = content.length - cleanContent.length;
+    console.log(`🔧 [JSON Sanitizer] Truncated ${truncated} characters after last closing brace`);
+  }
+
+  return cleanContent;
+}
+
+/**
  * Aggressive JSON parser that attempts to fix broken JSON strings.
  * Returns { success: boolean, data: any, wasRepaired: boolean }
  * NEVER throws - always returns a valid result
@@ -60,8 +91,12 @@ export function parseJsonWithComments(
     return { success: false, data: fallback, wasRepaired: true, error: 'Empty input' };
   }
 
+  // 1.5. AGGRESSIVE TRUNCATION: Remove garbage text appended after valid JSON
+  // This is especially important for package.json when AI outputs multiple files
+  const sanitized = sanitizeJsonString(jsonString);
+
   // 2. Strip Comments (Regex Fallback - no external package needed)
-  let cleaned = jsonString
+  let cleaned = sanitized
     .replace(/\/\/.*$/gm, '')  // Remove single-line comments
     .replace(/\/\*[\s\S]*?\*\//g, '');  // Remove multi-line comments
 
@@ -138,9 +173,13 @@ export function parseJsonWithComments(
 /**
  * Specific helper for package.json that guarantees a valid object
  * Always returns a valid package.json structure, even if parsing fails
+ * Ensures aggressive truncation is applied BEFORE parsing
  */
 export function parsePackageJson(content: string): any {
-  const result = parseJsonWithComments(content, {
+  // CRITICAL: Sanitize package.json BEFORE parsing to remove garbage text
+  const sanitized = sanitizeJsonString(content);
+  
+  const result = parseJsonWithComments(sanitized, {
     fallback: DEFAULT_PACKAGE_JSON,
     fileName: 'package.json'
   });
@@ -296,6 +335,17 @@ export async function installDependencies(projectPath: string): Promise<boolean>
     if (!fs.existsSync(packageJsonPath)) {
       console.error(`❌ package.json not found at ${packageJsonPath}`);
       return false;
+    }
+
+    // CRITICAL: Sanitize package.json BEFORE npm install to remove garbage text
+    // This prevents 'npm install' from failing due to appended text like "[FILE: next.config.mjs]"
+    const packageJsonContent = fs.readFileSync(packageJsonPath, 'utf-8');
+    const sanitizedContent = sanitizeJsonString(packageJsonContent);
+    
+    // Only write back if content was actually changed
+    if (sanitizedContent !== packageJsonContent) {
+      console.log(`🔧 [JSON Sanitizer] Cleaning package.json before npm install...`);
+      fs.writeFileSync(packageJsonPath, sanitizedContent, 'utf-8');
     }
 
     // Check if node_modules exists (maybe already installed)

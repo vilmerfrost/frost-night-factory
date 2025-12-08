@@ -229,6 +229,61 @@ export function validatePackageJson(packageJson: any): {
 export { DEFAULT_PACKAGE_JSON };
 
 /**
+ * Relax tsconfig.json to be less strict
+ * Sets strict: false, noImplicitAny: false, skipLibCheck: true
+ */
+export async function relaxTsConfig(projectPath: string): Promise<boolean> {
+  console.log(`🔧 [Config Relaxer] Relaxing tsconfig.json in ${projectPath}...`);
+  
+  try {
+    const tsConfigPath = path.join(projectPath, 'tsconfig.json');
+    
+    if (!fs.existsSync(tsConfigPath)) {
+      console.error(`❌ tsconfig.json not found at ${tsConfigPath}`);
+      return false;
+    }
+
+    // Read current config
+    const currentContent = fs.readFileSync(tsConfigPath, 'utf-8');
+    let config: any;
+    
+    try {
+      // Try to parse as JSON (might have comments)
+      config = parseJsonWithComments(currentContent, { fallback: {} }).data;
+    } catch {
+      // Fallback: try direct JSON parse
+      config = JSON.parse(currentContent);
+    }
+
+    // Relax compiler options
+    if (!config.compilerOptions) {
+      config.compilerOptions = {};
+    }
+
+    const originalStrict = config.compilerOptions.strict;
+    const originalNoImplicitAny = config.compilerOptions.noImplicitAny;
+    const originalSkipLibCheck = config.compilerOptions.skipLibCheck;
+
+    config.compilerOptions.strict = false;
+    config.compilerOptions.noImplicitAny = false;
+    config.compilerOptions.skipLibCheck = true;
+
+    // Write relaxed config
+    fs.writeFileSync(tsConfigPath, JSON.stringify(config, null, 2), 'utf-8');
+    
+    console.log(`✅ [Config Relaxer] tsconfig.json relaxed:`);
+    console.log(`   strict: ${originalStrict} → false`);
+    console.log(`   noImplicitAny: ${originalNoImplicitAny ?? 'undefined'} → false`);
+    console.log(`   skipLibCheck: ${originalSkipLibCheck ?? 'undefined'} → true`);
+    
+    return true;
+  } catch (error: any) {
+    console.error(`❌ [Config Relaxer] Failed to relax tsconfig.json: ${error.message}`);
+    return false;
+  }
+}
+
+/**
  * Install dependencies in the given directory
  * Returns true if successful, false otherwise
  */

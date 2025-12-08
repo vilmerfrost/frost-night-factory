@@ -268,6 +268,99 @@ export function validatePackageJson(packageJson: any): {
 export { DEFAULT_PACKAGE_JSON };
 
 /**
+ * Enforce Next.js 15 compatible tsconfig.json
+ * Sets critical compiler options to prevent "ghost errors" (Cannot find module)
+ */
+export async function enforceNextJs15Config(projectPath: string): Promise<boolean> {
+  console.log(`🔧 [Foundation Fix] Enforcing Next.js 15 tsconfig.json in ${projectPath}...`);
+  
+  try {
+    const tsConfigPath = path.join(projectPath, 'tsconfig.json');
+    
+    if (!fs.existsSync(tsConfigPath)) {
+      console.error(`❌ tsconfig.json not found at ${tsConfigPath}`);
+      return false;
+    }
+
+    // Read current config
+    const currentContent = fs.readFileSync(tsConfigPath, 'utf-8');
+    let config: any;
+    
+    try {
+      // Try to parse as JSON (might have comments)
+      config = parseJsonWithComments(currentContent, { fallback: {} }).data;
+    } catch {
+      // Fallback: try direct JSON parse
+      config = JSON.parse(currentContent);
+    }
+
+    // Ensure compilerOptions exists
+    if (!config.compilerOptions) {
+      config.compilerOptions = {};
+    }
+
+    // CRITICAL FIXES for Next.js 15
+    const changes: string[] = [];
+    
+    // 1. SET moduleResolution to "bundler" (Next.js 15 requirement)
+    if (config.compilerOptions.moduleResolution !== 'bundler') {
+      changes.push(`moduleResolution: ${config.compilerOptions.moduleResolution || 'undefined'} → bundler`);
+      config.compilerOptions.moduleResolution = 'bundler';
+    }
+
+    // 2. SET resolveJsonModule to false (Critical conflict fix)
+    if (config.compilerOptions.resolveJsonModule !== false) {
+      changes.push(`resolveJsonModule: ${config.compilerOptions.resolveJsonModule ?? 'undefined'} → false`);
+      config.compilerOptions.resolveJsonModule = false;
+    }
+
+    // 3. SET paths to ensure src alias
+    if (!config.compilerOptions.paths || !config.compilerOptions.paths['@/*']) {
+      if (!config.compilerOptions.paths) {
+        config.compilerOptions.paths = {};
+      }
+      changes.push(`paths: Added @/* alias`);
+      config.compilerOptions.paths['@/*'] = ['./src/*'];
+    }
+
+    // 4. SET include to Next.js 15 standard
+    const requiredIncludes = [
+      'next-env.d.ts',
+      '**/*.ts',
+      '**/*.tsx',
+      '.next/types/**/*.ts'
+    ];
+    
+    if (!config.include || !Array.isArray(config.include)) {
+      config.include = requiredIncludes;
+      changes.push(`include: Set to Next.js 15 standard`);
+    } else {
+      // Merge required includes
+      const missingIncludes = requiredIncludes.filter(inc => !config.include.includes(inc));
+      if (missingIncludes.length > 0) {
+        config.include = [...new Set([...config.include, ...missingIncludes])];
+        changes.push(`include: Added missing entries`);
+      }
+    }
+
+    // Write updated config
+    fs.writeFileSync(tsConfigPath, JSON.stringify(config, null, 2), 'utf-8');
+    
+    if (changes.length > 0) {
+      console.log(`✅ [Foundation Fix] tsconfig.json updated:`);
+      changes.forEach(change => console.log(`   ${change}`));
+    } else {
+      console.log(`✅ [Foundation Fix] tsconfig.json already correct`);
+    }
+    
+    return true;
+  } catch (error: any) {
+    console.error(`❌ [Foundation Fix] Failed to enforce Next.js 15 config: ${error.message}`);
+    return false;
+  }
+}
+
+/**
  * Relax tsconfig.json to be less strict
  * Sets strict: false, noImplicitAny: false, skipLibCheck: true
  */

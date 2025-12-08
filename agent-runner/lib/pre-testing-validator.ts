@@ -431,15 +431,121 @@ async function autoFixErrors(
     }
   }
 
-  let processedCount = 0;
+  // ═══════════════════════════════════════════════════════════════════
+  // 🏗️ PHASED REPAIR PROTOCOL: Foundation (Sequential) → Structure (Parallel)
+  // ═══════════════════════════════════════════════════════════════════
+  
+  // Import Type Consistency Enforcer
+  const { TypeConsistencyEnforcer } = await import('../scripts/type-consistency-enforcer');
+  const enforcer = new TypeConsistencyEnforcer(repoPath);
+  
+  // PHASE A: FOUNDATION (Sequential) - Fix types and lib files first
+  const foundationFiles = sortedFilesToFix.filter(([filePath]) => {
+    const normalizedPath = filePath.replace(/\\/g, '/');
+    return normalizedPath.includes('src/lib/') || 
+           normalizedPath.includes('src/types/') ||
+           normalizedPath.includes('/lib/types') ||
+           normalizedPath.includes('/types.ts');
+  });
+  
+  if (foundationFiles.length > 0) {
+    console.log(`\n🏗️ [Phase A] Fixing Foundation Layer (Sequential): ${foundationFiles.length} files...`);
+    
+    for (const [filePath, fileErrors] of foundationFiles) {
+      const fullPath = path.join(repoPath, filePath);
+      if (!fs.existsSync(fullPath)) {
+        console.log(`   ⚠️  Skipping ${filePath} (file not found)`);
+        continue;
+      }
 
-  // Process each batch in parallel
-  for (const chunk of chunks) {
-    const batchNumber = Math.floor(processedCount / CONCURRENCY_LIMIT) + 1;
-    console.log(`\n📦 Processing Batch ${batchNumber}/${chunks.length} (${chunk.length} files)...`);
+      try {
+        console.log(`⚡ [Phase A] Fixing foundation file: ${filePath}`);
 
-    // Run this batch in parallel
-    await Promise.all(chunk.map(async ([filePath, fileErrors]) => {
+        const originalContent = fs.readFileSync(fullPath, 'utf-8');
+        const errorSummary = fileErrors.map(e => 
+          `Line ${e.line}: [${e.category}] ${e.message}`
+        ).join('\n');
+
+        const prompt = `Fix these errors in the following TypeScript file:
+
+FILE: ${filePath}
+
+ERRORS:
+${errorSummary}
+
+CURRENT CODE:
+\`\`\`typescript
+${originalContent}
+\`\`\`
+
+RULES:
+1. Fix all errors listed above
+2. Maintain code structure and functionality
+3. Ensure imports are at the top (before exports)
+4. Fix import paths if they're incorrect
+5. Return ONLY the fixed code, no explanations
+
+Return the complete fixed file:`;
+
+        const fixed = await callAI({
+          pipelineId,
+          step: 'pre-testing-validator',
+          role: 'FIXER',
+          model: selectModel('FIXER', 'simple'),
+          messages: [{ role: 'user', content: prompt }],
+        });
+
+        // Extract code from response
+        let fixedCode = fixed.trim();
+        if (fixedCode.includes('```typescript')) {
+          fixedCode = fixedCode.split('```typescript')[1].split('```')[0].trim();
+        } else if (fixedCode.includes('```')) {
+          fixedCode = fixedCode.split('```')[1].split('```')[0].trim();
+        }
+
+        // Write fixed code
+        fs.writeFileSync(fullPath, fixedCode);
+        fixedFiles.push(filePath);
+        console.log(`✅ [Phase A] Fixed: ${filePath}`);
+      } catch (error: any) {
+        console.error(`⚠️ [Phase A] Failed to fix ${filePath}: ${error.message}`);
+      }
+    }
+    
+    // Re-run Type Enforcer to update the "Truth" after foundation fixes
+    console.log(`🔍 [Phase A] Updating type definitions cache...`);
+    await enforcer.run();
+    console.log(`✅ [Phase A] Foundation layer complete. Type definitions updated.`);
+  }
+
+  // PHASE B: STRUCTURE (Parallel) - Fix components and app files with cheat sheet
+  const structureFiles = sortedFilesToFix.filter(([filePath]) => {
+    const normalizedPath = filePath.replace(/\\/g, '/');
+    return !normalizedPath.includes('src/lib/') && 
+           !normalizedPath.includes('src/types/') &&
+           !normalizedPath.includes('/lib/types') &&
+           !normalizedPath.includes('/types.ts');
+  });
+
+  if (structureFiles.length > 0) {
+    console.log(`\n🏗️ [Phase B] Fixing Structure Layer (Parallel): ${structureFiles.length} files...`);
+    
+    // Chunk into batches of 5
+    const CONCURRENCY_LIMIT = 5;
+    const structureChunks: Array<Array<[string, ValidationError[]]>> = [];
+    for (let i = 0; i < structureFiles.length; i += CONCURRENCY_LIMIT) {
+      structureChunks.push(structureFiles.slice(i, i + CONCURRENCY_LIMIT));
+    }
+
+    let processedCount = 0;
+
+    // Process each batch in parallel
+    for (const chunk of structureChunks) {
+      const batchNumber = Math.floor(processedCount / CONCURRENCY_LIMIT) + 1;
+      console.log(`\n📦 [Phase B] Processing Batch ${batchNumber}/${structureChunks.length} (${chunk.length} files)...`);
+
+      // Run this batch in parallel
+      await Promise.all(chunk.map(async ([filePath, fileErrors]) => {
       const fullPath = path.join(repoPath, filePath);
       if (!fs.existsSync(fullPath)) {
         console.log(`   ⚠️  Skipping ${filePath} (file not found)`);
@@ -494,7 +600,7 @@ Return the complete fixed file:`;
         // Write fixed code
         fs.writeFileSync(fullPath, fixedCode);
         fixedFiles.push(filePath);
-        console.log(`✅ [Fixer] Finished: ${filePath}`);
+        console.log(`✅ [Phase B] Finished: ${filePath}`);
       } catch (error: any) {
         console.error(`⚠️ [Fixer] Failed to fix ${filePath}: ${error.message}`);
       }

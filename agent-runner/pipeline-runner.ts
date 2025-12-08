@@ -5451,6 +5451,13 @@ Only fix the files that have issues. Keep everything else unchanged.
         const { validateCoderPhaseOutput } = await import('./lib/pre-testing-validator');
         const { applyFixes } = await import('./lib/apply-fixes');
         const { logValidationResult } = await import('./lib/log-validation');
+        const { enforceNextJs15Config } = await import('./lib/dependency-detective');
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // 🏗️ PHASE 1: FOUNDATION FIX - Enforce Next.js 15 tsconfig.json
+        // ═══════════════════════════════════════════════════════════════════
+        console.log('🔧 [Grand Strategy] Phase 1: Enforcing Next.js 15 tsconfig.json...');
+        await enforceNextJs15Config(repoPath);
         
         // Build a simple CoderPhaseJSON from generated files
         const coderJSON = await buildCoderJSONFromRepo(repoPath);

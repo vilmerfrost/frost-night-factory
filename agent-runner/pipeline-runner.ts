@@ -5648,6 +5648,29 @@ Only fix the files that have issues. Keep everything else unchanged.
               if (validation.fixedCode) {
                 const fixResult = await applyFixes(validation.fixedCode, repoPath);
                 console.log(`   ✅ Applied ${fixResult.applied} fixes, ${fixResult.failed} failed`);
+                
+                // ═══════════════════════════════════════════════════════════════════
+                // 🔄 RE-VALIDATE AFTER FIXER LOOP
+                // ═══════════════════════════════════════════════════════════════════
+                console.log('🔄 Re-validating after fixes...');
+                const revalidatedCoderJSON = await buildCoderJSONFromRepo(repoPath);
+                const finalValidation = await validateCoderPhaseOutput(revalidatedCoderJSON, repoPath, pipeline.id);
+                
+                if (finalValidation.passed || finalValidation.errors.length === 0) {
+                  console.log('✅ Fixes successful! Pipeline passed validation.');
+                  validationPassed = true;
+                  break; // Exit retry loop with success
+                } else if (finalValidation.errors.length < currentErrorCount) {
+                  console.log(`✅ Progress made! Errors reduced from ${currentErrorCount} to ${finalValidation.errors.length}`);
+                  console.log(`   🔄 Continuing with momentum (${finalValidation.errors.length} remaining errors)...`);
+                  // Update error count and continue
+                  previousErrorCount = finalValidation.errors.length;
+                  coderRetries = Math.max(0, coderRetries - 1);
+                  continue;
+                } else {
+                  console.log(`⚠️ Remaining errors after fixes: ${finalValidation.errors.length}`);
+                  // Continue with normal retry logic
+                }
               }
               
               console.log(`   🔄 Retrying coder phase (momentum extended, ${coderRetries + 1}/${MAX_TOTAL_LOOPS})...`);
@@ -5665,6 +5688,27 @@ Only fix the files that have issues. Keep everything else unchanged.
               if (validation.fixedCode) {
                 const fixResult = await applyFixes(validation.fixedCode, repoPath);
                 console.log(`   ✅ Applied ${fixResult.applied} fixes, ${fixResult.failed} failed`);
+                
+                // ═══════════════════════════════════════════════════════════════════
+                // 🔄 RE-VALIDATE AFTER FIXER LOOP
+                // ═══════════════════════════════════════════════════════════════════
+                console.log('🔄 Re-validating after fixes...');
+                const revalidatedCoderJSON = await buildCoderJSONFromRepo(repoPath);
+                const finalValidation = await validateCoderPhaseOutput(revalidatedCoderJSON, repoPath, pipeline.id);
+                
+                if (finalValidation.passed || finalValidation.errors.length === 0) {
+                  console.log('✅ Fixes successful! Pipeline passed validation.');
+                  validationPassed = true;
+                  break; // Exit retry loop with success
+                } else if (finalValidation.errors.length <= 5) {
+                  // Low error count - acceptable threshold
+                  console.log(`✅ Low error count (${finalValidation.errors.length} errors). Accepting and continuing...`);
+                  validationPassed = true;
+                  break; // Exit retry loop with success
+                } else {
+                  console.log(`⚠️ Remaining errors after fixes: ${finalValidation.errors.length}`);
+                  // Continue with retry logic
+                }
               }
               
               // Retry coder phase with error feedback

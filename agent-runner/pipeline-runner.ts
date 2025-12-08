@@ -48,7 +48,8 @@ import { classifyError, recordErrorPattern, ErrorAnalysis } from './error-classi
 import { validateCodeCompleteness } from './ast-validator';
 import { generateWithValidation } from './multi-pass-generator';  // ✅ Phase 1: Multi-pass generation
 import { generateRepositoryMap } from './repo-map-generator';  // ✅ Phase 1: Repository map
-import { parsePackageJson, DEFAULT_PACKAGE_JSON } from './lib/dependency-detective';  // ✅ Robust JSON parsing with auto-repair
+import { parsePackageJson, DEFAULT_PACKAGE_JSON, installDependencies } from './lib/dependency-detective';  // ✅ Robust JSON parsing with auto-repair
+import { ErrorClassifier } from './lib/error-classifier';  // ✅ Smart error diagnosis for autonomous self-healing
 import { writeFileToDisk, writeFileSyncSafe } from './lib/file-writer';  // ✅ Atomic file writes
 import { 
   convertPlannerToJSON, 
@@ -5589,6 +5590,47 @@ Only fix the files that have issues. Keep everything else unchanged.
           validationPassed = true;
         } else {
           console.log(`⚠️  [Layer 1] Validation failed: ${currentErrorCount} errors found`);
+          
+          // ═══════════════════════════════════════════════════════════════════
+          // 🧠 AUTONOMOUS SELF-HEALING: Diagnose errors and auto-fix if possible
+          // ═══════════════════════════════════════════════════════════════════
+          const errorMessages = validation.errors.map((e: any) => e.message || String(e));
+          const diagnosis = ErrorClassifier.diagnose(errorMessages);
+          
+          console.log(`🧠 [Doctor] Diagnosis: ${diagnosis.type} (Confidence: ${(diagnosis.confidence * 100).toFixed(0)}%)`);
+          console.log(`   Action recommended: ${diagnosis.action}`);
+          console.log(`   Reason: ${diagnosis.reason}`);
+          
+          if (diagnosis.details.missingModules.length > 0) {
+            console.log(`   Missing modules detected: ${diagnosis.details.missingModules.slice(0, 5).join(', ')}${diagnosis.details.missingModules.length > 5 ? '...' : ''}`);
+          }
+          
+          // ✅ AUTO-HEAL: Missing Dependencies
+          if (diagnosis.action === 'npm_install') {
+            console.log('💊 [Self-Healing] Detected missing dependencies. Agent is running npm install...');
+            console.log(`   📦 This is a PROGRESS indicator, not a failure!`);
+            
+            try {
+              const installSuccess = await installDependencies(repoPath);
+              
+              if (installSuccess) {
+                console.log('✅ [Self-Healing] Dependencies installed successfully!');
+                console.log('   🔄 Re-validating immediately (FREE PASS - not consuming retry)...');
+                
+                // DO NOT count this as a retry attempt. Give it a free pass.
+                // Just continue the loop without incrementing coderRetries
+                continue;
+              } else {
+                console.error('❌ [Self-Healing] Failed to install dependencies.');
+                console.log('   🔄 Proceeding with normal retry logic...');
+                // Fall through to normal retry logic
+              }
+            } catch (installError: any) {
+              console.error(`❌ [Self-Healing] npm install crashed: ${installError.message}`);
+              console.log('   🔄 Proceeding with normal retry logic...');
+              // Fall through to normal retry logic
+            }
+          }
           
           // ═══════════════════════════════════════════════════════════════════
           // 📉 DYNAMIC MOMENTUM: Check if errors are decreasing

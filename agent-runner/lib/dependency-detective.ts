@@ -2,6 +2,10 @@
 // Robust JSON parser with auto-repair and fallback mechanisms
 // NEVER throws - always returns a valid result
 
+import { execSync } from 'child_process';
+import path from 'path';
+import fs from 'fs';
+
 const DEFAULT_PACKAGE_JSON = {
   name: "generated-app",
   version: "0.1.0",
@@ -223,4 +227,67 @@ export function validatePackageJson(packageJson: any): {
  * Export default package.json for use as fallback
  */
 export { DEFAULT_PACKAGE_JSON };
+
+/**
+ * Install dependencies in the given directory
+ * Returns true if successful, false otherwise
+ */
+export async function installDependencies(projectPath: string): Promise<boolean> {
+  console.log(`📦 [Dependency Detective] Installing dependencies in ${projectPath}...`);
+  
+  try {
+    // Check if package.json exists
+    const packageJsonPath = path.join(projectPath, 'package.json');
+    if (!fs.existsSync(packageJsonPath)) {
+      console.error(`❌ package.json not found at ${packageJsonPath}`);
+      return false;
+    }
+
+    // Check if node_modules exists (maybe already installed)
+    const nodeModulesPath = path.join(projectPath, 'node_modules');
+    const alreadyInstalled = fs.existsSync(nodeModulesPath);
+    
+    if (alreadyInstalled) {
+      console.log(`   ℹ️ node_modules already exists, running install anyway to ensure up-to-date...`);
+    }
+
+    // Run npm install with legacy-peer-deps flag (handles peer dependency conflicts)
+    console.log(`   Running: npm install --legacy-peer-deps`);
+    const startTime = Date.now();
+    
+    execSync('npm install --legacy-peer-deps', {
+      cwd: projectPath,
+      stdio: 'inherit', // Show npm output to user
+      timeout: 180000, // 3 minute timeout
+    });
+    
+    const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`✅ [Dependency Detective] Dependencies installed successfully in ${duration}s`);
+    
+    // Verify node_modules was created
+    if (!fs.existsSync(nodeModulesPath)) {
+      console.error(`❌ node_modules was not created after npm install`);
+      return false;
+    }
+    
+    return true;
+  } catch (error: any) {
+    console.error(`❌ [Dependency Detective] npm install failed: ${error.message}`);
+    
+    // Try fallback: npm install without legacy-peer-deps
+    try {
+      console.log(`   Trying fallback: npm install (without --legacy-peer-deps)`);
+      execSync('npm install', {
+        cwd: projectPath,
+        stdio: 'pipe', // Suppress output on retry
+        timeout: 180000,
+      });
+      console.log(`✅ [Dependency Detective] Fallback install succeeded`);
+      return true;
+    } catch (fallbackError: any) {
+      console.error(`❌ [Dependency Detective] Fallback install also failed: ${fallbackError.message}`);
+      return false;
+    }
+  }
+}
 

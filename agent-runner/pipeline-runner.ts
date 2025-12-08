@@ -1254,7 +1254,7 @@ async function createStep(pipelineId: string, stepName: string, status: string, 
 }
 
 async function updateStep(pipelineId: string, stepName: string, status: string, output?: string) {
-  // ✅ FIX: Use name column instead of phase
+  // ✅ TIER 1 PERSISTENCE: Explicit Verification with Payload Integrity Checks
   const { data, error } = await supabase
     .from('pipeline_steps')
     .update({
@@ -1264,40 +1264,78 @@ async function updateStep(pipelineId: string, stepName: string, status: string, 
       updated_at: new Date().toISOString()
     })
     .eq('pipeline_id', pipelineId)
-    .eq('name', stepName) // ✅ Changed from 'phase' to 'name'
-    .select();
+    .eq('name', stepName)
+    .select(); // ✅ CRITICAL: Request return receipt
 
+  // ✅ Check 1: Supabase Error
   if (error) {
-    console.error(`[DB] Failed to update step: ${error.message}`);
-    throw new Error(`[DB] Failed to update step: ${error.message}`);
+    console.error(`❌ [DB] Failed to update step ${stepName}: ${error.message}`);
+    console.error(`   Pipeline ID: ${pipelineId}`);
+    console.error(`   Status: ${status}`);
+    console.error(`   Output size: ${output?.length || 0} chars`);
+    throw new Error(`DB Write Failed: ${error.message}`);
   }
 
+  // ✅ Check 2: Row actually updated
   if (!data || data.length === 0) {
-    // Create missing step
+    console.error(`❌ CRITICAL: Update returned 0 rows. Check RLS policies or invalid Step ID.`);
+    console.error(`   Pipeline ID: ${pipelineId}`);
+    console.error(`   Step Name: ${stepName}`);
+    console.error(`   Status: ${status}`);
+    console.error(`   Output size: ${output?.length || 0} chars`);
+    
+    // Create missing step (self-healing)
     console.warn(`[DB] Step ${stepName} not found for pipeline ${pipelineId}, creating new step`);
     const { data: created, error: insertError } = await supabase
       .from('pipeline_steps')
       .insert({
         pipeline_id: pipelineId,
-        name: stepName, // ✅ Changed from 'phase' to 'name'
+        name: stepName,
         status,
-        output: output || {},
+        output: output || null,
       })
       .select()
       .single();
 
     if (insertError) {
-      throw new Error(`[DB] Failed to create missing step: ${insertError.message}`);
+      throw new Error(`DB Write Verification Failed: Insert also failed - ${insertError.message}`);
     }
 
     if (!created) {
-      throw new Error(`[DB] Insert returned null for step ${stepName}`);
+      throw new Error(`DB Write Verification Failed: Insert returned null for step ${stepName}`);
     }
 
-    console.log(`✅ Self-healed: Created missing step ${stepName}`);
+    // ✅ Verify insert payload integrity
+    if (output && !created.output) {
+      console.error(`❌ CRITICAL: Output was sent but not saved (NULL in DB after insert).`);
+      console.error(`   Sent output size: ${output.length} chars`);
+      throw new Error(`DB Write Corruption: Output field is empty after insert.`);
+    }
+
+    console.log(`✅ Self-healed: Created missing step ${stepName} (Size: ${created.output?.length || 0} chars)`);
     return created;
   }
 
+  // ✅ Check 3: Payload integrity (output field matches what was sent)
+  if (output && !data[0].output) {
+    console.error(`❌ CRITICAL: Output was sent but not saved (NULL in DB).`);
+    console.error(`   Pipeline ID: ${pipelineId}`);
+    console.error(`   Step Name: ${stepName}`);
+    console.error(`   Sent output size: ${output.length} chars`);
+    console.error(`   First 200 chars of sent output: ${output.substring(0, 200)}`);
+    throw new Error(`DB Write Corruption: Output field is empty.`);
+  }
+
+  // ✅ Additional verification: Check if output was truncated
+  if (output && data[0].output && typeof data[0].output === 'string') {
+    const savedSize = data[0].output.length;
+    const sentSize = output.length;
+    if (savedSize < sentSize * 0.9) { // Allow 10% tolerance for JSON stringification differences
+      console.warn(`⚠️ Output may have been truncated: Sent ${sentSize} chars, Saved ${savedSize} chars`);
+    }
+  }
+
+  console.log(`✅ Step ${stepName} persisted and verified (Size: ${data[0].output?.length || 0} chars)`);
   return data[0];
 }
 

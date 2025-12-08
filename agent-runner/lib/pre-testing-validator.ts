@@ -5,6 +5,8 @@
 import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import { promises as fsPromises } from 'fs';
+import * as ts from 'typescript';
 import { callAI, selectModel } from '../ai-client';
 import type { CoderPhaseJSON } from '../../lib/pipeline/pipeline-json-types';
 
@@ -546,24 +548,24 @@ Return the complete fixed file:`;
 
       // Run this batch in parallel
       await Promise.all(chunk.map(async ([filePath, fileErrors]) => {
-      const fullPath = path.join(repoPath, filePath);
-      if (!fs.existsSync(fullPath)) {
-        console.log(`   ⚠️  Skipping ${filePath} (file not found)`);
-        return;
-      }
+        const fullPath = path.join(repoPath, filePath);
+        if (!fs.existsSync(fullPath)) {
+          console.log(`   ⚠️  Skipping ${filePath} (file not found)`);
+          return;
+        }
 
-      try {
-        console.log(`⚡ [Phase B] Starting fix for: ${filePath}`);
+        try {
+          console.log(`⚡ [Phase B] Starting fix for: ${filePath}`);
 
-        const originalContent = fs.readFileSync(fullPath, 'utf-8');
-        const errorSummary = fileErrors.map(e => 
-          `Line ${e.line}: [${e.category}] ${e.message}`
-        ).join('\n');
+          const originalContent = fs.readFileSync(fullPath, 'utf-8');
+          const errorSummary = fileErrors.map(e => 
+            `Line ${e.line}: [${e.category}] ${e.message}`
+          ).join('\n');
 
-        // ENHANCED PROMPT: Get Cheat Sheet from Type Enforcer
-        const cheatSheet = enforcer.generateFixerContext(fullPath);
+          // ENHANCED PROMPT: Get Cheat Sheet from Type Enforcer
+          const cheatSheet = enforcer.generateFixerContext(fullPath);
 
-        const prompt = `Fix these errors in the following TypeScript/React file:
+          const prompt = `Fix these errors in the following TypeScript/React file:
 
 FILE: ${filePath}
 
@@ -587,30 +589,30 @@ RULES:
 
 Return the complete fixed file:`;
 
-        const fixed = await callAI({
-          pipelineId,
-          step: 'pre-testing-validator',
-          role: 'FIXER',
-          model: selectModel('FIXER', 'simple'), // Use cheap model for auto-fixes
-          messages: [{ role: 'user', content: prompt }],
-        });
+          const fixed = await callAI({
+            pipelineId,
+            step: 'pre-testing-validator',
+            role: 'FIXER',
+            model: selectModel('FIXER', 'simple'), // Use cheap model for auto-fixes
+            messages: [{ role: 'user', content: prompt }],
+          });
 
-        // Extract code from response (handle markdown code blocks)
-        let fixedCode = fixed.trim();
-        if (fixedCode.includes('```typescript')) {
-          fixedCode = fixedCode.split('```typescript')[1].split('```')[0].trim();
-        } else if (fixedCode.includes('```')) {
-          fixedCode = fixedCode.split('```')[1].split('```')[0].trim();
+          // Extract code from response (handle markdown code blocks)
+          let fixedCode = fixed.trim();
+          if (fixedCode.includes('```typescript')) {
+            fixedCode = fixedCode.split('```typescript')[1].split('```')[0].trim();
+          } else if (fixedCode.includes('```')) {
+            fixedCode = fixedCode.split('```')[1].split('```')[0].trim();
+          }
+
+          // Write fixed code
+          fs.writeFileSync(fullPath, fixedCode);
+          fixedFiles.push(filePath);
+          console.log(`✅ [Phase B] Finished: ${filePath}`);
+        } catch (error: any) {
+          console.error(`⚠️ [Phase B] Failed to fix ${filePath}: ${error.message}`);
         }
-
-        // Write fixed code
-        fs.writeFileSync(fullPath, fixedCode);
-        fixedFiles.push(filePath);
-        console.log(`✅ [Phase B] Finished: ${filePath}`);
-      } catch (error: any) {
-        console.error(`⚠️ [Fixer] Failed to fix ${filePath}: ${error.message}`);
-      }
-    }));
+      }));
 
       processedCount += chunk.length;
       console.log(`   ✅ Batch ${batchNumber} complete (${processedCount}/${structureFiles.length} files processed)`);
@@ -639,18 +641,20 @@ Return the complete fixed file:`;
 /**
  * Class-based validator using TypeScript compiler API
  * Provides robust validation using ts.createProgram
+ * Scans all .ts and .tsx files in src/ and collects diagnostics
  */
 export class PreTestingValidator {
   /**
    * Validate project using TypeScript compiler API
-   * Scans all .ts and .tsx files in src/ and collects diagnostics
+   * @param projectRoot Root directory of the project
+   * @returns ValidationResult with errors and validation status
    */
   async validateProject(projectRoot: string): Promise<ValidationResult> {
     const errors: ValidationError[] = [];
     
     try {
-      // Import TypeScript compiler API
-      const ts = await import('typescript');
+      // Initialize TypeScript config path
+      const tsConfigPath = path.join(projectRoot, 'tsconfig.json');
       
       // Find all TypeScript files in src/
       const srcPath = path.join(projectRoot, 'src');
@@ -663,23 +667,33 @@ export class PreTestingValidator {
         };
       }
 
-      // Collect all .ts and .tsx files
+      // Collect all .ts and .tsx files recursively
       const files: string[] = [];
-      function collectFiles(dir: string) {
+      async function collectFiles(dir: string): Promise<void> {
         if (!fs.existsSync(dir)) return;
         
-        const entries = fs.readdirSync(dir, { withFileTypes: true });
-        for (const entry of entries) {
-          const fullPath = path.join(dir, entry.name);
-          if (entry.isDirectory() && entry.name !== 'node_modules' && !entry.name.startsWith('.')) {
-            collectFiles(fullPath);
-          } else if (entry.isFile() && (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx'))) {
-            files.push(fullPath);
+        try {
+          const entries = await fsPromises.readdir(dir, { withFileTypes: true });
+          for (const entry of entries) {
+            const fullPath = path.join(dir, entry.name);
+            
+            // Skip node_modules and hidden directories
+            if (entry.name === 'node_modules' || entry.name.startsWith('.')) {
+              continue;
+            }
+            
+            if (entry.isDirectory()) {
+              await collectFiles(fullPath);
+            } else if (entry.isFile() && (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx'))) {
+              files.push(fullPath);
+            }
           }
+        } catch (error) {
+          // Ignore read errors
         }
       }
       
-      collectFiles(srcPath);
+      await collectFiles(srcPath);
       
       if (files.length === 0) {
         console.warn(`⚠️ [PreTestingValidator] No TypeScript files found in ${srcPath}`);
@@ -690,60 +704,98 @@ export class PreTestingValidator {
         };
       }
 
-      // Read tsconfig.json
-      const tsConfigPath = path.join(projectRoot, 'tsconfig.json');
+      // Read and parse tsconfig.json
       let compilerOptions: ts.CompilerOptions = {
         target: ts.ScriptTarget.ES2022,
+        lib: ['ES2022', 'DOM', 'DOM.Iterable'],
         module: ts.ModuleKind.ESNext,
         moduleResolution: ts.ModuleResolutionKind.Bundler,
         jsx: ts.JsxEmit.Preserve,
+        noEmit: true,
         strict: true,
         skipLibCheck: true,
         esModuleInterop: true,
         allowSyntheticDefaultImports: true,
+        resolveJsonModule: false,
+        isolatedModules: true,
+        incremental: true,
+        paths: {
+          '@/*': ['./src/*']
+        },
       };
 
       if (fs.existsSync(tsConfigPath)) {
         try {
-          const configContent = fs.readFileSync(tsConfigPath, 'utf-8');
-          const config = ts.parseConfigFileTextToJson(tsConfigPath, configContent);
-          if (config.config && config.config.compilerOptions) {
-            compilerOptions = { ...compilerOptions, ...config.config.compilerOptions };
+          const configContent = await fsPromises.readFile(tsConfigPath, 'utf-8');
+          const configJson = ts.parseConfigFileTextToJson(tsConfigPath, configContent);
+          
+          if (configJson.config && configJson.config.compilerOptions) {
+            // Merge with defaults
+            compilerOptions = {
+              ...compilerOptions,
+              ...configJson.config.compilerOptions,
+            };
           }
-        } catch (e) {
-          console.warn(`⚠️ [PreTestingValidator] Failed to parse tsconfig.json, using defaults`);
+        } catch (e: any) {
+          console.warn(`⚠️ [PreTestingValidator] Failed to parse tsconfig.json: ${e.message}. Using defaults.`);
         }
       }
 
       // Create TypeScript program
       const program = ts.createProgram(files, compilerOptions);
       
-      // Get diagnostics
+      // Get diagnostics (errors)
       const diagnostics = ts.getPreEmitDiagnostics(program);
       
       // Convert diagnostics to ValidationError format
+      // Filter out node_modules errors if possible
       for (const diagnostic of diagnostics) {
         if (diagnostic.file && diagnostic.start !== undefined) {
           const filePath = diagnostic.file.fileName;
+          
+          // Skip node_modules errors
+          if (filePath.includes('node_modules')) {
+            continue;
+          }
+          
           const relativePath = path.relative(projectRoot, filePath);
           const { line } = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
           
           const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
           const code = diagnostic.code;
           
+          // Categorize error
+          let category = 'type';
+          if (code >= 2300 && code < 2400) {
+            category = 'import'; // Module resolution errors
+          } else if (code >= 2400 && code < 2500) {
+            category = 'syntax'; // Syntax errors
+          }
+          
           // Determine if auto-fixable based on error code
           const autoFixable = [
-            ts.Diagnostics.Cannot_find_module_0.code,
-            ts.Diagnostics.Module_0_has_no_exported_member_1.code,
-            ts.Diagnostics.Cannot_find_name_0.code,
+            2307, // Cannot find module
+            2305, // Module has no exported member
+            2304, // Cannot find name
+            2552, // Cannot find name (different category)
           ].includes(code);
 
           errors.push({
-            category: 'type',
+            category,
             file: relativePath,
             line: line + 1,
             message: `TS${code}: ${message}`,
             autoFixable,
+          });
+        } else {
+          // Global diagnostics (no file associated)
+          const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
+          errors.push({
+            category: 'syntax',
+            file: 'unknown',
+            line: 0,
+            message: `TS${diagnostic.code}: ${message}`,
+            autoFixable: false,
           });
         }
       }

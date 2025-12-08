@@ -332,14 +332,103 @@ async function autoFixErrors(
   const filesToFix = Array.from(errorsByFile.entries());
   const fixedFiles: string[] = [];
 
+  // ═══════════════════════════════════════════════════════════════════
+  // 🏗️ LAYERED REPAIR PROTOCOL: Sort by architectural layer priority
+  // ═══════════════════════════════════════════════════════════════════
+  /**
+   * Get priority for a file path based on architectural layer
+   * Lower number = higher priority (fixes first)
+   */
+  const getPriority = (filePath: string): number => {
+    const normalizedPath = filePath.replace(/\\/g, '/');
+    
+    // Priority 0: Foundation (lib, types, utils)
+    if (normalizedPath.includes('/lib/') || 
+        normalizedPath.includes('/types/') || 
+        normalizedPath.includes('/utils/') ||
+        normalizedPath.includes('/src/lib/') ||
+        normalizedPath.includes('/src/types/') ||
+        normalizedPath.includes('/src/utils/')) {
+      return 0;
+    }
+    
+    // Priority 1: Atomic components (ui components)
+    if (normalizedPath.includes('/components/ui/') ||
+        normalizedPath.includes('/src/components/ui/')) {
+      return 1;
+    }
+    
+    // Priority 2: Feature components (non-ui components)
+    if (normalizedPath.includes('/components/') ||
+        normalizedPath.includes('/src/components/')) {
+      return 2;
+    }
+    
+    // Priority 3: Routes/Views (app, pages)
+    if (normalizedPath.includes('/app/') ||
+        normalizedPath.includes('/pages/') ||
+        normalizedPath.includes('/src/app/') ||
+        normalizedPath.includes('/src/pages/')) {
+      return 3;
+    }
+    
+    // Priority 4: Everything else (configs, root files, etc.)
+    return 4;
+  };
+
+  // Sort files by priority (foundation first, routes last)
+  const sortedFilesToFix = filesToFix.sort((a, b) => {
+    const priorityA = getPriority(a[0]);
+    const priorityB = getPriority(b[0]);
+    return priorityA - priorityB;
+  });
+
+  // Log priority distribution
+  const priorityGroups = sortedFilesToFix.reduce((acc, [filePath]) => {
+    const priority = getPriority(filePath);
+    const groupName = ['Foundation (lib/types)', 'UI Components', 'Feature Components', 'Routes/Views', 'Other'][priority] || 'Other';
+    acc[groupName] = (acc[groupName] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  console.log(`🏗️ [Layered Repair] Queue sorted by architectural layer:`);
+  Object.entries(priorityGroups).forEach(([group, count]) => {
+    console.log(`   ${group}: ${count} files`);
+  });
+
   // ⚡ PARALLEL FIXER ENABLED
   const CONCURRENCY_LIMIT = 5; // Process 5 files at once
-  console.log(`🚀 Starting Parallel Fixer: Processing ${filesToFix.length} files with concurrency ${CONCURRENCY_LIMIT}...`);
+  console.log(`🚀 Starting Parallel Fixer: Processing ${sortedFilesToFix.length} files with concurrency ${CONCURRENCY_LIMIT}...`);
+  console.log(`🏗️ [Layered Repair] Fixing Foundations (Lib/Types) before Structure (App/Components)...`);
 
-  // Helper to chunk array
+  // Create batches that respect layer boundaries
+  // Priority 0 files (Foundation) should run in their own batch FIRST
+  // Do NOT mix Priority 0 files with Priority 4 files in the same batch
   const chunks: Array<Array<[string, ValidationError[]]>> = [];
-  for (let i = 0; i < filesToFix.length; i += CONCURRENCY_LIMIT) {
-    chunks.push(filesToFix.slice(i, i + CONCURRENCY_LIMIT));
+  
+  // Group files by priority first
+  const filesByPriority: Record<number, Array<[string, ValidationError[]]>> = {};
+  for (const fileEntry of sortedFilesToFix) {
+    const filePath = fileEntry[0];
+    const priority = getPriority(filePath);
+    if (!filesByPriority[priority]) {
+      filesByPriority[priority] = [];
+    }
+    filesByPriority[priority].push(fileEntry);
+  }
+
+  // Process each priority group separately, ensuring Priority 0 runs first
+  const priorityOrder = [0, 1, 2, 3, 4]; // Foundation → UI → Components → Routes → Other
+  
+  for (const priority of priorityOrder) {
+    const filesInPriority = filesByPriority[priority] || [];
+    if (filesInPriority.length === 0) continue;
+
+    // Chunk files within this priority group
+    for (let i = 0; i < filesInPriority.length; i += CONCURRENCY_LIMIT) {
+      const chunk = filesInPriority.slice(i, i + CONCURRENCY_LIMIT);
+      chunks.push(chunk);
+    }
   }
 
   let processedCount = 0;

@@ -335,7 +335,7 @@ export async function enforceNextJs15Config(projectPath: string): Promise<boolea
     }
 
     if (needsUpdate) {
-      fs.writeFileSync(tsConfigPath, JSON.stringify(exactConfig, null, 2), 'utf-8');
+      fs.writeFileSync(tsConfigPath, JSON.stringify(requiredConfig, null, 2), 'utf-8');
       console.log(`✅ [Foundation Fix] tsconfig.json written with EXACT Next.js 15 config:`);
       console.log(`   moduleResolution: bundler`);
       console.log(`   resolveJsonModule: false (CRITICAL FIX)`);

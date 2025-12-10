@@ -143,14 +143,20 @@ export function validateImports(
       continue
     }
     
-    // Resolve @/ alias
-    let resolvedPath = importPath
+    // Resolve import path
+    let fullPath: string
     if (importPath.startsWith('@/')) {
-      resolvedPath = importPath.replace('@/', 'src/')
+      // Resolve @/ alias relative to project root
+      const resolvedPath = importPath.replace('@/', 'src/')
+      fullPath = path.resolve(projectRoot, resolvedPath)
+    } else if (importPath.startsWith('.')) {
+      // Resolve relative imports relative to the file, not project root
+      const fileDir = path.dirname(fileName)
+      fullPath = path.resolve(projectRoot, fileDir, importPath)
+    } else {
+      continue // Skip other imports
     }
     
-    // Check if file exists
-    const fullPath = path.resolve(projectRoot, resolvedPath)
     const possibleExtensions = ['', '.ts', '.tsx', '.js', '.jsx', '/index.ts', '/index.tsx']
     
     let fileExists = false
@@ -167,6 +173,67 @@ export function validateImports(
   }
   
   return { valid: errors.length === 0, errors, warnings }
+}
+
+/**
+ * Determines if a .ts file with JSX should be renamed to .tsx
+ * 
+ * Rules:
+ * 1. Never rename lib/ or fortress files
+ * 2. Never rename API routes (route.ts in app/api/**)
+ * 3. Only rename React components (app/** and components/**)
+ */
+async function shouldRenameTsToTsx(
+  filePath: string,
+  hasJsx: boolean
+): Promise<boolean> {
+  if (!hasJsx || !filePath.endsWith('.ts')) return false;
+
+  const normalized = filePath.replace(/\\/g, '/');
+
+  const isLibFile = normalized.includes('/src/lib/') || normalized.includes('/lib/');
+  
+  const isApiRoute =
+    (normalized.includes('/src/app/api/') || normalized.includes('/app/api/')) &&
+    path.basename(normalized).startsWith('route.');
+
+  const isAppComponent =
+    (normalized.includes('/src/app/') || normalized.includes('/app/')) &&
+    !normalized.includes('/api/');
+
+  const isComponentFile = 
+    normalized.includes('/src/components/') || normalized.includes('/components/');
+
+  // Try to check if file is fortress-protected (graceful fallback if fortress not available)
+  let isFortress = false;
+  try {
+    const fortressModule = await import('../lib/nightFactory/v90-index');
+    const tier = fortressModule.getFileTier?.(normalized);
+    const FortressTier = fortressModule.FortressTier;
+    if (FortressTier && tier !== undefined) {
+      isFortress = tier === FortressTier.GOLDEN || tier === FortressTier.REGENERATE_ONLY;
+    }
+  } catch {
+    // Fortress not available, continue without fortress check
+  }
+
+  // 1) Never rename on fortress or lib files
+  if (isFortress || isLibFile) {
+    return false;
+  }
+
+  // 2) Never rename API routes – these should be pure TS handlers
+  if (isApiRoute) {
+    return false;
+  }
+
+  // 3) Only rename on actual React components
+  if (isAppComponent || isComponentFile) {
+    return true;
+  }
+
+  // 4) Default: no rename
+  return false;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -188,15 +255,24 @@ export async function validateCode(
   const isTS = fileName.endsWith('.ts') && !fileName.endsWith('.d.ts');
   
   if (hasJSX && isTS) {
-    const newPath = fileName + 'x'; // .ts -> .tsx
-    console.log(`⚠️ [AUTO-FIX] Detected JSX in .ts file. Auto-renaming: ${fileName} -> ${newPath}`);
+    const shouldRename = await shouldRenameTsToTsx(fileName, hasJSX);
     
-    return {
-      valid: true, // PASS IT! Do not trigger a retry loop.
-      errors: [],
-      warnings: [`JSX detected in .ts file - auto-renaming to .tsx`],
-      renamedPath: newPath // Signal the runner to change the filename
-    };
+    if (shouldRename) {
+      const newPath = fileName + 'x'; // .ts -> .tsx
+      console.log(`⚠️ [AUTO-FIX] Detected JSX in .ts file. Auto-renaming: ${fileName} -> ${newPath}`);
+      
+      return {
+        valid: true, // PASS IT! Do not trigger a retry loop.
+        errors: [],
+        warnings: [`JSX detected in .ts file - auto-renaming to .tsx`],
+        renamedPath: newPath // Signal the runner to change the filename
+      };
+    } else {
+      // Log warning but don't rename
+      console.warn(
+        `⚠️ [AUTO-FIX] JSX detected in ${fileName}, but skipping rename (lib/fortress/api-route/other).`
+      );
+    }
   }
   
   // ═══════════════════════════════════════════════════════════════════

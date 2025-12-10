@@ -5451,13 +5451,27 @@ Only fix the files that have issues. Keep everything else unchanged.
         const { validateCoderPhaseOutput } = await import('./lib/pre-testing-validator');
         const { applyFixes } = await import('./lib/apply-fixes');
         const { logValidationResult } = await import('./lib/log-validation');
-        const { enforceNextJs15Config } = await import('./lib/dependency-detective');
+        const { runFoundationFixes } = await import('./lib/nightFactory/foundationFix');
+        const { runStructureFixes } = await import('./lib/nightFactory/structureFix');
+        const { scaffoldMissingImports } = await import('./lib/nightFactory/missingImportScaffolder');
         
         // ═══════════════════════════════════════════════════════════════════
         // 🏗️ PHASE 1: FOUNDATION FIX - Enforce Next.js 15 tsconfig.json
         // ═══════════════════════════════════════════════════════════════════
-        console.log('🔧 [Grand Strategy] Phase 1: Enforcing Next.js 15 tsconfig.json...');
-        await enforceNextJs15Config(repoPath);
+        console.log('🔧 [Grand Strategy] Phase 1: Running foundation fixes...');
+        await runFoundationFixes({ workspaceRoot: repoPath });
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // 🏗️ PHASE 2: STRUCTURE FIX - Remove duplicate files
+        // ═══════════════════════════════════════════════════════════════════
+        console.log('🔧 [Grand Strategy] Phase 2: Running structure fixes...');
+        await runStructureFixes({ workspaceRoot: repoPath });
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // 🏗️ PHASE 3: MISSING IMPORT SCAFFOLDER - Create stubs for missing modules
+        // ═══════════════════════════════════════════════════════════════════
+        console.log('🔧 [Grand Strategy] Phase 3: Scaffolding missing imports...');
+        await scaffoldMissingImports({ workspaceRoot: repoPath });
         
         // Build a simple CoderPhaseJSON from generated files
         const coderJSON = await buildCoderJSONFromRepo(repoPath);
@@ -13118,3 +13132,21 @@ export async function runPipelineLoop(sandboxPath: string) {
 }
 
 
+// ==========================================
+// 🚀 MAIN ENTRY POINT
+// ==========================================
+
+const SANDBOX_DIR = path.resolve(process.cwd(), "workspace/sandbox");
+
+console.log(`🚀 Starting Agent Runner in: ${SANDBOX_DIR}`);
+
+// Create sandbox if it doesn't exist
+if (!fs.existsSync(SANDBOX_DIR)) {
+  fs.mkdirSync(SANDBOX_DIR, { recursive: true });
+}
+
+// IGNITION
+runPipelineLoop(SANDBOX_DIR).catch((error) => {
+  console.error("💀 FATAL ENGINE FAILURE:", error);
+  process.exit(1);
+});

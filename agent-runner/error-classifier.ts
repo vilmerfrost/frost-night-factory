@@ -1,15 +1,11 @@
 // agent-runner/error-classifier.ts
+// ✅ NO SUPABASE DEPENDENCY - Pure function, no side effects
 import crypto from 'crypto'
-import { createClient } from '@supabase/supabase-js'
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 export type ErrorClass =
   | 'TS_UNUSED'         // TS6133 - unused imports
   | 'TS_SYNTAX'         // TS1005, TS1161 - JSX in .ts
+  | 'TS_SYNTAX_LIB'     // TS1005, TS1161 - JSX in .ts file in lib/ (remove JSX, don't rename)
   | 'TS_TYPE'           // TS2339, TS2741 - type mismatches
   | 'MISSING_MODULE'    // TS2307 - can't find module
   | 'TYPE_DRIFT'        // TS2305 - schema drift (types.ts trying to export non-existent types)
@@ -22,14 +18,65 @@ export interface ErrorAnalysis {
   classification: ErrorClass
   errorCode: string
   errorSignature: string
-  fixStrategy: 'SANITIZE' | 'REGEN' | 'GOLDEN_TEMPLATE' | 'AI_FIX' | 'STOP'
+  fixStrategy: 'SANITIZE' | 'REGEN' | 'GOLDEN_TEMPLATE' | 'AI_FIX' | 'STOP' | 'REMOVE_JSX'
   maxRetries: number
   backoffMs: number
   canCache: boolean
 }
 
-export function classifyError(errorLog: string): ErrorAnalysis {
+export interface ClassifyErrorOptions {
+  filePath?: string
+  message: string
+}
+
+// ✅ Helper functions for path normalization and JSX detection
+function normalizePath(p?: string): string {
+  return (p || "").replace(/\\/g, "/");
+}
+
+function isLibFile(filePath?: string): boolean {
+  const normalized = normalizePath(filePath);
+  return normalized.includes("/src/lib/") || normalized.includes("/lib/");
+}
+
+function isJsxInTsMessage(msg: string): boolean {
+  const m = msg.toLowerCase();
+  return (
+    m.includes("jsx syntax detected") ||
+    m.includes("contains jsx") ||
+    m.includes("ts17004") ||                // tsc: Cannot use JSX unless the '--jsx' flag is provided
+    m.includes("jsx element") ||            // andra varianter
+    m.includes("cannot use jsx") ||         // tsc error variant
+    m.includes("jsx flag")                   // tsc error variant
+  );
+}
+
+/**
+ * Classify error - supports both string (backward compatible) and options object
+ */
+export function classifyError(
+  errorLogOrOptions: string | ClassifyErrorOptions
+): ErrorAnalysis {
+  // ✅ Handle both old (string) and new (options) signatures
+  let filePath: string | undefined;
+  let errorLog: string;
+  
+  if (typeof errorLogOrOptions === 'string') {
+    // Backward compatible: old signature
+    errorLog = errorLogOrOptions;
+    // Try to extract filePath from error message
+    const pathMatch = errorLog.match(/(?:src\/|lib\/)[^\s:]+\.tsx?/i);
+    if (pathMatch) {
+      filePath = pathMatch[0];
+    }
+  } else {
+    // New signature: options object
+    filePath = errorLogOrOptions.filePath;
+    errorLog = errorLogOrOptions.message;
+  }
+  
   const log = errorLog.toLowerCase()
+  const normalizedFilePath = normalizePath(filePath);
   
   // ═══════════════════════════════════════════════════════════════
   // TS_UNUSED - Auto-fixable with sanitizer
@@ -47,9 +94,42 @@ export function classifyError(errorLog: string): ErrorAnalysis {
   }
   
   // ═══════════════════════════════════════════════════════════════
-  // TS_SYNTAX - JSX in .ts files
+  // TS_SYNTAX_LIB - JSX in lib/.ts files (MUST BE BEFORE TS_SYNTAX)
+  // ✅ LONG-TERM FIX: Handles both tsc output and validator messages
   // ═══════════════════════════════════════════════════════════════
-  if (log.includes('ts1005') || log.includes('ts1161') || log.includes('expected')) {
+  if (isJsxInTsMessage(errorLog) && isLibFile(normalizedFilePath || errorLog)) {
+    return {
+      classification: 'TS_SYNTAX_LIB',
+      errorCode: 'TS17004', // tsc JSX error code
+      errorSignature: generateSignature('TS17004_LIB', errorLog),
+      fixStrategy: 'REMOVE_JSX', // ✅ Remove JSX, don't rename
+      maxRetries: 3,
+      backoffMs: 0,
+      canCache: false // Don't cache bad JSX attempts
+    }
+  }
+  
+  // ═══════════════════════════════════════════════════════════════
+  // TS_SYNTAX - JSX in .ts files (non-lib files)
+  // ═══════════════════════════════════════════════════════════════
+  if (log.includes('ts1005') || log.includes('ts1161') || log.includes('expected') || 
+      log.includes('ts17004') || isJsxInTsMessage(errorLog)) {
+    // ✅ LONG-TERM FIX: Check if it's ANY lib file (rename forbidden for all lib files)
+    // Match ALL files in /lib/ directory, not just specific ones
+    const detectedLibFile = isLibFile(normalizedFilePath || errorLog);
+    
+    if (detectedLibFile) {
+      return {
+        classification: 'TS_SYNTAX_LIB',
+        errorCode: 'TS1005',
+        errorSignature: generateSignature('TS1005_LIB', errorLog),
+        fixStrategy: 'REMOVE_JSX', // ✅ Remove JSX, don't rename
+        maxRetries: 3,
+        backoffMs: 0,
+        canCache: false // Don't cache bad JSX attempts
+      }
+    }
+    
     return {
       classification: 'TS_SYNTAX',
       errorCode: 'TS1005',
@@ -187,7 +267,16 @@ export async function recordErrorPattern(
   success: boolean,
   goldenPatch?: any
 ): Promise<void> {
+  // ✅ LAZY SUPABASE: Only import when needed (no side effects on import)
   try {
+    const { getSupabaseClient } = await import('./lib/supabase-client');
+    const supabase = getSupabaseClient();
+    
+    if (!supabase) {
+      // Supabase not configured - skip recording (non-critical)
+      return;
+    }
+
     // Check if pattern exists
     const { data: existing } = await supabase
       .from('error_patterns')

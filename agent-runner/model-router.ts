@@ -1,6 +1,9 @@
 // agent-runner/model-router.ts
 // ✅ Phase 3: Smart Model Routing - Route simple tasks to cheaper models
 
+import path from "node:path";
+import { MODELS, type ModelId } from "./lib/models";
+
 export interface ModelConfig {
   provider: 'anthropic' | 'openai' | 'deepseek' | 'groq'
   model: string
@@ -180,5 +183,73 @@ export function selectModel(config: {
   
   // Fallback
   return { provider: 'groq', model: 'llama-3.3-70b-versatile' };
+}
+
+// ============================================================
+// ✅ NEW: Task-based Model Routing (Claude = bulk frontend, Gemini = repair, DeepSeek = backend)
+// ============================================================
+
+export type TaskKind = "bulk_frontend" | "backend_heavy" | "repair";
+
+export type RouteInput = {
+  task: TaskKind;
+  phase: string;          // "coder", "sql", "tester", ...
+  filePath?: string;      // "src/app/..", "src/lib/.."
+  reason?: string;        // optional debug string
+};
+
+function isFrontendFile(p: string): boolean {
+  const posix = p.replaceAll("\\", "/");
+  return (
+    posix.startsWith("src/app/") ||
+    posix.startsWith("src/components/") ||
+    posix.endsWith(".tsx") ||
+    posix.includes("/ui/")
+  );
+}
+
+function isBackendishFile(p: string): boolean {
+  const posix = p.replaceAll("\\", "/");
+  return (
+    posix.startsWith("src/app/api/") ||
+    posix.includes("/server/") ||
+    posix.includes("/db/") ||
+    posix.includes("/supabase/")
+  );
+}
+
+/**
+ * Route model based on task kind and file path
+ * Claude = bulk frontend, Gemini 2.5 Flash = debug/repair, DeepSeek = backend-heavy
+ */
+export function routeModel(input: RouteInput): ModelId {
+  const file = input.filePath ? input.filePath.replaceAll("\\", "/") : "";
+
+  // 1) Repair/debug lane: cheapest + fast + good at patching
+  if (input.task === "repair") return MODELS.GEMINI_25_FLASH;
+
+  // 2) Coder lane: decide by file type
+  if (input.task === "bulk_frontend") return MODELS.CLAUDE_SONNET_45;
+
+  if (input.task === "backend_heavy") return MODELS.DEEPSEEK_CHAT;
+
+  // Fallback heuristics (if caller passes weird task)
+  if (file) {
+    if (isFrontendFile(file)) return MODELS.CLAUDE_SONNET_45;
+    if (isBackendishFile(file)) return MODELS.DEEPSEEK_CHAT;
+  }
+
+  // Default: Gemini flash (safe/cheap)
+  return MODELS.GEMINI_25_FLASH;
+}
+
+/**
+ * Infer task kind from file path
+ */
+export function inferTaskKindFromFile(filePath: string): TaskKind {
+  const posix = filePath.replaceAll("\\", "/");
+  if (isFrontendFile(posix)) return "bulk_frontend";
+  if (isBackendishFile(posix)) return "backend_heavy";
+  return "backend_heavy";
 }
 

@@ -13,6 +13,55 @@ import type {
 } from "./pipeline-json-types";
 
 // ============================================================
+// ✅ JSON REPAIR HELPERS (using jsonrepair library)
+// ============================================================
+
+/**
+ * Extract JSON candidate from text (handles markdown fences, extra text)
+ */
+function extractJsonCandidate(s: string): string {
+  const cleaned = s.replace(/```json|```/g, "").trim();
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) return cleaned;
+  return cleaned.slice(start, end + 1);
+}
+
+/**
+ * Safe JSON parse with automatic repair using jsonrepair
+ * Note: jsonrepair is imported dynamically to avoid breaking if package is missing
+ * This function is available for future use but not currently called
+ */
+async function safeParseJson<T>(s: string): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
+  try {
+    const candidate = extractJsonCandidate(s);
+    
+    // Try direct parse first
+    try {
+      return { ok: true, data: JSON.parse(candidate) as T };
+    } catch {
+      // If direct parse fails, try jsonrepair (if available)
+      try {
+        // Dynamic import with error handling for missing package
+        // @ts-ignore - jsonrepair may not be installed, handled gracefully
+        const jsonrepairModule = await import("jsonrepair").catch(() => null);
+        if (jsonrepairModule?.jsonrepair) {
+          const repaired = jsonrepairModule.jsonrepair(candidate);
+          return { ok: true, data: JSON.parse(repaired) as T };
+        }
+        // jsonrepair not available, return error
+        return { ok: false, error: "JSON parse failed and jsonrepair unavailable" };
+      } catch {
+        // jsonrepair failed, return error
+        return { ok: false, error: "JSON parse failed and jsonrepair repair failed" };
+      }
+    }
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "unknown parse error" };
+  }
+}
+
+// ============================================================
 // JSON SCHEMAS FOR EACH PHASE (Used as templates for AI)
 // ============================================================
 
@@ -225,10 +274,17 @@ export async function convertPlannerToJSON(
   rawText: string,
   researchContext: ResearchPhaseJSON
 ): Promise<{ success: boolean; data?: PlannerPhaseJSON; error?: string; raw_text_audit: string }> {
+  // ✅ SAFETY: Ensure sources object exists (defensive guard)
+  const sources = researchContext.sources || {
+    perplexity: { query: "", results: [], summary: "" },
+    kimi_k2: { query: "", results: [], summary: "" },
+    gemini: { query: "", results: [], summary: "" },
+  };
+  
   // Pre-process: Include research reference + FULL RAW TEXT
   const enhancedInput = `RESEARCH CONTEXT (from ${researchContext.timestamp}):
-Summary: ${researchContext.sources.perplexity?.summary || researchContext.sources.gemini?.summary || "N/A"}
-Tech Recommendations: ${JSON.stringify(researchContext.technology_recommendations)}
+Summary: ${sources.perplexity?.summary || sources.gemini?.summary || "N/A"}
+Tech Recommendations: ${JSON.stringify(researchContext.technology_recommendations || {})}
 FULL RESEARCH RAW TEXT: ${researchContext.full_raw_output || researchContext.raw_text_audit || "N/A"}
 
 PLANNER OUTPUT (INCLUDE EVERYTHING - FULL RAW TEXT):
@@ -249,9 +305,74 @@ ${rawText}`;
     result.data.raw_text_audit = rawText.substring(0, 1000); // First 1000 chars for quick audit
     result.data.input_references = {
       research_timestamp: researchContext.timestamp,
-      research_summary: researchContext.sources.perplexity?.summary || 
-                        researchContext.sources.gemini?.summary || 
+      research_summary: sources.perplexity?.summary || 
+                        sources.gemini?.summary || 
                         "Research findings available"
+    };
+  }
+
+  // ✅ FIX B: Planner wrapper fallback (so coder never blocks)
+  // If both Haiku + Gemini failed, return stable planner-shape anyway
+  if (!result.success) {
+    console.warn("⚠️ [Planner Converter] Both Haiku + Gemini failed. Returning stable planner wrapper fallback.");
+    
+    const fallbackPlanner: PlannerPhaseJSON = {
+      phase: "planner",
+      timestamp: new Date().toISOString(),
+      full_raw_output: rawText.substring(0, 10000), // Truncate to 10k chars
+      input_references: {
+        research_timestamp: researchContext.timestamp,
+        research_summary: sources.perplexity?.summary || 
+                          sources.gemini?.summary || 
+                          "Research findings available"
+      },
+      project_overview: {
+        name: "",
+        description: "",
+        objectives: [],
+      },
+      tech_stack: {
+        frontend: {
+          framework: "",
+          language: "",
+          ui_library: "",
+          styling: "",
+        },
+        backend: {
+          runtime: "",
+          language: "",
+        },
+        database: {
+          type: "",
+          provider: "",
+        },
+      },
+      feature_breakdown: {
+        phase_1_mvp: [],
+      },
+      database_schema_outline: {
+        tables: [],
+      },
+      component_tree: {
+        app: {
+          children: [],
+        },
+        components: {},
+      },
+      api_routes_planned: [],
+      timeline: {
+        total_weeks: 0,
+        phases: [],
+      },
+      risks_and_mitigations: [],
+      success_criteria: [],
+      warnings: ["planner_json_failed"], // ✅ Mark as fallback
+    };
+    
+    return {
+      success: true,
+      data: fallbackPlanner,
+      raw_text_audit: rawText.substring(0, 1000),
     };
   }
 

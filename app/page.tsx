@@ -1,39 +1,25 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { motion } from "framer-motion";
+import { Plus, ArrowRight, Sparkles, Zap, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
-import Link from "next/link";
-import PipelineCreator from "@/components/pipeline/PipelineCreator";
 import CreateTaskModal from "@/components/CreateTaskModal";
-import {
-  Activity,
-  CheckCircle2,
-  XCircle,
-  Play,
-  RefreshCw,
-  Plus,
-  Clock,
-  Cpu,
-  Zap,
-  Database,
-  Code2,
-  Rocket,
-  Loader2,
-  AlertCircle,
-} from "lucide-react";
 
 interface Pipeline {
   id: string;
   name: string;
   status: string;
   current_phase: string;
+  initial_prompt?: string;
   created_at: string;
   updated_at: string;
 }
 
-export default function Home() {
+export default function Dashboard() {
   const router = useRouter();
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [stats, setStats] = useState({
     total: 0,
@@ -42,12 +28,8 @@ export default function Home() {
     failed: 0,
   });
   const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [systemStatus, setSystemStatus] = useState<"operational" | "degraded" | "down">("operational");
-  const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // Load pipelines
-  const loadPipelines = async () => {
+  const fetchPipelines = async () => {
     try {
       const { data, error } = await supabaseBrowser
         .from("pipelines")
@@ -63,7 +45,6 @@ export default function Home() {
       }
     } catch (error) {
       console.error("Error loading pipelines:", error);
-      // Use mock data on error
       const mockPipelines: Pipeline[] = [
         {
           id: "1",
@@ -73,20 +54,11 @@ export default function Home() {
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         },
-        {
-          id: "2",
-          name: "Todo App v2",
-          status: "completed",
-          current_phase: "done",
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
       ];
       setPipelines(mockPipelines);
       updateStats(mockPipelines);
     } finally {
       setIsLoading(false);
-      setIsRefreshing(false);
     }
   };
 
@@ -100,20 +72,16 @@ export default function Home() {
   };
 
   useEffect(() => {
-    loadPipelines();
+    fetchPipelines();
   }, []);
 
-  // Auto-refresh every 5 seconds
   useEffect(() => {
-    // Uppdatera var 5:e sekund (30s är lite segt när man väntar på agenter!)
     const interval = setInterval(() => {
       router.refresh();
     }, 5000);
-
     return () => clearInterval(interval);
   }, [router]);
 
-  // Real-time updates
   useEffect(() => {
     const channel = supabaseBrowser
       .channel("pipelines-changes")
@@ -150,249 +118,171 @@ export default function Home() {
     };
   }, []);
 
-  const getStatusBadge = (status: string) => {
-    const baseClasses = "px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5 w-fit";
-    
-    switch (status) {
-      case "running":
-        return (
-          <span className={`${baseClasses} bg-blue-500/20 text-blue-400 border border-blue-500/30`}>
-            <Loader2 className="w-3 h-3 animate-spin" />
-            Running
-          </span>
-        );
-      case "completed":
-        return (
-          <span className={`${baseClasses} bg-emerald-500/20 text-emerald-400 border border-emerald-500/30`}>
-            <CheckCircle2 className="w-3 h-3" />
-            Completed
-          </span>
-        );
-      case "failed":
-        return (
-          <span className={`${baseClasses} bg-red-500/20 text-red-400 border border-red-500/30`}>
-            <XCircle className="w-3 h-3" />
-            Failed
-          </span>
-        );
-      default:
-        return (
-          <span className={`${baseClasses} bg-zinc-500/20 text-zinc-400 border border-zinc-500/30`}>
-            <Clock className="w-3 h-3" />
-            Pending
-          </span>
-        );
-    }
-  };
-
-  const getPhaseIcon = (phase: string) => {
-    switch (phase) {
-      case "research":
-        return <Zap className="w-4 h-4 text-yellow-400" />;
-      case "planner":
-        return <Cpu className="w-4 h-4 text-blue-400" />;
-      case "coder":
-        return <Code2 className="w-4 h-4 text-emerald-400" />;
-      case "sql":
-        return <Database className="w-4 h-4 text-purple-400" />;
-      case "tester":
-        return <Activity className="w-4 h-4 text-cyan-400" />;
-      case "publisher":
-        return <Rocket className="w-4 h-4 text-pink-400" />;
-      default:
-        return <Clock className="w-4 h-4 text-zinc-400" />;
-    }
-  };
+  const statsData = [
+    { label: 'Total Pipelines', value: stats.total.toString(), icon: Sparkles, color: 'from-blue-500 to-cyan-500' },
+    { label: 'Running', value: stats.running.toString(), icon: Zap, color: 'from-purple-500 to-pink-500', badge: stats.running > 0 ? 'Active' : undefined },
+    { label: 'Completed', value: stats.completed.toString(), icon: CheckCircle2, color: 'from-green-500 to-emerald-500' },
+    { label: 'Failed', value: stats.failed.toString(), icon: XCircle, color: 'from-red-500 to-orange-500' },
+  ];
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
+    <div className="h-full overflow-y-auto">
+      {/* Header */}
+      <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-xl border-b border-gray-200">
+        <div className="px-8 py-4 flex items-center justify-between">
           <div>
-            <h1 className="text-3xl sm:text-4xl font-bold text-white mb-2">
-              Frost Night Factory
-            </h1>
-            <p className="text-zinc-400 text-sm">
-              Mission Control Dashboard
-            </p>
+            <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+            <p className="text-sm text-gray-500 mt-0.5">Welcome back! Here's your overview.</p>
           </div>
-          
-          <div className="flex items-center gap-3">
-            {/* Live Monitor Link */}
-            <Link
-              href="/monitor"
-              className="px-4 py-2 bg-[#00F0FF]/20 border border-[#00F0FF] rounded hover:bg-[#00F0FF]/30 transition-all font-mono text-sm text-[#00F0FF]"
-            >
-              📊 Live Monitor
-            </Link>
-
-            {/* System Status */}
-            <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-zinc-900/50 border border-zinc-800">
-              <div className={`w-2 h-2 rounded-full ${
-                systemStatus === "operational" ? "bg-emerald-500 animate-pulse" :
-                systemStatus === "degraded" ? "bg-yellow-500" :
-                "bg-red-500"
-              }`}></div>
-              <span className="text-xs font-medium text-zinc-300">
-                {systemStatus === "operational" ? "Operational" :
-                 systemStatus === "degraded" ? "Degraded" :
-                 "Down"}
-              </span>
-            </div>
-
-            {/* Refresh Button */}
-            <button
-              onClick={() => {
-                setIsRefreshing(true);
-                loadPipelines();
-              }}
-              disabled={isRefreshing}
-              className="p-2 rounded-xl bg-zinc-900/50 border border-zinc-800 hover:bg-zinc-800/50 transition-colors disabled:opacity-50"
-            >
-              <RefreshCw className={`w-5 h-5 text-zinc-400 ${isRefreshing ? "animate-spin" : ""}`} />
-            </button>
-
-            {/* New Task Button */}
-            <button
-              className="bg-cyan-500 hover:bg-cyan-400 text-black font-bold text-sm px-6 py-2 rounded-md shadow-[0_0_20px_rgba(6,182,212,0.4)] hover:shadow-[0_0_25px_rgba(6,182,212,0.6)] transition-all duration-300 flex items-center gap-2"
-              onClick={() => setIsModalOpen(true)}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
-              </svg>
-              <span className="hidden sm:inline">New Task</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Stats Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
-          {/* Total */}
-          <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-6 hover:border-zinc-700 transition-colors">
-            <div className="flex items-center justify-between mb-2">
-              <Activity className="w-5 h-5 text-zinc-400" />
-            </div>
-            <div className="text-3xl font-bold text-white mb-1">{stats.total}</div>
-            <div className="text-xs text-zinc-400 uppercase tracking-wide">Total Tasks</div>
-          </div>
-
-          {/* Running */}
-          <div className="bg-zinc-950 border border-blue-500/30 rounded-xl p-6 hover:border-blue-500/50 transition-colors">
-            <div className="flex items-center justify-between mb-2">
-              <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
-            </div>
-            <div className="text-3xl font-bold text-blue-400 mb-1">{stats.running}</div>
-            <div className="text-xs text-zinc-400 uppercase tracking-wide">Running</div>
-          </div>
-
-          {/* Completed */}
-          <div className="bg-zinc-950 border border-emerald-500/30 rounded-xl p-6 hover:border-emerald-500/50 transition-colors">
-            <div className="flex items-center justify-between mb-2">
-              <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-            </div>
-            <div className="text-3xl font-bold text-emerald-400 mb-1">{stats.completed}</div>
-            <div className="text-xs text-zinc-400 uppercase tracking-wide">Completed</div>
-          </div>
-
-          {/* Failed */}
-          <div className="bg-zinc-950 border border-red-500/30 rounded-xl p-6 hover:border-red-500/50 transition-colors">
-            <div className="flex items-center justify-between mb-2">
-              <XCircle className="w-5 h-5 text-red-400" />
-            </div>
-            <div className="text-3xl font-bold text-red-400 mb-1">{stats.failed}</div>
-            <div className="text-xs text-zinc-400 uppercase tracking-wide">Failed</div>
-          </div>
-        </div>
-
-        {/* Quick Create Form */}
-        <div className="mb-8 bg-zinc-950 border border-zinc-800 rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-white mb-4">Quick Create</h2>
-          <p className="text-sm text-zinc-400 mb-4">
-            Create a new application by describing your vision. The factory will build it automatically.
-          </p>
-          <button
+          <button 
             onClick={() => setIsModalOpen(true)}
-            className="w-full bg-gradient-to-r from-cyan-500 to-purple-500 text-black font-bold py-3 rounded-lg hover:opacity-90 transition-all flex items-center justify-center gap-2"
+            className="group flex items-center gap-2 px-5 py-2.5 bg-gray-900 hover:bg-gray-800 text-white rounded-xl font-medium transition-all shadow-lg hover:shadow-xl hover:scale-105"
           >
             <Plus className="w-5 h-5" />
-            Create New Application
+            New Pipeline
           </button>
         </div>
+      </header>
+
+      <div className="p-8 space-y-8">
+        {/* Stats Grid */}
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5"
+        >
+          {statsData.map((stat, index) => (
+            <motion.div
+              key={stat.label}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.1 }}
+              className="group relative bg-white rounded-2xl p-6 border border-gray-200 hover:border-gray-300 transition-all hover:shadow-xl cursor-pointer overflow-hidden"
+            >
+              <div className={`absolute inset-0 bg-gradient-to-br ${stat.color} opacity-0 group-hover:opacity-5 transition-opacity`} />
+              
+              <div className="relative">
+                <div className="flex items-center justify-between mb-4">
+                  <div className={`p-3 rounded-xl bg-gradient-to-br ${stat.color}`}>
+                    <stat.icon className="w-5 h-5 text-white" />
+                  </div>
+                  {stat.badge && (
+                    <span className="px-2.5 py-1 bg-green-50 text-green-700 text-xs font-semibold rounded-full">
+                      {stat.badge}
+                    </span>
+                  )}
+                </div>
+                <div className="text-3xl font-bold text-gray-900 mb-1">{stat.value}</div>
+                <div className="text-sm text-gray-500">{stat.label}</div>
+              </div>
+            </motion.div>
+          ))}
+        </motion.div>
+
+        {/* Hero CTA */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4 }}
+          className="relative overflow-hidden bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 rounded-3xl p-8 md:p-12"
+        >
+          <div className="absolute inset-0 bg-gradient-to-br from-blue-500/20 to-purple-600/20 animate-pulse-slow" />
+          
+          <div className="relative z-10 max-w-2xl">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-white/10 backdrop-blur-sm rounded-full text-white text-sm font-medium mb-4">
+              <Sparkles className="w-4 h-4" />
+              AI-Powered Development
+            </div>
+            <h2 className="text-3xl md:text-4xl font-bold text-white mb-3">
+              Build Apps in Minutes
+            </h2>
+            <p className="text-gray-300 text-lg mb-6">
+              Describe your app idea and let our AI build a production-ready application with full-stack code, database, and deployment.
+            </p>
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="group inline-flex items-center gap-2 px-6 py-3 bg-white hover:bg-gray-100 text-gray-900 rounded-xl font-semibold transition-all shadow-2xl hover:shadow-xl hover:scale-105"
+            >
+              Create Your First App
+              <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+            </button>
+          </div>
+        </motion.div>
 
         {/* Active Pipelines */}
-        <div className="bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden">
-          <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-white">Active Pipelines</h2>
-            <span className="text-xs text-zinc-400">{pipelines.length} active</span>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.5 }}
+          className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden"
+        >
+          <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+            <div>
+              <h3 className="font-semibold text-gray-900">Active Pipelines</h3>
+              <p className="text-sm text-gray-500 mt-0.5">Monitor your running builds</p>
+            </div>
+            <span className="px-3 py-1 bg-gray-100 text-gray-700 text-xs font-semibold rounded-full">
+              {pipelines.length} active
+            </span>
           </div>
-
-          {isLoading ? (
-            <div className="p-12 text-center">
-              <Loader2 className="w-8 h-8 text-blue-400 animate-spin mx-auto mb-4" />
-              <p className="text-zinc-400">Loading pipelines...</p>
-            </div>
-          ) : pipelines.length === 0 ? (
-            <div className="p-12 text-center">
-              <AlertCircle className="w-12 h-12 text-zinc-600 mx-auto mb-4" />
-              <p className="text-zinc-400 mb-2">No active pipelines</p>
-              <p className="text-sm text-zinc-500">Create a new task to get started</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-zinc-800">
-              {pipelines.map((pipeline) => (
-                <div
-                  key={pipeline.id}
-                  className="px-6 py-4 hover:bg-zinc-900/50 transition-colors"
+          
+          <div className="p-6">
+            {isLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+              </div>
+            ) : pipelines.length === 0 ? (
+              <div className="text-center py-12">
+                <div className="text-4xl mb-3">🚀</div>
+                <p className="text-gray-500 text-sm mb-4">No pipelines yet</p>
+                <button 
+                  onClick={() => setIsModalOpen(true)}
+                  className="text-blue-600 hover:text-blue-700 text-sm font-medium"
                 >
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-4 flex-1 min-w-0">
-                      {/* Phase Icon */}
-                      <div className="flex-shrink-0">
-                        {getPhaseIcon(pipeline.current_phase)}
-                      </div>
-
-                      {/* Pipeline Info */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-3 mb-1">
-                          <h3 className="font-semibold text-white truncate">
-                            {pipeline.name || "Untitled Project"}
-                          </h3>
-                          <span className="text-xs text-zinc-500 font-mono">
-                            {pipeline.id.slice(0, 8)}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-4 text-xs text-zinc-400">
-                          <span className="flex items-center gap-1">
-                            <Clock className="w-3 h-3" />
-                            {new Date(pipeline.updated_at).toLocaleString()}
-                          </span>
-                          <span className="capitalize text-zinc-500">
-                            {pipeline.current_phase || "pending"}
-                          </span>
-                        </div>
-                      </div>
+                  Create your first pipeline
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {pipelines.map((pipeline) => (
+                  <div
+                    key={pipeline.id}
+                    className="flex items-center gap-4 p-4 rounded-xl border border-gray-200 hover:border-gray-300 hover:shadow-md transition-all cursor-pointer"
+                  >
+                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+                      <Zap className="w-6 h-6 text-white" />
                     </div>
-
-                    {/* Status Badge */}
-                    <div className="flex-shrink-0">
-                      {getStatusBadge(pipeline.status)}
+                    <div className="flex-1">
+                      <h4 className="font-semibold text-gray-900 mb-1">
+                        {pipeline.name || 'Untitled Pipeline'}
+                      </h4>
+                      <p className="text-sm text-gray-500 line-clamp-1">
+                        {pipeline.initial_prompt || 'No description'}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm font-medium text-gray-900 mb-1">{pipeline.current_phase || 'research'}</div>
+                      <span className={`px-3 py-1 text-xs font-semibold rounded-full ${
+                        pipeline.status === 'running' ? 'bg-blue-50 text-blue-700' :
+                        pipeline.status === 'completed' ? 'bg-green-50 text-green-700' :
+                        pipeline.status === 'failed' ? 'bg-red-50 text-red-700' :
+                        'bg-gray-100 text-gray-700'
+                      }`}>
+                        {pipeline.status}
+                      </span>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </motion.div>
       </div>
 
-      {/* Mission Control Modal */}
       <CreateTaskModal 
-        isOpen={isModalOpen} 
-        onClose={() => setIsModalOpen(false)} 
-        onCreated={() => {
-          loadPipelines(); // Ladda om listan
-        }} 
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onCreated={fetchPipelines}
       />
     </div>
   );

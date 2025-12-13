@@ -15,5 +15,9 @@
     "lib": ["esnext", "dom"],
     "typeRoots": ["../node_modules/@types", "./node_modules/@types"]
   },
-  "include": ["**/*.ts", "../lib/**/*.ts", "types.d.ts"]
+  "include": ["**/*.ts", "../lib/**/*.ts", "types.d.ts"],
+  "exclude": [
+    "node_modules",
+    "workspace/sandbox"
+  ]
 }

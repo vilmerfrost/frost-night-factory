@@ -223,6 +223,7 @@ export interface PlannerPhaseJSON extends BasePipelinePhaseJSON {
   };
   risks_and_mitigations: RiskMitigation[];
   success_criteria: string[];
+  warnings?: string[]; // ✅ Optional warnings field for fallback scenarios
 }
 
 // ============================================================

@@ -121,11 +121,19 @@ export const FORTRESS_FILES: FortressFile[] = [
   },
   {
     pattern: 'src/lib/types.ts',
-    tier: FortressTier.REGENERATE_ONLY,
-    description: 'Domain contracts - regenerate from template',
-    maxAttempts: 1,
+    tier: FortressTier.GOLDEN,  // ✅ GOLDEN/FORTRESS: types.ts is always .ts, never .tsx, never AI-generated
+    description: 'Domain contracts - GOLDEN, use template only',
+    maxAttempts: 0,
     onFail: 'HALT',
     template: 'templates/fortress/types.ts',
+  },
+  {
+    pattern: 'src/lib/invoice-extractor.ts',
+    tier: FortressTier.GOLDEN,  // ✅ GOLDEN/FORTRESS: invoice-extractor.ts must be pure TypeScript, never JSX
+    description: 'Invoice extractor - GOLDEN, pure TS library module',
+    maxAttempts: 0,
+    onFail: 'HALT',
+    template: 'templates/fortress/invoice-extractor.ts',
   },
   {
     pattern: 'src/app/layout.tsx',
@@ -220,19 +228,47 @@ export const FORTRESS_FILES: FortressFile[] = [
 ];
 
 /**
+ * ✅ Normalize file path to POSIX format for consistent matching
+ * - Replace backslashes with forward slashes
+ * - Remove workspace root prefix if present
+ * - Remove leading ./
+ * - Ensure consistent format across Windows/Linux/Mac
+ */
+function normalizePathToPosix(filePath: string, workspaceRoot?: string): string {
+  let normalized = filePath.replace(/\\/g, '/');
+  
+  // Remove workspace root prefix if present
+  if (workspaceRoot) {
+    const normalizedRoot = workspaceRoot.replace(/\\/g, '/');
+    if (normalized.startsWith(normalizedRoot)) {
+      normalized = normalized.slice(normalizedRoot.length);
+    }
+  }
+  
+  // Remove leading ./
+  normalized = normalized.replace(/^\.\//, '');
+  
+  // Remove leading / if present (should be relative)
+  normalized = normalized.replace(/^\//, '');
+  
+  return normalized;
+}
+
+/**
  * Check if a file path matches a fortress pattern
+ * ✅ Uses POSIX normalization for 100% Windows compatibility
  */
 export function matchesFortressPattern(filePath: string, pattern: string): boolean {
-  // Normalize path
-  const normalizedPath = filePath.replace(/\\/g, '/');
-  const normalizedPattern = pattern.replace(/\\/g, '/');
+  // ✅ Normalize both paths to POSIX format
+  const normalizedPath = normalizePathToPosix(filePath);
+  const normalizedPattern = normalizePathToPosix(pattern);
   
-  // Exact match
+  // Exact match (end of path)
   if (normalizedPath.endsWith(normalizedPattern)) {
     return true;
   }
   
-  // Glob pattern matching
+  // Glob pattern matching with **
   if (normalizedPattern.includes('**')) {
     const [prefix, suffix] = normalizedPattern.split('**');
     const hasPrefix = !prefix || normalizedPath.includes(prefix.replace(/\/$/, ''));
@@ -240,6 +276,7 @@ export function matchesFortressPattern(filePath: string, pattern: string): boole
     return hasPrefix && hasSuffix;
   }
   
+  // Single * wildcard matching
   if (normalizedPattern.includes('*')) {
     const regex = new RegExp(
       '^' + normalizedPattern.replace(/\*/g, '[^/]*').replace(/\//g, '\\/') + '$'
@@ -247,14 +284,17 @@ export function matchesFortressPattern(filePath: string, pattern: string): boole
     return regex.test(normalizedPath);
   }
   
+  // Substring match (fallback)
   return normalizedPath.includes(normalizedPattern);
 }
 
 /**
  * Get fortress file definition for a path
+ * ✅ Uses POSIX normalization for 100% Windows compatibility
  */
 export function getFortressFile(filePath: string): FortressFile | null {
-  const normalizedPath = filePath.replace(/\\/g, '/');
+  // ✅ Normalize path to POSIX format (handles Windows backslashes)
+  const normalizedPath = normalizePathToPosix(filePath);
   
   // Sort by specificity (more specific patterns first)
   const sorted = [...FORTRESS_FILES].sort((a, b) => {

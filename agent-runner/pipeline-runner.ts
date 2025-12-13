@@ -61,6 +61,13 @@ import type {
   ResearchPhaseJSON,
   CoderPhaseJSON
 } from '../lib/pipeline/pipeline-json-types';  // ✅ Info Transporter: Type definitions
+import {
+  getPhaseOutputRaw,
+  accumulateAllContexts,
+  transportPhaseContext,
+  contextToPromptString,
+  clearContextCache
+} from './src/info-transporter';  // ✅ Info Transporter: Proper JSON handling (uses JSON.stringify, never template literals)
 
 /**
  * ✅ SAFE PACKAGE.JSON READER: Reads and parses package.json with auto-repair and fallback
@@ -1553,206 +1560,8 @@ async function getStep(pipelineId: string, stepName: string) {
   return step;
 }
 
-/**
- * 📡 INFO TRANSPORTER: Get raw output text from a completed phase
- * Extracts raw text from step output/logs for JSON conversion
- */
-async function getPhaseOutputRaw(pipelineId: string, phaseName: string): Promise<string | null> {
-  try {
-    const step = await getStep(pipelineId, phaseName);
-    if (!step || step.status !== 'completed') {
-      return null;
-    }
-
-    // Try to extract raw text from output
-    if (step.output) {
-      try {
-        // ═══════════════════════════════════════════════════════════════════
-        // 🔧 STEG 1: Sanitize innan JSON-parse
-        // ═══════════════════════════════════════════════════════════════════
-        let outputStr = typeof step.output === 'string' ? step.output : JSON.stringify(step.output);
-        
-        // Sanitize först (för research/k2_synthesis som kan vara markdown)
-        const sanitized = outputStr
-          .replace(/[\r\n]+/g, ' ')           // Replace newlines med space
-          .replace(/  +/g, ' ')                // Collapse multiple spaces
-          .trim();
-        
-        let outputObj: any;
-        try {
-          outputObj = JSON.parse(sanitized);
-        } catch (parseError: any) {
-          // If JSON parse fails, treat as raw text (for markdown files like k2-synthesis.md)
-          console.warn(`⚠️ [Info Transporter] Output is not JSON, treating as raw text: ${parseError.message}`);
-          return outputStr; // Return original string if not JSON
-        }
-        
-        // Look for raw text in various possible fields
-        if (outputObj.raw_text) return outputObj.raw_text;
-        if (outputObj.text) return outputObj.text;
-        if (outputObj.content) return outputObj.content;
-        if (outputObj.summary) return outputObj.summary;
-        if (outputObj.k2Synthesis) return outputObj.k2Synthesis; // K2 synthesis field
-        // If output is a string, return it
-        if (typeof outputObj === 'string') return outputObj;
-        // Otherwise stringify the whole thing
-        return JSON.stringify(outputObj);
-      } catch (error: any) {
-        // If parsing fails, treat output as raw string
-        console.warn(`⚠️ [Info Transporter] Failed to parse output, using raw string: ${error.message}`);
-        return typeof step.output === 'string' ? step.output : JSON.stringify(step.output);
-      }
-    }
-
-    // Fallback: Check logs field
-    if (step.logs) {
-      return typeof step.logs === 'string' ? step.logs : JSON.stringify(step.logs);
-    }
-
-    return null;
-  } catch (error: any) {
-    console.warn(`⚠️ [Info Transporter] Failed to get raw output for ${phaseName}:`, error.message);
-    return null;
-  }
-}
-
-/**
- * 📡 INFO TRANSPORTER: Accumulate ALL previous phase contexts
- * Returns a context object with all completed phases' JSON outputs
- */
-async function accumulateAllContexts(
-  pipelineId: string,
-  currentPhase: string
-): Promise<{ [phase: string]: any }> {
-  const accumulatedContext: { [phase: string]: any } = {};
-  
-  // Phase order: research → k2_synthesis → planner → coder → sql → tester → publisher
-  const phaseOrder = ['research', 'k2_synthesis', 'planner', 'coder', 'sql', 'tester', 'publisher'];
-  const currentIndex = phaseOrder.indexOf(currentPhase);
-  
-  if (currentIndex === -1) {
-    console.warn(`⚠️ [Info Transporter] Unknown phase: ${currentPhase}`);
-    return accumulatedContext;
-  }
-  
-  // Only accumulate phases BEFORE the current phase
-  const previousPhases = phaseOrder.slice(0, currentIndex);
-  
-  console.log(`📡 [Info Transporter] Accumulating context from ${previousPhases.length} previous phases...`);
-  
-  for (const phase of previousPhases) {
-    try {
-      const context = await transportPhaseContext(pipelineId, phase, currentPhase);
-      if (context) {
-        accumulatedContext[phase] = context;
-        console.log(`   ✅ ${phase}: Context captured`);
-      }
-    } catch (error: any) {
-      console.warn(`   ⚠️ ${phase}: Failed to capture context (${error.message})`);
-    }
-  }
-  
-  // Also include user prompt
-  try {
-    const { data: pipelineData } = await supabase.from('pipelines').select('initial_prompt').eq('id', pipelineId).single();
-    if (pipelineData?.initial_prompt) {
-      accumulatedContext.user_prompt = pipelineData.initial_prompt;
-    }
-  } catch (error: any) {
-    console.warn(`   ⚠️ user_prompt: Failed to capture`);
-  }
-  
-  return accumulatedContext;
-}
-
-/**
- * 📡 INFO TRANSPORTER: Convert phase output to structured JSON context
- * Uses Claude 4.5 Haiku for fast JSON conversion
- */
-async function transportPhaseContext(
-  pipelineId: string,
-  fromPhase: string,
-  toPhase: string
-): Promise<any | null> {
-  console.log(`📡 [Info Transporter] Capturing context from ${fromPhase} for ${toPhase}...`);
-
-  try {
-    // 1. Get raw output from previous phase
-    const rawOutput = await getPhaseOutputRaw(pipelineId, fromPhase);
-
-    if (!rawOutput) {
-      console.warn(`⚠️ [Info Transporter] No raw output found for ${fromPhase}. Relying on disk state.`);
-      return null;
-    }
-
-    // 2. Convert to JSON using Claude 4.5 Haiku
-    console.log(`🤖 [Info Transporter] Calling Claude 4.5 Haiku to structure context from ${fromPhase}...`);
-
-    let jsonContext: any = null;
-
-    if (fromPhase === 'research') {
-      const { data: pipelineData } = await supabase.from('pipelines').select('initial_prompt').eq('id', pipelineId).single();
-      const userPrompt = pipelineData?.initial_prompt || '';
-      const researchJson = await convertResearchToJSON(rawOutput, userPrompt);
-      if (researchJson.success && researchJson.data) {
-        jsonContext = researchJson.data;
-      }
-    } else if (fromPhase === 'k2_synthesis') {
-      // K2 synthesis is raw text, convert to simple JSON structure
-      // ✅ SAVE ENTIRE RAW TEXT (not just first 10000 chars)
-      jsonContext = {
-        phase: 'k2_synthesis',
-        synthesis: rawOutput, // ✅ FULL RAW TEXT
-        full_raw_output: rawOutput, // ✅ COMPLETE raw text
-        timestamp: new Date().toISOString()
-      };
-    } else if (fromPhase === 'planner') {
-      // For planner, we need research context
-      const researchContext = await transportPhaseContext(pipelineId, 'research', 'planner');
-      if (researchContext) {
-        const plannerJson = await convertPlannerToJSON(rawOutput, researchContext);
-        if (plannerJson.success && plannerJson.data) {
-          jsonContext = plannerJson.data;
-        }
-      }
-      // Fallback: convert planner without research context
-      if (!jsonContext) {
-        const plannerJson = await convertPlannerToJSON(rawOutput, {} as ResearchPhaseJSON);
-        if (plannerJson.success && plannerJson.data) {
-          jsonContext = plannerJson.data;
-        }
-      }
-    } else {
-      // Generic conversion: just parse as JSON if possible
-      try {
-        jsonContext = typeof rawOutput === 'string' ? JSON.parse(rawOutput) : rawOutput;
-      } catch {
-        // If not JSON, create a simple context object
-        jsonContext = {
-          phase: fromPhase,
-          raw_text: rawOutput.substring(0, 5000), // Limit size
-          timestamp: new Date().toISOString()
-        };
-      }
-    }
-
-    if (jsonContext) {
-      const preview = JSON.stringify(jsonContext, null, 2).substring(0, 200);
-      console.log(`✅ [Info Transporter] Context Generated: ${preview}...`);
-      return jsonContext;
-    } else {
-      console.warn(`⚠️ [Info Transporter] JSON conversion failed for ${fromPhase}. Using fallback.`);
-      return {
-        phase: fromPhase,
-        raw_text: rawOutput.substring(0, 2000),
-        timestamp: new Date().toISOString()
-      };
-    }
-  } catch (error: any) {
-    console.error(`❌ [Info Transporter] Failed to transport context from ${fromPhase}:`, error.message);
-    return null;
-  }
-}
+// ✅ Info Transporter functions moved to ./src/info-transporter.ts
+// All functions now use proper JSON.stringify() - never template literals for JSON
 
 // Helper: Rekursivt hämta alla filer i en mapp
 function getAllFiles(dirPath: string): string[] {
@@ -2325,14 +2134,16 @@ async function runPlannerStep(pipeline: any, repoPath: string, context?: any) {
     2. All backend logic goes in Server Actions or API Routes (app/api).`;
 
   // --- INFO TRANSPORTER: Inject accumulated context ---
+  // ✅ Use contextToPromptString helper for safe JSON string conversion
   let contextSection = "";
   if (context && Object.keys(context).length > 0) {
     console.log(`📡 [Info Transporter] Injecting ${Object.keys(context).length} context sources into Planner...`);
+    const contextString = contextToPromptString(context, 5000);
     contextSection = `
 ═══════════════════════════════════════════════════════════════════
 📡 STRUCTURED CONTEXT FROM PREVIOUS PHASES (Info Transporter)
 ═══════════════════════════════════════════════════════════════════
-${JSON.stringify(context, null, 2).substring(0, 5000)}
+${contextString}
 
 Use this context to understand:
 - Research findings and technical constraints
@@ -2661,11 +2472,26 @@ async function validateProjectStructure(
   if (missing.length > 0) {
     console.warn(`⚠️ [VALIDATOR] Missing critical files: ${missing.join(', ')}`);
     
-    // AUTO-HEAL: Create minimal types.ts if missing
+    // ✅ LONG-TERM FIX: Create types.ts from GOLDEN template if missing
     if (missing.includes('src/lib/types.ts')) {
-      console.log('🩹 [AUTO-HEAL] Creating minimal types.ts...');
-      const typesContent = `
+      console.log('🩹 [AUTO-HEAL] Creating types.ts from GOLDEN template...');
+      const typesPath = path.join(localPath, 'src/lib/types.ts');
+      fs.mkdirSync(path.dirname(typesPath), { recursive: true });
+      
+      // ✅ Try to copy from golden template first
+      const templatePath = path.join(process.cwd(), 'templates', 'fortress', 'types.ts');
+      if (fs.existsSync(templatePath)) {
+        const templateContent = fs.readFileSync(templatePath, 'utf-8');
+        fs.writeFileSync(typesPath, templateContent, 'utf-8');
+        console.log('✅ [AUTO-HEAL] types.ts created from GOLDEN template');
+      } else {
+        // Fallback: Create minimal safe types.ts
+        console.warn('⚠️ [AUTO-HEAL] Golden template not found, using fallback...');
+        const typesContent = `
 // Auto-generated by Frost Night Factory
+// ⚠️ GOLDEN template not found - using fallback
+// This file should be replaced with golden template from templates/fortress/types.ts
+
 export interface ApiResponse<T = any> {
   data?: T;
   error?: string;
@@ -2701,11 +2527,9 @@ export type {
   TradeSignal
 } from '@/types/database';
 `.trim();
-      
-      const typesPath = path.join(localPath, 'src/lib/types.ts');
-      fs.mkdirSync(path.dirname(typesPath), { recursive: true });
-      fs.writeFileSync(typesPath, typesContent, 'utf-8');
-      console.log('✅ [AUTO-HEAL] types.ts created');
+        fs.writeFileSync(typesPath, typesContent, 'utf-8');
+        console.log('✅ [AUTO-HEAL] types.ts created (fallback)');
+      }
     }
 
     // AUTO-HEAL: Create database types if missing
@@ -3285,6 +3109,78 @@ async function validateAndWriteFile(
     ? path.join(projectRoot, newFileName) 
     : filePath
   
+  // 🔓 ARCHITECT OVERRIDE: Allow .ts -> .tsx evolution for fortress files
+  // Check if this is a valid evolution (fortress file upgrading from .ts to .tsx)
+  if (newFileName !== fileName && filePath.endsWith('.ts') && newFileName.endsWith('.tsx')) {
+    const normalizedPath = fileName.replace(/\\/g, '/');
+    let isFortressFile = false;
+    let isApiRoute = false;
+    let isLibFile = false;
+    
+    // Check if file is fortress-protected
+    try {
+      const fortressModule = await import('../lib/nightFactory/v90-index');
+      const tier = fortressModule.getFileTier?.(normalizedPath);
+      const FortressTier = fortressModule.FortressTier;
+      if (FortressTier && tier !== undefined) {
+        isFortressFile = tier === FortressTier.GOLDEN || tier === FortressTier.REGENERATE_ONLY;
+      }
+    } catch {
+      // Fortress not available, continue without fortress check
+    }
+    
+    // Check if file is API route
+    isApiRoute = (normalizedPath.includes('/src/app/api/') || normalizedPath.includes('/app/api/')) &&
+                 path.basename(normalizedPath).startsWith('route.');
+    
+    // Check if file is lib file
+    isLibFile = normalizedPath.includes('/src/lib/') || normalizedPath.includes('/lib/');
+    
+    // Allow evolution for fortress files and lib files, but block for API routes
+    if (isFortressFile) {
+      const isEvolution = filePath.endsWith('.ts') && newFileName.endsWith('.tsx');
+      if (isEvolution) {
+        console.log(`🔓 ARCHITECT OVERRIDE: Permitting file evolution (${fileName} -> .tsx) for JSX support.`);
+        finalPath = path.join(projectRoot, newFileName); // ALLOW THE RENAME
+        // 🧹 CLEANUP: Delete old .ts file to prevent duplicates
+        if (fs.existsSync(filePath)) {
+          try {
+            fs.unlinkSync(filePath);
+            console.log(`   🗑️ Deleted old file: ${fileName}`);
+          } catch (err) {
+            console.warn(`   ⚠️ Failed to delete old file ${fileName}:`, err);
+          }
+        }
+      } else {
+        console.log(`🛡️ [FORTRESS] Blocked rename of protected file: ${fileName} (skipping rename).`);
+        finalPath = filePath; // BLOCK ANY OTHER RENAME
+      }
+    } else if (isLibFile) {
+      // Allow lib files to evolve .ts -> .tsx when they contain JSX
+      const isEvolution = filePath.endsWith('.ts') && newFileName.endsWith('.tsx');
+      if (isEvolution) {
+        console.log(`🔓 ARCHITECT OVERRIDE: Permitting lib file evolution (${fileName} -> .tsx) for JSX support.`);
+        finalPath = path.join(projectRoot, newFileName); // ALLOW THE RENAME
+        // 🧹 CLEANUP: Delete old .ts file to prevent duplicates
+        if (fs.existsSync(filePath)) {
+          try {
+            fs.unlinkSync(filePath);
+            console.log(`   🗑️ Deleted old file: ${fileName}`);
+          } catch (err) {
+            console.warn(`   ⚠️ Failed to delete old file ${fileName}:`, err);
+          }
+        }
+      } else {
+        console.log(`⚠️ [AUTO-FIX] JSX detected in ${fileName}, but skipping rename (lib file, non-evolution).`);
+        finalPath = filePath; // Keep original path
+      }
+    } else if (isApiRoute) {
+      // Block rename for API routes (they should be pure TS handlers)
+      console.log(`⚠️ [AUTO-FIX] JSX detected in ${fileName}, but skipping rename (api-route).`);
+      finalPath = filePath; // Keep original path
+    }
+  }
+  
   // ═══════════════════════════════════════════════════════════════════
   // 🔧 ROBUST IMPORT HANDLING: Prevent crash on missing imports
   // ═══════════════════════════════════════════════════════════════════
@@ -3317,11 +3213,80 @@ async function validateAndWriteFile(
   
   // 🔧 EXTENSION ENFORCER: Handle renamedPath signal
   if (validation.renamedPath) {
-    console.log(`🔧 [Enforcer] Applying mandatory rename: ${newFileName} -> ${validation.renamedPath}`);
-    finalPath = path.join(projectRoot, validation.renamedPath);
-    // Update newFileName for logging
-    const updatedFileName = validation.renamedPath;
-    console.log(`   ✅ File will be saved as: ${updatedFileName}`);
+    const proposedNewPath = validation.renamedPath;
+    const normalizedPath = fileName.replace(/\\/g, '/');
+    
+    // 🔓 ARCHITECT OVERRIDE: Check if this is a fortress file evolution
+    let isFortressFile = false;
+    try {
+      const fortressModule = await import('../lib/nightFactory/v90-index');
+      const tier = fortressModule.getFileTier?.(normalizedPath);
+      const FortressTier = fortressModule.FortressTier;
+      if (FortressTier && tier !== undefined) {
+        isFortressFile = tier === FortressTier.GOLDEN || tier === FortressTier.REGENERATE_ONLY;
+      }
+    } catch {
+      // Fortress not available, continue without fortress check
+    }
+    
+    const isApiRoute = (normalizedPath.includes('/src/app/api/') || normalizedPath.includes('/app/api/')) &&
+                      path.basename(normalizedPath).startsWith('route.');
+    const isLibFile = normalizedPath.includes('/src/lib/') || normalizedPath.includes('/lib/');
+    
+    // Check if this is a valid .ts -> .tsx evolution
+    const isEvolution = fileName.endsWith('.ts') && proposedNewPath.endsWith('.tsx');
+    
+    if (isFortressFile && isEvolution) {
+      // ✅ ARCHITECT OVERRIDE: Allow fortress evolution
+      console.log(`🔓 ARCHITECT OVERRIDE: Permitting Fortress evolution (${fileName} -> ${proposedNewPath}) for JSX support.`);
+      finalPath = path.join(projectRoot, proposedNewPath);
+      console.log(`   ✅ File will be saved as: ${proposedNewPath}`);
+      // 🧹 CLEANUP: Delete old .ts file to prevent duplicates
+      if (fs.existsSync(filePath)) {
+        try {
+          fs.unlinkSync(filePath);
+          console.log(`   🗑️ Deleted old file: ${fileName}`);
+        } catch (err) {
+          console.warn(`   ⚠️ Failed to delete old file ${fileName}:`, err);
+        }
+      }
+    } else if (isLibFile && isEvolution) {
+      // ✅ ARCHITECT OVERRIDE: Allow lib file evolution
+      console.log(`🔓 ARCHITECT OVERRIDE: Permitting lib file evolution (${fileName} -> ${proposedNewPath}) for JSX support.`);
+      finalPath = path.join(projectRoot, proposedNewPath);
+      console.log(`   ✅ File will be saved as: ${proposedNewPath}`);
+      // 🧹 CLEANUP: Delete old .ts file to prevent duplicates
+      if (fs.existsSync(filePath)) {
+        try {
+          fs.unlinkSync(filePath);
+          console.log(`   🗑️ Deleted old file: ${fileName}`);
+        } catch (err) {
+          console.warn(`   ⚠️ Failed to delete old file ${fileName}:`, err);
+        }
+      }
+    } else if (isApiRoute) {
+      // ❌ Block rename for API routes (they should be pure TS handlers)
+      console.log(`⚠️ [AUTO-FIX] JSX detected in ${fileName}, but skipping rename (api-route).`);
+      finalPath = filePath; // Keep original path, ignore rename signal
+    } else if (isLibFile) {
+      // Block non-evolution renames for lib files
+      console.log(`⚠️ [AUTO-FIX] JSX detected in ${fileName}, but skipping rename (lib file, non-evolution).`);
+      finalPath = filePath; // Keep original path
+    } else {
+      // ✅ Normal rename for component files
+      console.log(`🔧 [Enforcer] Applying mandatory rename: ${newFileName} -> ${proposedNewPath}`);
+      finalPath = path.join(projectRoot, proposedNewPath);
+      console.log(`   ✅ File will be saved as: ${proposedNewPath}`);
+      // 🧹 CLEANUP: Delete old .ts file to prevent duplicates
+      if (isEvolution && fs.existsSync(filePath)) {
+        try {
+          fs.unlinkSync(filePath);
+          console.log(`   🗑️ Deleted old file: ${fileName}`);
+        } catch (err) {
+          console.warn(`   ⚠️ Failed to delete old file ${fileName}:`, err);
+        }
+      }
+    }
   }
   
   if (!validation.valid) {
@@ -3502,10 +3467,63 @@ export default function ${componentName}() {
   }
 }
 
+/**
+ * Strip outer code fences from a string
+ * Removes ```lang ... ``` wrapper if present
+ */
+function stripOuterCodeFences(s: string): string {
+  const trimmed = s.trim();
+  
+  // Remove one outer ```lang ... ``` if present
+  const fenceMatch = trimmed.match(/^```[a-zA-Z0-9_-]*\s*\n([\s\S]*?)\n```$/);
+  if (fenceMatch?.[1]) return fenceMatch[1].trimEnd();
+  
+  return trimmed;
+}
+
+/**
+ * ✅ LAYER A: Ensure single-file wrapper exists
+ * Pre-normalizes AI output to always have a file wrapper pattern
+ * This prevents "NO FILES MATCHED" errors in single-file generation mode
+ * 
+ * Matches user specification exactly: wraps with code fences + FILE comment
+ */
+function ensureSingleFileWrapper(
+  raw: string,
+  relPath: string,
+  lang: "typescript" | "tsx" | "text" = "typescript"
+): string {
+  const trimmed = raw.trim();
+
+  // If it already contains a known wrapper marker, keep it.
+  if (
+    /^\s*\/\/\s*FILE:\s*/m.test(trimmed) ||
+    /^\s*FILE:\s*/m.test(trimmed) ||
+    /^\s*###\s*FILE:\s*/mi.test(trimmed) ||
+    /\[FILE:\s*[^\]]+\]/m.test(trimmed)
+  ) {
+    return trimmed;
+  }
+
+  // Strip one outer code fence if present
+  const fence = trimmed.match(/^```[a-zA-Z0-9_-]*\s*\n([\s\S]*?)\n```$/);
+  const content = (fence?.[1] ?? trimmed).trimEnd();
+
+  // ✅ Force wrapper using code fences + FILE comment (matches user spec exactly)
+  return [
+    "```" + lang,
+    `// FILE: ${relPath}`,
+    content,
+    "```",
+    ""
+  ].join("\n");
+}
+
 async function parseAndWriteFiles(
   codeBlock: string,
   localPath: string,
-  pipelineId?: string
+  pipelineId?: string,
+  targetPath?: string  // ✅ Optional: For single-file generation fallback
 ): Promise<number> {
   console.log('🔍 [PARSER] Starting file parsing...');
   
@@ -3692,7 +3710,38 @@ async function parseAndWriteFiles(
       return 0; // Return success (0 files written, but that's OK)
     }
     
-    // No files found at all - this is an error
+    // ═══════════════════════════════════════════════════════════════════
+    // ✅ ROBUST FALLBACK: Single-file generation fallback
+    // ═══════════════════════════════════════════════════════════════════
+    if (targetPath) {
+      console.warn('⚠️ [PARSER] No file wrapper detected. Falling back to single-file write.');
+      
+      // Normalize target path (ensure forward slashes)
+      const normalizedTarget = targetPath.replace(/\\/g, '/');
+      
+      // Ensure src/ prefix if needed
+      let finalTargetPath = normalizedTarget;
+      if (!finalTargetPath.startsWith('src/') && !finalTargetPath.startsWith('backend/')) {
+        if (finalTargetPath.startsWith('app/') || finalTargetPath.startsWith('components/') || finalTargetPath.startsWith('lib/')) {
+          finalTargetPath = `src/${finalTargetPath}`;
+        }
+      }
+      
+      const targetAbsPath = path.join(localPath, finalTargetPath);
+      const targetRelPath = finalTargetPath;
+      
+      // Strip code fences and write atomically
+      const content = stripOuterCodeFences(cleanedBlock);
+      
+      // Import atomic writer
+      const { writeFileToDisk } = await import('./lib/file-writer');
+      await writeFileToDisk(targetAbsPath, content);
+      
+      console.log(`✅ [PARSER] Fallback wrote: ${targetRelPath}`);
+      return 1; // Return 1 file written
+    }
+    
+    // No files found at all - this is an error (only if no targetPath provided)
     console.error('❌ [PARSER] NO FILES MATCHED ANY PATTERN!');
     console.error('First 500 chars of cleaned output:');
     console.error(cleanedBlock.substring(0, 500));
@@ -3950,9 +3999,11 @@ BACKEND INTEGRATION RULES (MANDATORY):
   // --- INFO TRANSPORTER: Inject structured JSON context ---
   if (context) {
     console.log(`📡 [Info Transporter] Injecting structured context into Coder system prompt...`);
+    // ✅ Use contextToPromptString helper for safe JSON conversion
+    const contextString = contextToPromptString(context, 3000);
     const contextSection = `
 📡 STRUCTURED CONTEXT FROM PREVIOUS PHASE (Info Transporter):
-${JSON.stringify(context, null, 2).substring(0, 3000)}
+${contextString}
 
 Use this context to understand:
 - Project requirements and features
@@ -4092,6 +4143,7 @@ If you write ANY of these patterns, the build will FAIL and you will be asked to
 - .ts files: NO JSX allowed. Pure TypeScript only.
 - .tsx files: JSX/React components allowed.
 - .ts files with <div>, <Component>, etc. will FAIL TypeScript parsing.
+- NEVER put JSX (React components) in a file ending with .ts. If you write JSX, the file extension MUST be .tsx.
 
 Before writing a file, CHECK THE EXTENSION:
 - Is it .ts? → NO JSX, NO React components
@@ -4102,6 +4154,7 @@ NEGATIVE CONSTRAINTS:
 2. Files ending in '.ts' MUST NOT contain JSX. Use '.tsx' for components.
 3. 'src/lib/types.ts' or 'lib/types.ts' must ONLY contain 'export interface' or 'export type'. No logic, no JSX.
 4. Do NOT generate UI components in 'src/components/ui/' - these are pre-injected Golden Components.
+5. FILE EXTENSIONS: If a file contains JSX (React components), it MUST end in .tsx. NEVER put JSX in a .ts file.
 
 ═══════════════════════════════════════════════════════════════════
 ✅ REQUIRED: COMPLETE IMPLEMENTATIONS
@@ -5059,7 +5112,32 @@ You MUST use this exact format:
             console.log(chalk.yellow(`   ⚠️ No code generated for ${targetFile}, skipping...`));
             continue;
           }
-          const fileCreated = await parseAndWriteFiles(code, repoPath, pipeline.id);
+          
+          // ✅ LAYER A: Pre-normalize output with wrapper (prevents "0 files" errors)
+          const normalizedCode = ensureSingleFileWrapper(code, targetFile, targetFile.endsWith('.tsx') ? 'tsx' : 'typescript');
+          
+          // ✅ Pass targetFile for fallback support
+          let fileCreated = 0;
+          try {
+            fileCreated = await parseAndWriteFiles(normalizedCode, repoPath, pipeline.id, targetFile);
+          } catch (err: any) {
+            const msg = String(err?.message ?? err);
+            
+            // ✅ LAYER B: Robust fallback for single-file generations (seatbelt)
+            if (msg.includes("Pattern found 0 files") || msg.includes("NO FILES MATCHED")) {
+              console.warn("⚠️ [PARSER] No file wrapper detected. Falling back to single-file write.");
+              
+              const { writeFileToDisk } = await import('./lib/file-writer');
+              const content = stripOuterCodeFences(code);
+              const targetAbsPath = path.join(repoPath, targetFile);
+              await writeFileToDisk(targetAbsPath, content);
+              console.log(`✅ [PARSER] Fallback wrote: ${targetFile}`);
+              fileCreated = 1;
+            } else {
+              throw err;
+            }
+          }
+          
           if (fileCreated > 0) {
             filesCreated += fileCreated;
             console.log(chalk.green(`   ✅ Coded: ${file.path}`));
@@ -5454,6 +5532,7 @@ Only fix the files that have issues. Keep everything else unchanged.
         const { runFoundationFixes } = await import('./lib/nightFactory/foundationFix');
         const { runStructureFixes } = await import('./lib/nightFactory/structureFix');
         const { scaffoldMissingImports } = await import('./lib/nightFactory/missingImportScaffolder');
+        const { normalizeTsxInSandbox, enforceJsxInvariant } = await import('./lib/nightFactory/tsxNormalizer');
         
         // ═══════════════════════════════════════════════════════════════════
         // 🏗️ PHASE 1: FOUNDATION FIX - Enforce Next.js 15 tsconfig.json
@@ -5472,6 +5551,27 @@ Only fix the files that have issues. Keep everything else unchanged.
         // ═══════════════════════════════════════════════════════════════════
         console.log('🔧 [Grand Strategy] Phase 3: Scaffolding missing imports...');
         await scaffoldMissingImports({ workspaceRoot: repoPath });
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // 🏗️ PHASE 4: TSX NORMALIZATION - Auto-evolve .ts with JSX to .tsx
+        // ═══════════════════════════════════════════════════════════════════
+        console.log('🔧 [Grand Strategy] Phase 4: Normalizing .ts → .tsx (JSX evolution)...');
+        normalizeTsxInSandbox(repoPath, {
+          info: (...args: any[]) => console.log(...args),
+          warn: (...args: any[]) => console.warn(...args),
+        });
+        
+        // ═══════════════════════════════════════════════════════════════════
+        // 🛡️ INVARIANT CHECK: Ensure no JSX remains in .ts files
+        // ═══════════════════════════════════════════════════════════════════
+        console.log('🛡️ [Grand Strategy] Phase 5: Enforcing JSX invariant...');
+        enforceJsxInvariant(repoPath, {
+          error: (...args: any[]) => {
+            console.error(...args);
+            throw new Error(args.join(' '));
+          },
+          warn: (...args: any[]) => console.warn(...args),
+        });
         
         // Build a simple CoderPhaseJSON from generated files
         const coderJSON = await buildCoderJSONFromRepo(repoPath);
@@ -6001,7 +6101,7 @@ async function runSqlStep(pipeline: any, repoPath: string, context?: any) {
 ═══════════════════════════════════════════════════════════════════
 📡 STRUCTURED CONTEXT FROM PREVIOUS PHASES (Info Transporter)
 ═══════════════════════════════════════════════════════════════════
-${JSON.stringify(context, null, 2).substring(0, 5000)}
+${contextToPromptString(context, 5000)}
 
 Use this context to understand:
 - Research findings and technical constraints
@@ -7042,6 +7142,74 @@ async function runIntelligentBatchFixer(
           break;
         
         case ErrorCategory.SYNTAX_ERROR:
+          // ✅ LONG-TERM FIX: Check if it's JSX in lib file (REMOVE_JSX strategy)
+          const isJsxInLibError = currentError.includes('JSX syntax detected') && 
+                                  (currentError.includes('/lib/') || currentError.includes('lib/types.ts') || 
+                                   currentError.includes('lib/api.ts') || currentError.includes('lib/claude-client.ts'));
+          
+          if (isJsxInLibError && filesToFix.length > 0) {
+            console.log("🔧 REMOVE_JSX strategy: Removing JSX from lib file...");
+            
+            const targetFile = filesToFix[0];
+            const filePath = path.join(repoPath, targetFile);
+            
+            if (fs.existsSync(filePath)) {
+              let fileContexts = '';
+              const content = fs.readFileSync(filePath, 'utf-8');
+              fileContexts += `\n--- FILE: ${targetFile} ---\n${content}\n`;
+              
+              const removeJsxPrompt = `
+🚨 CRITICAL FIX REQUIRED: REMOVE JSX FROM LIB FILE 🚨
+
+The file ${targetFile} is in src/lib/ and MUST be pure TypeScript (.ts).
+JSX syntax was detected, but rename to .tsx is FORBIDDEN for lib files.
+
+REQUIRED ACTION:
+- Remove ALL JSX syntax (<tags>, React components, JSX returns)
+- Rewrite as pure TypeScript functions/utilities
+- Keep the same functionality but use plain TypeScript
+- NO React components, NO JSX, NO <tags>
+
+Example:
+❌ BAD: return <div>Hello</div>;
+✅ GOOD: return { message: "Hello" };
+
+CURRENT FILE CONTENTS (WITH JSX - MUST REMOVE):
+${fileContexts}
+
+Rewrite the code as pure TypeScript with NO JSX.
+Output format: [FILE: ${targetFile}]
+... pure TypeScript code ...
+[GOAL]
+`;
+              
+              try {
+                const fixOutput = await callAI({
+                  pipelineId: pipeline?.id || 'fix',
+                  step: 'tester',
+                  role: 'CODER',
+                  messages: [{ role: 'user', content: removeJsxPrompt }]
+                });
+                
+                // Parse fix output
+                const fixMatch = fixOutput.match(/\[FILE:\s*([^\]]+)\]\s*([\s\S]*?)(?:\[GOAL\]|$)/i);
+                if (fixMatch) {
+                  const fixedContent = fixMatch[2].trim();
+                  fs.writeFileSync(filePath, fixedContent, 'utf-8');
+                  fixedFiles.push(targetFile);
+                  fixSuccess = true;
+                  console.log(`   ✅ Removed JSX from ${targetFile}`);
+                }
+              } catch (aiError: any) {
+                console.error(`   ❌ AI fix failed: ${aiError.message}`);
+              }
+              
+              if (fixSuccess) {
+                break; // Exit switch
+              }
+            }
+          }
+          
           // Check if it's a "missing use client" error
           if (filesToFix.length > 0 && currentError.includes('use client')) {
             console.log("💡 Auto-fixing 'use client' directive...");
@@ -12626,6 +12794,10 @@ export async function runPipelineLoop(sandboxPath: string) {
 
   while (true) {
     try {
+      // ✅ FIX C: Clear context cache at start of each loop iteration
+      // Prevents stale cached contexts from previous pipeline runs
+      clearContextCache();
+      
       // Hämta aktiva pipelines
       const { data: pipelines, error } = await supabase
         .from('pipelines')
@@ -12734,6 +12906,30 @@ export async function runPipelineLoop(sandboxPath: string) {
 
       // ✅ RE-HYDRATE MISSING DATA
       pipeline = await rehydrateMissingPhaseData(pipeline.id, pipeline);
+      
+      // ✅ LAYER 1: Normalize phase (handle aliases/legacy phases)
+      function normalizePhase(phase: string): string {
+        if (!phase) return "research";
+        const p = phase.trim();
+
+        // ✅ aliases / legacy
+        if (p === "coder_planning_complete") return "coder";
+        if (p === "coder_planning") return "coder";
+        if (p === "planning") return "planner";
+        if (p === "code") return "coder";
+        if (p === "sql_editor" || p === "sqleditor") return "sql";
+        if (p === "test" || p === "testing") return "tester";
+
+        return p;
+      }
+
+      // Normalize phase before switch
+      const normalizedPhase = normalizePhase(pipeline.current_phase);
+      if (normalizedPhase !== pipeline.current_phase) {
+        console.log(`🔄 [Phase Normalizer] Normalized "${pipeline.current_phase}" → "${normalizedPhase}"`);
+        await updatePipeline(pipeline.id, { current_phase: normalizedPhase });
+        pipeline.current_phase = normalizedPhase;
+      }
       
       // Fas-väljare
       console.log(`[Pipeline ${pipeline.id.slice(0, 8)}] Executing phase: ${pipeline.current_phase}`);
@@ -13136,17 +13332,37 @@ export async function runPipelineLoop(sandboxPath: string) {
 // 🚀 MAIN ENTRY POINT
 // ==========================================
 
-const SANDBOX_DIR = path.resolve(process.cwd(), "workspace/sandbox");
+// ✅ LAYER 1: Idempotent start function
+let pipelineRunnerStarted = false;
 
-console.log(`🚀 Starting Agent Runner in: ${SANDBOX_DIR}`);
+export async function startPipelineRunner(sandboxPath?: string) {
+  if (pipelineRunnerStarted) {
+    console.warn("⚠️ Pipeline Runner already started. Skipping.");
+    return;
+  }
+  pipelineRunnerStarted = true;
 
-// Create sandbox if it doesn't exist
-if (!fs.existsSync(SANDBOX_DIR)) {
-  fs.mkdirSync(SANDBOX_DIR, { recursive: true });
+  const SANDBOX_DIR = sandboxPath || path.resolve(process.cwd(), "workspace/sandbox");
+
+  console.log(`🚀 Starting Agent Runner in: ${SANDBOX_DIR}`);
+
+  // Create sandbox if it doesn't exist
+  if (!fs.existsSync(SANDBOX_DIR)) {
+    fs.mkdirSync(SANDBOX_DIR, { recursive: true });
+  }
+
+  // IGNITION
+  runPipelineLoop(SANDBOX_DIR).catch((error) => {
+    console.error("💀 FATAL ENGINE FAILURE:", error);
+    pipelineRunnerStarted = false; // Reset on fatal error to allow restart
+    process.exit(1);
+  });
 }
 
-// IGNITION
-runPipelineLoop(SANDBOX_DIR).catch((error) => {
-  console.error("💀 FATAL ENGINE FAILURE:", error);
-  process.exit(1);
-});
+// ✅ Auto-start if this file is run directly (but idempotent)
+if (require.main === module) {
+  startPipelineRunner().catch((error) => {
+    console.error("💀 FATAL ENGINE FAILURE:", error);
+    process.exit(1);
+  });
+}

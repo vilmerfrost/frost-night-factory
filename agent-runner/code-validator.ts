@@ -4,6 +4,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { validateCodeCompleteness } from './ast-validator'
 import { validateCode as validateCodeLenient, type ValidationResult as LenientValidationResult } from './lib/validator'
+import { shouldRenameTsToTsx as shouldRenameTsToTsxPolicy } from './lib/nightFactory/renamePolicy'
 
 // ═══════════════════════════════════════════════════════════════════
 // LAYER 1: ANTI-PLACEHOLDER SCANNER
@@ -42,6 +43,7 @@ export interface ValidationResult {
   errors: string[]
   warnings: string[]
   renamedPath?: string  // 🔧 Extension Enforcer: Signal to rename .ts -> .tsx
+  fixStrategy?: 'RENAME' | 'REMOVE_JSX' | 'GOLDEN_TEMPLATE'  // 🔧 Fix strategy when rename is forbidden
 }
 
 export function detectPlaceholderCode(code: string, fileName: string): ValidationResult {
@@ -183,57 +185,27 @@ export function validateImports(
  * 2. Never rename API routes (route.ts in app/api/**)
  * 3. Only rename React components (app/** and components/**)
  */
+/**
+ * Check if a file should be renamed from .ts to .tsx
+ * Uses the central renamePolicy module for consistent decision-making
+ */
 async function shouldRenameTsToTsx(
   filePath: string,
-  hasJsx: boolean
+  hasJsx: boolean,
+  content?: string
 ): Promise<boolean> {
   if (!hasJsx || !filePath.endsWith('.ts')) return false;
 
-  const normalized = filePath.replace(/\\/g, '/');
-
-  const isLibFile = normalized.includes('/src/lib/') || normalized.includes('/lib/');
+  // Use the central policy module for consistent decisions
+  // If content is provided, use it; otherwise assume JSX is present
+  const fileContent = content || '';
   
-  const isApiRoute =
-    (normalized.includes('/src/app/api/') || normalized.includes('/app/api/')) &&
-    path.basename(normalized).startsWith('route.');
-
-  const isAppComponent =
-    (normalized.includes('/src/app/') || normalized.includes('/app/')) &&
-    !normalized.includes('/api/');
-
-  const isComponentFile = 
-    normalized.includes('/src/components/') || normalized.includes('/components/');
-
-  // Try to check if file is fortress-protected (graceful fallback if fortress not available)
-  let isFortress = false;
-  try {
-    const fortressModule = await import('../lib/nightFactory/v90-index');
-    const tier = fortressModule.getFileTier?.(normalized);
-    const FortressTier = fortressModule.FortressTier;
-    if (FortressTier && tier !== undefined) {
-      isFortress = tier === FortressTier.GOLDEN || tier === FortressTier.REGENERATE_ONLY;
-    }
-  } catch {
-    // Fortress not available, continue without fortress check
-  }
-
-  // 1) Never rename on fortress or lib files
-  if (isFortress || isLibFile) {
-    return false;
-  }
-
-  // 2) Never rename API routes – these should be pure TS handlers
-  if (isApiRoute) {
-    return false;
-  }
-
-  // 3) Only rename on actual React components
-  if (isAppComponent || isComponentFile) {
-    return true;
-  }
-
-  // 4) Default: no rename
-  return false;
+  // The policy module will check:
+  // - Is it in sandbox?
+  // - Is it Fortress-protected?
+  // - Does it match NEVER_RENAME patterns?
+  // - Does it contain JSX?
+  return shouldRenameTsToTsxPolicy(filePath, fileContent || (hasJsx ? '<Component />' : ''));
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -255,7 +227,7 @@ export async function validateCode(
   const isTS = fileName.endsWith('.ts') && !fileName.endsWith('.d.ts');
   
   if (hasJSX && isTS) {
-    const shouldRename = await shouldRenameTsToTsx(fileName, hasJSX);
+    const shouldRename = await shouldRenameTsToTsx(fileName, hasJSX, code);
     
     if (shouldRename) {
       const newPath = fileName + 'x'; // .ts -> .tsx
@@ -265,13 +237,52 @@ export async function validateCode(
         valid: true, // PASS IT! Do not trigger a retry loop.
         errors: [],
         warnings: [`JSX detected in .ts file - auto-renaming to .tsx`],
-        renamedPath: newPath // Signal the runner to change the filename
+        renamedPath: newPath, // Signal the runner to change the filename
+        fixStrategy: 'RENAME'
       };
     } else {
-      // Log warning but don't rename
-      console.warn(
-        `⚠️ [AUTO-FIX] JSX detected in ${fileName}, but skipping rename (lib/fortress/api-route/other).`
-      );
+      // ✅ LONG-TERM FIX: If rename is forbidden, signal to remove JSX instead
+      const normalizedPath = fileName.replace(/\\/g, '/');
+      // ✅ Check for ALL lib files (not just specific ones)
+      const isLibFile = normalizedPath.includes('/lib/') || normalizedPath.includes('\\lib\\');
+      const isApiRoute = normalizedPath.includes('/api/') && normalizedPath.includes('/route.ts');
+      
+      if (isLibFile) {
+        console.warn(
+          `⚠️ [AUTO-FIX] JSX detected in ${fileName} (lib file - rename forbidden). Strategy: REMOVE_JSX`
+        );
+        
+        return {
+          valid: false,
+          errors: [`[${fileName}] JSX syntax detected in .ts file. Remove JSX (rename forbidden for lib files).`],
+          warnings: [],
+          fixStrategy: 'REMOVE_JSX' // Signal to remove JSX, not rename
+        };
+      } else if (isApiRoute) {
+        // API routes should also remove JSX (they're pure TS handlers)
+        console.warn(
+          `⚠️ [AUTO-FIX] JSX detected in ${fileName} (API route - rename forbidden). Strategy: REMOVE_JSX`
+        );
+        
+        return {
+          valid: false,
+          errors: [`[${fileName}] JSX syntax detected in .ts file. Remove JSX (API routes must be pure TypeScript).`],
+          warnings: [],
+          fixStrategy: 'REMOVE_JSX'
+        };
+      } else {
+        // Other forbidden cases (fortress files, etc.)
+        console.warn(
+          `⚠️ [AUTO-FIX] JSX detected in ${fileName}, but skipping rename (fortress/other). Strategy: REMOVE_JSX`
+        );
+        
+        return {
+          valid: false,
+          errors: [`[${fileName}] JSX syntax detected in .ts file. Rename forbidden.`],
+          warnings: [],
+          fixStrategy: 'REMOVE_JSX'
+        };
+      }
     }
   }
   

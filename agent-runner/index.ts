@@ -1,9 +1,18 @@
 // agent-runner/index.ts
 // Main entry point - runs both dispatcher and pipeline runner
+
+// ✅ LAYER 1: Singleton Guard - Prevent duplicate initialization
+const g = globalThis as any;
+if (g.__FNF_RUNNER_STARTED__) {
+  console.warn("⚠️ Agent Runner already started in this process. Skipping duplicate init.");
+  process.exit(0);
+}
+g.__FNF_RUNNER_STARTED__ = true;
+
 import path from "path";
 import fs from "fs";
-import { dispatcherLoop } from "./dispatcher";
-import { runPipelineLoop } from "./pipeline-runner";
+import { startDispatcher } from "./dispatcher";
+import { startPipelineRunner } from "./pipeline-runner";
 
 // ═══════════════════════════════════════════════════════════════════
 // 🔥 GLOBAL ERROR HANDLERS: Prevent silent crashes
@@ -47,13 +56,13 @@ if (!fs.existsSync(SANDBOX_ROOT)) {
 
 console.log(`🔒 SECURITY: Agent is confined to: ${SANDBOX_ROOT}`);
 
-// Start both loops concurrently
+// Start both loops concurrently using idempotent start functions
 Promise.all([
-  dispatcherLoop().catch((e) => {
+  startDispatcher().catch((e) => {
     console.error("💥 Fatal dispatcher error", e);
     process.exit(1);
   }),
-  runPipelineLoop(SANDBOX_ROOT).catch((e) => {
+  startPipelineRunner(SANDBOX_ROOT).catch((e) => {
     console.error("💥 Fatal pipeline runner error", e);
     process.exit(1);
   }),

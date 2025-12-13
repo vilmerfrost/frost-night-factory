@@ -11,7 +11,7 @@ async function testCostOptimization() {
     const query1 = "Fix TS6133: 'React' is declared but never used";
     const query2 = "Resolve unused import error for React";
     // First call - cache miss
-    await semanticCache.set(query1, "import React from 'react'", 'TS6133');
+    await semanticCache.set(query1, 'test-file.ts', "import React from 'react'", 'TS6133', true);
     // Second call - should hit
     const cached = await semanticCache.get(query2, 'TS6133', 0.92);
     if (cached.hit) {

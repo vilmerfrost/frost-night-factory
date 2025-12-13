@@ -122,8 +122,26 @@ Goal:
   return pipeline;
 }
 
+// ✅ LAYER 1: Idempotent start function
+let dispatcherStarted = false;
+
+export async function startDispatcher() {
+  if (dispatcherStarted) {
+    console.warn("⚠️ Dispatcher already started. Skipping.");
+    return;
+  }
+  dispatcherStarted = true;
+  
+  // Start the actual loop
+  dispatcherLoop().catch((e) => {
+    console.error("💥 Fatal dispatcher error", e);
+    dispatcherStarted = false; // Reset on fatal error to allow restart
+    throw e;
+  });
+}
+
 // ✅ FIX: Vi behåller 'export' här, men tar bort den längst ner
-export async function dispatcherLoop() {
+async function dispatcherLoop() {
   console.log("🎫 Ticket Dispatcher started...");
   console.log(`🔗 Supabase URL: ${SUPABASE_URL.substring(0, 30)}...`);
 
@@ -157,6 +175,9 @@ export async function dispatcherLoop() {
     }
   }
 }
+
+// Export for backward compatibility (but prefer startDispatcher)
+export { dispatcherLoop };
 
 // Handle graceful shutdown
 process.on("SIGINT", () => {

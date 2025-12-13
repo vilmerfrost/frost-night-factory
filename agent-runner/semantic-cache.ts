@@ -3,17 +3,12 @@
 // 🔧 FIXED: Strict matching with file path keys + 99% threshold
 
 import crypto from 'crypto'
-import { createClient } from '@supabase/supabase-js'
 import * as path from 'path'
+import { getSupabaseClient } from './lib/supabase-client'
 
 // ✅ CACHE ENABLED BY DEFAULT (with strict matching)
 const CACHE_ENABLED = process.env.SEMANTIC_CACHE_ENABLED !== 'false'; // Default: true
 const SIMILARITY_THRESHOLD = parseFloat(process.env.CACHE_SIMILARITY_THRESHOLD || '0.99'); // 99% default
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 interface CacheResult {
   hit: boolean
@@ -107,6 +102,12 @@ export class SemanticCache {
     await this.initialize()
     
     try {
+      const supabase = getSupabaseClient();
+      if (!supabase) {
+        console.warn('⚠️ [SEMANTIC CACHE] Supabase not configured - cache disabled');
+        return { hit: false };
+      }
+
       const normalizedPath = filePath.replace(/\\/g, '/');
       const fileType = detectFileType(filePath);
       const cacheKey = this.generateCacheKey(normalizedPath, prompt, errorType);
@@ -178,24 +179,66 @@ export class SemanticCache {
   
   /**
    * Store query and response in cache (with file path)
+   * ✅ LONG-TERM FIX: Only cache VALIDATED content (prevents caching bad JSX)
    */
   async set(
     prompt: string,
     filePath: string,
     response: string,
-    errorType?: string
+    errorType?: string,
+    isValidated: boolean = false  // ✅ NEW: Require explicit validation flag
   ): Promise<void> {
     // Don't store if cache disabled
     if (!CACHE_ENABLED) {
       return;
     }
     
+    // ✅ LONG-TERM FIX: Only cache validated content
+    if (!isValidated) {
+      console.warn(`⚠️ [SEMANTIC CACHE] Skipping cache for ${filePath} - content not validated`);
+      return;
+    }
+    
     await this.initialize()
     
     try {
+      const supabase = getSupabaseClient();
+      if (!supabase) {
+        console.warn(`⚠️ [SEMANTIC CACHE] Supabase not configured - skipping cache for ${filePath}`);
+        return;
+      }
+
       const normalizedPath = filePath.replace(/\\/g, '/');
       const fileType = detectFileType(normalizedPath);
       const cacheKey = this.generateCacheKey(normalizedPath, prompt, errorType);
+      
+      // ✅ LONG-TERM FIX: Check if cached entry previously failed validation
+      // If a cached entry failed JSX validation, mark it as bad and don't reuse
+      const { data: existing } = await supabase
+        .from('semantic_cache')
+        .select('*')
+        .eq('cache_key', cacheKey)
+        .maybeSingle();
+      
+      if (existing && existing.response) {
+        // ✅ LONG-TERM FIX: Check if cached response contains JSX in .ts file
+        const isLibFile = normalizedPath.includes('/lib/') && normalizedPath.endsWith('.ts');
+        if (isLibFile && /<[A-Za-z]/.test(existing.response)) {
+          console.warn(`⚠️ [SEMANTIC CACHE] Cached entry for ${normalizedPath} contains JSX - EVICTING bad entry`);
+          // ✅ EVICT bad entry immediately (don't just skip - delete it)
+          try {
+            await supabase
+              .from('semantic_cache')
+              .delete()
+              .eq('cache_key', cacheKey);
+            console.log(`   🗑️ Evicted bad cached entry for ${normalizedPath}`);
+          } catch (evictError: any) {
+            console.warn(`   ⚠️ Failed to evict bad entry: ${evictError.message}`);
+          }
+          // Don't cache this new entry either (it might also be bad)
+          return;
+        }
+      }
       
       // Use upsert to handle both old and new schema
       const cacheEntry: any = {
@@ -217,7 +260,7 @@ export class SemanticCache {
       await supabase.from('semantic_cache')
         .upsert(cacheEntry, { onConflict: 'cache_key' })
       
-      console.log(`💾 [SEMANTIC CACHE] Stored: ${normalizedPath} (${fileType})`)
+      console.log(`💾 [SEMANTIC CACHE] Stored VALIDATED: ${normalizedPath} (${fileType})`)
     } catch (error: any) {
       // Handle missing columns gracefully
       if (error.message?.includes('column') && error.message?.includes('does not exist')) {

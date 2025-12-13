@@ -114,7 +114,7 @@ export async function generateWithValidation(pipelineId, step, prompt, targetFil
             // SUCCESS!
             console.log(`   ✅ Code validated successfully!`);
             // ✅ Phase 2: Cache successful generation
-            await semanticCache.set(cacheKey, code, errorAnalysis.errorCode);
+            await semanticCache.set(prompt, targetFile, code, errorAnalysis.errorCode, true);
             // Log warnings if any
             if (validation.warnings.length > 0) {
                 console.log(`   ⚠️ Warnings (non-blocking):`);

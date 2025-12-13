@@ -5,8 +5,10 @@ import { validateCode as validateCodeStrict } from './code-validator'  // Keep f
 import { validateCodeCompleteness } from './ast-validator'
 import { classifyError, generateReflection } from './error-classifier'
 import { semanticCache } from './semantic-cache'  // ✅ Phase 2: Semantic caching
-import { selectOptimalModel, estimateComplexity, getModelName } from './model-router'  // ✅ Phase 3: Smart routing
+import { selectOptimalModel, estimateComplexity, getModelName, routeModel, inferTaskKindFromFile } from './model-router'  // ✅ Phase 3: Smart routing
+import { MODELS } from './lib/models'  // ✅ Model constants
 import { generateRepositoryMap } from './repo-map-generator'  // ✅ Phase 1: For caching
+import { needsJsxSanitization } from './lib/jsx-sanitizer'  // ✅ JSX sanitizer
 import * as fs from 'fs'
 import * as path from 'path'
 
@@ -127,7 +129,11 @@ export async function generateWithValidation(
   await preScaffoldImports(prompt, projectRoot);
   
   // ✅ Phase 2: Check semantic cache BEFORE generating (STRICT MATCHING)
-  const errorAnalysis = classifyError(prompt) // Extract error type for cache lookup
+  // ✅ Pass filePath for better classification (even if prompt doesn't contain it)
+  const errorAnalysis = classifyError({
+    filePath: targetFile,
+    message: prompt
+  }) // Extract error type for cache lookup
   const cached = await semanticCache.get(prompt, targetFile, errorAnalysis.errorCode)
   
   if (cached.hit && cached.response) {
@@ -156,7 +162,30 @@ export async function generateWithValidation(
   let currentPrompt = prompt
   let attempts = 0
   let previousErrorCount = Infinity  // 📉 DYNAMIC MOMENTUM: Track error count
-  const MAX_TOTAL_LOOPS = 10  // 🛡️ Safety brake to prevent infinite loops
+  let forcedNextModel: string | null = null;  // ✅ 2C: For provider termination handling
+  
+  // ✅ 2B: Fail-fast för lib-filer (långsiktigt billig + stabil)
+  const normalizedTargetFile = targetFile.replace(/\\/g, '/');
+  const isLibFile = normalizedTargetFile.includes('/src/lib/') || normalizedTargetFile.includes('/lib/');
+  const MAX_TOTAL_LOOPS = isLibFile ? 2 : 10;  // ✅ Fail-fast för lib (2 attempts max)
+  
+  // ✅ LAYER 1: NO-JSX GUARD - Prevent JSX in lib files from the start
+  
+  const NO_JSX_GUARD = `
+🚫 ABSOLUTE RULES (MUST FOLLOW):
+- This file is a pure TypeScript library module. NO JSX/TSX.
+- Do NOT write React components. Do NOT use <div>, <Component>, fragments, or any tag-like syntax.
+- Do NOT import React.
+- Output valid TypeScript only.
+- If you need UI, it belongs in /src/components or /src/app, not /src/lib.
+- Return plain objects, strings, numbers, or functions - NOT JSX elements.
+`;
+
+  // Prepend NO-JSX guard if this is a lib file
+  if (isLibFile) {
+    currentPrompt = `${NO_JSX_GUARD}\n\n${currentPrompt}`;
+    console.log(`🚫 [NO-JSX GUARD] Applied strict no-JSX rules for lib file: ${targetFile}`);
+  }
   
   console.log(`🔄 Starting multi-pass generation for ${targetFile}`)
   console.log(`   Max attempts: ${maxAttempts}`)
@@ -166,37 +195,109 @@ export async function generateWithValidation(
     console.log(`\n📝 Generation attempt ${attempts}/${MAX_TOTAL_LOOPS}`)
     
     try {
-      // ✅ Phase 3: Smart model routing based on complexity
-      const complexity = estimateComplexity(currentPrompt, 1) // Single file for now
-      const modelConfig = selectOptimalModel(errorAnalysis.errorCode, complexity, attempts)
-      const modelName = getModelName(modelConfig)
+      // ✅ Re-apply NO-JSX guard if REMOVE_JSX strategy is active
+      let promptToUse = currentPrompt;
       
-      console.log(`🤖 [ROUTING] Using ${modelName} (${modelConfig.provider}) for ${complexity} task (attempt ${attempts})`)
-      console.log(`   💰 Cost: $${modelConfig.inputCost}/M input, $${modelConfig.outputCost}/M output`)
+      if (attempts > 1) {
+        // Check if we're in REMOVE_JSX mode (from previous validation)
+        const lastValidation = await validateCodeStrict('', targetFile, projectRoot).catch(() => null);
+        if (lastValidation?.fixStrategy === 'REMOVE_JSX' || isLibFile) {
+          promptToUse = `${NO_JSX_GUARD}\n\n${currentPrompt}`;
+        }
+      }
       
-      // ✅ Phase 1: Use prompt caching with cacheable blocks
+      // ✅ 2B: Determine task kind and route model accordingly
+      const strategy = errorAnalysis.fixStrategy || '';
+      const taskKind =
+        strategy === "REMOVE_JSX" ||
+        strategy === "JSON_REPAIR" ||
+        strategy === "IMPORT_FIX" ||
+        strategy === "PATCH" ||
+        strategy === "VALIDATION_REPAIR" ||
+        strategy === "SANITIZE"
+          ? "repair"
+          : inferTaskKindFromFile(targetFile);
+      
+      // Use forced model if set (from provider termination), otherwise route normally
+      const modelName = forcedNextModel || routeModel({
+        task: taskKind,
+        phase: "coder",
+        filePath: targetFile,
+        reason: strategy || undefined,
+      });
+      
+      console.log(`🤖 [ROUTING] Using ${modelName} for ${taskKind} task (attempt ${attempts}/${MAX_TOTAL_LOOPS})`)
+      if (forcedNextModel) {
+        console.log(`   ⚠️ Forced to ${modelName} due to provider termination`);
+      }
+      
+      // ✅ Phase 1: Use prompt caching with cacheable blocks (only for Claude)
       const cacheableBlocks = [
         { type: 'text' as const, text: MULTI_PASS_SYSTEM_PROMPT },
         { type: 'text' as const, text: `# Repository Map\n\n${repoMap}` },
         { type: 'text' as const, text: `# Codebase Context\n\n${codebaseContext}` }
       ]
       
-      // Generate code with caching
+      // ✅ OUTPUT FORMAT (STRICT) - Inject target file path
+      const relPath = targetFile.replace(/\\/g, '/'); // Normalize path
+      const OUTPUT_FORMAT_STRICT = `
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OUTPUT FORMAT (STRICT):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Return EXACTLY one file using this wrapper:
+
+\`\`\`typescript
+// FILE: ${relPath}
+<full file content>
+\`\`\`
+
+Rules:
+- No other text before/after.
+- No markdown headings.
+- No explanations.
+- Start with \`\`\`typescript and end with \`\`\`.
+- The file path comment is optional but helpful.
+
+Alternative formats (also accepted):
+- [FILE: ${relPath}]
+<full file content>
+
+- ### FILE: ${relPath}
+<full file content>
+`;
+
+      // Prepend OUTPUT FORMAT to user prompt
+      const finalPrompt = `${OUTPUT_FORMAT_STRICT}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n${promptToUse}`;
+      
+      // Generate code with caching (callAI determines provider from model name)
       const code = await callAI({
         pipelineId,
         step,
         role: 'CODER',
         model: modelName,
         messages: [
-          { role: 'user', content: currentPrompt }
+          { role: 'user', content: finalPrompt }
         ],
-        cacheableBlocks: modelName.startsWith('claude') ? cacheableBlocks : undefined  // Only Claude supports caching
+        cacheableBlocks: modelName.includes('claude') ? cacheableBlocks : undefined  // Only Claude supports caching
       })
       
       console.log(`   Generated ${code?.length || 0} characters`)
       
+      // ✅ LAYER 2: JSX Post-processor for .ts lib files (auto-sanitize, not retry loop)
+      let finalCode = code || '';
+      if (needsJsxSanitization(targetFile, finalCode)) {
+        console.log(`🔧 [JSX SANITIZER] Detected JSX in .ts lib file. Sanitizing...`);
+        const { sanitizeJsxFromTs } = await import('./lib/jsx-sanitizer');
+        const sanitized = sanitizeJsxFromTs(finalCode, targetFile);
+        if (sanitized.changed) {
+          finalCode = sanitized.sanitized;
+          console.log(`   ✅ JSX sanitized: ${sanitized.warnings.join(', ')}`);
+        }
+      }
+      
       // CRITICAL: Validate BEFORE saving (defensive: ensure code exists)
-      const validation = await validateCodeStrict(code || '', targetFile, projectRoot)
+      const validation = await validateCodeStrict(finalCode || '', targetFile, projectRoot)
       
       // ═══════════════════════════════════════════════════════════════════
       // 🔧 CRITICAL FIX: Don't retry config files if they're syntactically valid
@@ -231,6 +332,64 @@ export async function generateWithValidation(
           validation.errors.forEach((err, idx) => {
             console.log(`      ${idx + 1}. ${err}`)
           })
+          
+          // ✅ LAYER 3: Auto-create stubs for missing imports (prevents blocking)
+          const importErrors = validation.errors.filter((e: string) => 
+            e.includes('Import not found') || e.includes('Cannot find module')
+          );
+          if (importErrors.length > 0) {
+            console.log(`   🔧 [AUTO-STUB] Detected ${importErrors.length} missing import(s). Creating stubs...`);
+            const { autoCreateStubsForMissingImports } = await import('./lib/auto-stub-generator');
+            await autoCreateStubsForMissingImports(importErrors, projectRoot);
+            
+            // Re-validate after stub creation
+            const revalidation = await validateCodeStrict(finalCode || '', targetFile, projectRoot);
+            if (revalidation.valid) {
+              console.log(`   ✅ Validation passed after stub creation`);
+              // Continue with success path below
+              return {
+                success: true,
+                code: finalCode,
+                attempts: attempts,
+                issues: []
+              };
+            }
+          }
+        }
+        
+        // ✅ LONG-TERM FIX: Check for REMOVE_JSX strategy
+        const hasJsxError = validation.errors?.some((e: string) => 
+          e.includes('JSX syntax detected') && e.includes('lib/')
+        );
+        const fixStrategy = validation.fixStrategy || (hasJsxError ? 'REMOVE_JSX' : undefined);
+        
+        if (fixStrategy === 'REMOVE_JSX' || isLibFile) {
+          console.log(`   🔧 REMOVE_JSX strategy: Rewriting as pure TypeScript (no JSX)`);
+          // ✅ Apply NO-JSX guard + specific REMOVE_JSX instructions
+          currentPrompt = `${NO_JSX_GUARD}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️ CRITICAL FIX REQUIRED:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The file ${targetFile} is in src/lib/ and MUST be pure TypeScript (.ts).
+JSX syntax was detected, but rename to .tsx is FORBIDDEN for lib files.
+
+REQUIRED ACTION:
+- Remove ALL JSX syntax (<tags>, React components, JSX returns)
+- Rewrite as pure TypeScript functions/utilities
+- Keep the same functionality but use plain TypeScript
+- NO React components, NO JSX, NO <tags>
+
+Example:
+❌ BAD: return <div>Hello</div>;
+✅ GOOD: return { message: "Hello" };
+
+Current errors:
+${validation.errors?.map((e: string) => `- ${e}`).join('\n') || 'JSX detected in .ts file'}
+
+Rewrite the code as pure TypeScript with NO JSX.`;
+          continue; // Try again with REMOVE_JSX prompt + NO-JSX guard
         }
         
         // ═══════════════════════════════════════════════════════════════════
@@ -335,8 +494,13 @@ export async function generateWithValidation(
       // SUCCESS!
       console.log(`   ✅ Code validated successfully!`)
       
-      // ✅ Phase 2: Cache successful generation (with file path for strict matching)
-      await semanticCache.set(prompt, targetFile, code, errorAnalysis.errorCode)
+      // ✅ LONG-TERM FIX: Only cache AFTER validation passes
+      // This prevents caching bad code (like JSX in .ts files)
+      if (validation.valid && code) {
+        await semanticCache.set(prompt, targetFile, code, errorAnalysis.errorCode, true) // ✅ isValidated = true
+      } else {
+        console.warn(`   ⚠️ Skipping cache (validation failed or no code)`);
+      }
       
       // Log warnings if any
       if (Array.isArray(validation.warnings) && validation.warnings.length > 0) {
@@ -355,7 +519,11 @@ export async function generateWithValidation(
       console.error(`   ❌ Generation error:`, error.message)
       
       // Classify error to decide if we should retry
-      const analysis = classifyError(error.message)
+      // ✅ Pass filePath when available for better classification
+      const analysis = classifyError({
+        filePath: targetFile,
+        message: error.message
+      })
       
       if (analysis.fixStrategy === 'STOP') {
         console.log(`   🛑 Fatal error detected, stopping`)

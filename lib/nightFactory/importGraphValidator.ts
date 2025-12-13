@@ -152,8 +152,8 @@ function resolveImportPath(
     const relativePath = importPath.slice(2);
     const fullPath = path.join(srcPath, relativePath);
     
-    // Try extensions
-    const extensions = ['', '.ts', '.tsx', '.js', '.jsx', '/index.ts', '/index.tsx'];
+    // Try extensions (prefer .tsx over .ts for evolution)
+    const extensions = ['', '.tsx', '.ts', '.jsx', '.js', '/index.tsx', '/index.ts'];
     for (const ext of extensions) {
       const testPath = fullPath + ext;
       if (fs.existsSync(testPath)) {
@@ -168,8 +168,8 @@ function resolveImportPath(
     const currentDir = path.dirname(currentFile);
     const resolved = path.resolve(currentDir, importPath);
     
-    // Try extensions
-    const extensions = ['', '.ts', '.tsx', '.js', '.jsx', '/index.ts', '/index.tsx'];
+    // Try extensions (prefer .tsx over .ts for evolution)
+    const extensions = ['', '.tsx', '.ts', '.jsx', '.js', '/index.tsx', '/index.ts'];
     for (const ext of extensions) {
       const testPath = resolved + ext;
       if (fs.existsSync(testPath)) {
@@ -208,17 +208,42 @@ function buildExportMap(projectPath: string): Map<string, ExportInfo> {
         scanDirectory(fullPath);
       } else if (entry.name.match(/\.(tsx?|jsx?)$/)) {
         const exports = extractExportsFromFile(fullPath);
-        exportMap.set(fullPath, exports);
-        
-        // Also store without extension for lookup
         const withoutExt = fullPath.replace(/\.(tsx?|jsx?)$/, '');
-        exportMap.set(withoutExt, exports);
+        
+        // 🎯 PRIORITY: Prefer .tsx over .ts when both exist (evolution takes precedence)
+        const existingEntry = exportMap.get(withoutExt);
+        const isTsx = fullPath.endsWith('.tsx');
+        const existingIsTsx = existingEntry?.file.endsWith('.tsx') || false;
+        
+        if (!existingEntry) {
+          // No existing entry, add it
+          exportMap.set(fullPath, exports);
+          exportMap.set(withoutExt, exports);
+        } else if (isTsx && !existingIsTsx) {
+          // New .tsx file takes precedence over old .ts file
+          exportMap.set(fullPath, exports);
+          exportMap.set(withoutExt, exports);
+        } else if (!isTsx && existingIsTsx) {
+          // Old .ts file, but .tsx already exists - skip (don't overwrite)
+          // Still store the full path entry for reference
+          exportMap.set(fullPath, exports);
+          // Don't update withoutExt or alias - keep the .tsx version
+        } else {
+          // Same priority or both .tsx/.ts - update normally
+          exportMap.set(fullPath, exports);
+          exportMap.set(withoutExt, exports);
+        }
         
         // Store as @/ alias if in src/
         if (fullPath.includes(path.join(projectPath, 'src'))) {
           const relativePath = path.relative(path.join(projectPath, 'src'), fullPath);
           const aliasPath = '@/' + relativePath.replace(/\.(tsx?|jsx?)$/, '').replace(/\\/g, '/');
-          exportMap.set(aliasPath, exports);
+          // Only set alias if this is the preferred file (.tsx) or no .tsx exists
+          const existingAlias = exportMap.get(aliasPath);
+          const aliasIsTsx = existingAlias?.file.endsWith('.tsx') || false;
+          if (!existingAlias || (isTsx && !aliasIsTsx)) {
+            exportMap.set(aliasPath, exports);
+          }
         }
       }
     }

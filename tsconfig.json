@@ -17,7 +17,7 @@
     "noUncheckedIndexedAccess": true,
     "verbatimModuleSyntax": true,
     "esModuleInterop": true,
-    "resolveJsonModule": false,
+    "resolveJsonModule": true,
     "isolatedModules": true,
     "baseUrl": ".",
     "paths": {

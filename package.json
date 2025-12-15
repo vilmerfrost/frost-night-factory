@@ -18,7 +18,11 @@
     "validate-layout-contracts": "npx tsx scripts/validate-layout-contracts.ts",
     "v90:test-fortress": "npx tsx scripts/v90-test-fortress.ts",
     "generate-fortress": "npx tsx scripts/generate-fortress.ts",
-    "generate-domain-types": "npx tsx scripts/generate-domain-types.ts"
+    "generate-domain-types": "npx tsx scripts/generate-domain-types.ts",
+    "coder:ultimate": "tsx agent-runner/scripts/ultimate-coder-debug.ts",
+    "coder:ultimate:selftest": "tsx agent-runner/scripts/ultimate-coder-debug.selftest.ts",
+    "coder:ultimate:strict": "tsx agent-runner/scripts/ultimate-coder-debug.ts --corpus agent-runner/test-corpus/corpus --out ./.coder-regression --checks strict --health-strict",
+    "coder:materialize-corpus": "tsx agent-runner/scripts/materialize-corpus.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",

@@ -3,7 +3,7 @@
       "target": "ES2022",
       "lib": ["ES2022"],
       "module": "esnext",
-      "moduleResolution": "Bundler",
+      "moduleResolution": "bundler",
       "types": ["node"],
       "strict": true,
       "skipLibCheck": true,

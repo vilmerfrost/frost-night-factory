@@ -1592,6 +1592,120 @@ async function getStep(pipelineId: string, stepName: string) {
 // ✅ Info Transporter functions moved to ./src/info-transporter.ts
 // All functions now use proper JSON.stringify() - never template literals for JSON
 
+// ✅ POST-MORTEM DEBUG: Extract text from any model result format
+function extractTextFromModelResult(res: any): string {
+  if (!res) return "";
+  if (typeof res === "string") return res;
+
+  // OpenAI-ish
+  const oa = res?.choices?.[0]?.message?.content;
+  if (typeof oa === "string") return oa;
+
+  // Anthropic-ish
+  if (Array.isArray(res?.content)) {
+    const parts = res.content
+      .map((x: any) => (typeof x?.text === "string" ? x.text : ""))
+      .filter(Boolean);
+    if (parts.length) return parts.join("\n");
+  }
+
+  if (typeof res?.text === "string") return res.text;
+  if (typeof res?.content === "string") return res.content;
+
+  return "";
+}
+
+// ✅ POST-MORTEM DEBUG: Safe JSON serialization with size limit
+function safeJson(obj: any, maxChars = 300_000) {
+  try {
+    const s = JSON.stringify(obj);
+    return s.length <= maxChars ? obj : { truncated: true, json: s.slice(0, maxChars) };
+  } catch {
+    return { unserializable: true };
+  }
+}
+
+// ✅ PLAN-ONLY DETECTION & MATERIALIZATION
+function tryParseJSON(s: string) {
+  try { return JSON.parse(s); } catch { return null; }
+}
+
+function isPlanOnly(obj: any): boolean {
+  const plan = obj?.fileStructurePlan;
+  if (!plan?.files || !Array.isArray(plan.files)) return false;
+  return !plan.files.some((f: any) => typeof f?.content === "string" && f.content.trim().length > 0);
+}
+
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+function extractJsonLoose(text: string): any {
+  const t = text.trim().replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
+  try { return JSON.parse(t); } catch {}
+  const i = t.indexOf("{");
+  const j = t.lastIndexOf("}");
+  if (i >= 0 && j > i) return JSON.parse(t.slice(i, j + 1));
+  throw new Error("Could not parse JSON from model response");
+}
+
+async function materializePlanToFilesJSON(args: {
+  callAI: typeof callAI;
+  plan: any;
+  pipelineId: string;
+  stepId: string;
+}): Promise<{ files: Array<{ path: string; content: string }> }> {
+  const files = args.plan.files as any[];
+  const chunks = chunk(files, 4);
+
+  const all: { path: string; content: string }[] = [];
+
+  for (const group of chunks) {
+    const prompt = `
+You are a CODE MATERIALIZER.
+
+Input is a file plan. Generate FULL FILE CONTENT for ONLY the files provided.
+Return STRICT JSON ONLY:
+{"files":[{"path":"...","content":"..."}]}
+
+Rules:
+- Do not invent extra files.
+- Do not omit any requested file.
+- Use Next.js App Router + TS + Tailwind.
+- route.ts must NOT contain JSX.
+- Output JSON only (no markdown).
+
+FILES_TO_GENERATE (plan snippets):
+${JSON.stringify(group, null, 2)}
+`.trim();
+
+    const resp = await args.callAI({ 
+      pipelineId: args.pipelineId,
+      step: 'coder',
+      role: 'CODER',
+      model: process.env.CODER_MATERIALIZE_MODEL || selectModel('CODER'),
+      messages: [{ role: 'user', content: prompt }]
+    });
+    const obj = extractJsonLoose(resp);
+
+    const outFiles = obj?.files;
+    if (!Array.isArray(outFiles) || outFiles.length === 0) {
+      throw new Error("Materializer returned no files");
+    }
+
+    for (const f of outFiles) {
+      if (typeof f?.path !== "string" || typeof f?.content !== "string") {
+        throw new Error("Materializer file schema invalid");
+      }
+      all.push({ path: f.path, content: f.content });
+    }
+  }
+
+  return { files: all };
+}
+
 // Helper: Rekursivt hämta alla filer i en mapp
 function getAllFiles(dirPath: string): string[] {
   const files: string[] = [];
@@ -3969,7 +4083,8 @@ async function runCoderStep(pipeline: any, repoPath: string, context?: any) {
   }
 
   await updatePipeline(pipeline.id, { current_phase: 'coder' });
-  await createStep(pipeline.id, 'coder', 'running');
+  const coderStep = await createStep(pipeline.id, 'coder', 'running');
+  const coderStepId = coderStep.id;
 
   // ✅ P0: Ensure critical files exist BEFORE any file generation
   const { ensureCriticalFiles } = await import("./lib/workspace/critical-files");
@@ -4243,7 +4358,21 @@ CRITICAL FILE NAMING RULES:
   const STRICT_OUTPUT_FORMAT = `
 🚨 CRITICAL OUTPUT FORMAT - YOU MUST FOLLOW THIS EXACTLY 🚨
 
-You MUST wrap each file like this (exact format):
+PRIMARY OUTPUT FORMAT (REQUIRED):
+Return ONLY valid JSON with this exact structure:
+{"files":[{"path":"src/app/page.tsx","content":"..."},{"path":"src/lib/types.ts","content":"..."}]}
+
+RULES:
+- Return ONLY JSON (no markdown, no code fences, no explanations)
+- Every file MUST have both "path" and "content" fields
+- Content MUST be complete, working code (minimum 20 characters per file)
+- Do NOT return plan-only output (fileStructurePlan without content)
+- Do NOT return markdown format
+- Do NOT return code fences
+- Output must be parseable JSON
+
+FALLBACK FORMAT (only if JSON is impossible):
+If you absolutely cannot return JSON, use this format:
 
 ### FILE: src/app/page.tsx
 [code here]
@@ -4251,14 +4380,7 @@ You MUST wrap each file like this (exact format):
 ### FILE: src/lib/types.ts
 [code here]
 
-RULES:
-- Start with exactly "### FILE: " (three hashes, space, FILE:, space)
-- Use forward slashes in paths (not backslashes)
-- One file per marker
-- No extra markdown around the code
-- Do NOT use FILE: without ###
-- Do NOT use **FILE**: or // FILE:
-- Always use the exact format: ### FILE: [path]
+But JSON format is STRONGLY PREFERRED.
 `;
 
   const EXPORT_RULE = `
@@ -5028,7 +5150,80 @@ PRIORITY: Visual accuracy to the reference image > Generic design rules.
           { role: 'user', content: fePrompt }
         ]
       });
-      const feFilesCreated = await parseAndWriteFiles(feCode, repoPath, pipeline.id);
+      
+      // ✅ POST-MORTEM DEBUG: Save raw output immediately after LLM call (before parsing/validation)
+      // Note: callAI() already persists raw output internally, but we also save here as backup
+      try {
+        const rawText = extractTextFromModelResult(feCode); // feCode is already extracted text from callAI
+        const truncatedText = rawText.length > 1_500_000 
+          ? rawText.slice(0, 1_500_000) + "\n/* TRUNCATED */\n" 
+          : rawText;
+        
+        await supabase
+          .from('pipeline_steps')
+          .update({
+            raw_output_text: truncatedText,
+            raw_output_json: safeJson({
+              provider: 'claude',
+              model: selectModel('CODER'),
+              finished_at: new Date().toISOString(),
+              phase: 'frontend',
+              extracted_text: feCode.substring(0, 1000), // Sample of extracted text
+            }),
+          })
+          .eq('id', coderStepId);
+      } catch (saveError: any) {
+        console.warn(`⚠️ Failed to save raw_output_text (non-fatal): ${saveError?.message}`);
+      }
+      
+      // ✅ PLAN-ONLY DETECTION & AUTO-MATERIALIZATION
+      let finalFeCode = feCode;
+      const feObj = tryParseJSON(feCode);
+      if (feObj && isPlanOnly(feObj)) {
+        console.log("🔧 [Materializer] Detected plan-only output for frontend, materializing...");
+        try {
+          const plan = feObj.fileStructurePlan;
+          const materialized = await materializePlanToFilesJSON({ 
+            callAI, 
+            plan,
+            pipelineId: pipeline.id,
+            stepId: coderStepId
+          });
+
+          // ✅ GUARD A: Ensure materialization returned files
+          if (!materialized.files || materialized.files.length === 0) {
+            throw new Error("materialize-returned-no-files: Materializer returned 0 files");
+          }
+
+          // ✅ GUARD B: Ensure all files have valid content (minimum 20 chars)
+          for (const file of materialized.files) {
+            if (!file.content || typeof file.content !== "string" || file.content.trim().length < 20) {
+              throw new Error(`materialize-empty-content: File ${file.path} has invalid or too short content (${file.content?.length ?? 0} chars, minimum 20)`);
+            }
+          }
+
+          const finalOutput = {
+            ...feObj,
+            files: materialized.files,
+            materialized_at: new Date().toISOString(),
+          };
+
+          finalFeCode = JSON.stringify(finalOutput, null, 2);
+
+          // Save materialized output
+          await supabase.from("pipeline_steps").update({
+            output: finalOutput,
+            raw_output_text: finalFeCode,
+          }).eq("id", coderStepId);
+
+          console.log(`✅ [Materializer] Materialized ${materialized.files.length} files from plan`);
+        } catch (matError: any) {
+          console.error(`❌ [Materializer] Failed to materialize plan: ${matError?.message}`);
+          throw new Error(`Plan-only output detected but materialization failed: ${matError?.message}`);
+        }
+      }
+      
+      const feFilesCreated = await parseAndWriteFiles(finalFeCode, repoPath, pipeline.id);
       console.log(`✅ Frontend Phase Complete: ${feFilesCreated} files created.`);
 
       // STEG B: Backend (Backend Router - Välj modell baserat på språk)
@@ -5135,7 +5330,80 @@ ${STRICT_OUTPUT_FORMAT}
           { role: 'user', content: bePrompt }
         ]
       });
-      const beFilesCreated = await parseAndWriteFiles(beCode, repoPath, pipeline.id);
+      
+      // ✅ POST-MORTEM DEBUG: Save raw output immediately after LLM call (before parsing/validation)
+      // Note: callAI() already persists raw output internally, but we also save here as backup
+      try {
+        const rawText = extractTextFromModelResult(beCode); // beCode is already extracted text from callAI
+        const truncatedText = rawText.length > 1_500_000 
+          ? rawText.slice(0, 1_500_000) + "\n/* TRUNCATED */\n" 
+          : rawText;
+        
+        await supabase
+          .from('pipeline_steps')
+          .update({
+            raw_output_text: truncatedText,
+            raw_output_json: safeJson({
+              provider: 'claude',
+              model: selectModel('CODER'),
+              finished_at: new Date().toISOString(),
+              phase: 'backend',
+              extracted_text: beCode.substring(0, 1000), // Sample of extracted text
+            }),
+          })
+          .eq('id', coderStepId);
+      } catch (saveError: any) {
+        console.warn(`⚠️ Failed to save raw_output_text for backend (non-fatal): ${saveError?.message}`);
+      }
+      
+      // ✅ PLAN-ONLY DETECTION & AUTO-MATERIALIZATION
+      let finalBeCode = beCode;
+      const beObj = tryParseJSON(beCode);
+      if (beObj && isPlanOnly(beObj)) {
+        console.log("🔧 [Materializer] Detected plan-only output for backend, materializing...");
+        try {
+          const plan = beObj.fileStructurePlan;
+          const materialized = await materializePlanToFilesJSON({ 
+            callAI, 
+            plan,
+            pipelineId: pipeline.id,
+            stepId: coderStepId
+          });
+
+          // ✅ GUARD A: Ensure materialization returned files
+          if (!materialized.files || materialized.files.length === 0) {
+            throw new Error("materialize-returned-no-files: Materializer returned 0 files");
+          }
+
+          // ✅ GUARD B: Ensure all files have valid content (minimum 20 chars)
+          for (const file of materialized.files) {
+            if (!file.content || typeof file.content !== "string" || file.content.trim().length < 20) {
+              throw new Error(`materialize-empty-content: File ${file.path} has invalid or too short content (${file.content?.length ?? 0} chars, minimum 20)`);
+            }
+          }
+
+          const finalOutput = {
+            ...beObj,
+            files: materialized.files,
+            materialized_at: new Date().toISOString(),
+          };
+
+          finalBeCode = JSON.stringify(finalOutput, null, 2);
+
+          // Save materialized output
+          await supabase.from("pipeline_steps").update({
+            output: finalOutput,
+            raw_output_text: finalBeCode,
+          }).eq("id", coderStepId);
+
+          console.log(`✅ [Materializer] Materialized ${materialized.files.length} files from plan`);
+        } catch (matError: any) {
+          console.error(`❌ [Materializer] Failed to materialize plan: ${matError?.message}`);
+          throw new Error(`Plan-only output detected but materialization failed: ${matError?.message}`);
+        }
+      }
+      
+      const beFilesCreated = await parseAndWriteFiles(finalBeCode, repoPath, pipeline.id);
       console.log(`✅ Backend Phase Complete: ${beFilesCreated} files created.`);
       
       // 🔗 INTEGRATION AGENT: Sync backend types to frontend
@@ -5567,6 +5835,31 @@ Only fix the files that have issues. Keep everything else unchanged.
             
             // Använd DeepSeek V3 för fixes (billigt och snabbt)
             rawOutput = await generateDeepSeekCoder(`${systemContext}\n\n${fixPrompt}`);
+            
+            // ✅ POST-MORTEM DEBUG: Save raw output immediately after LLM call (before parsing/validation)
+            try {
+              const rawText = extractTextFromModelResult(rawOutput); // rawOutput is already extracted text from generateDeepSeekCoder
+              const truncatedText = rawText.length > 1_500_000 
+                ? rawText.slice(0, 1_500_000) + "\n/* TRUNCATED */\n" 
+                : rawText;
+              
+              await supabase
+                .from('pipeline_steps')
+                .update({
+                  raw_output_text: truncatedText,
+                  raw_output_json: safeJson({
+                    provider: 'deepseek',
+                    model: 'deepseek-chat',
+                    finished_at: new Date().toISOString(),
+                    is_fix: true,
+                    extracted_text: rawOutput.substring(0, 1000), // Sample of extracted text
+                  }),
+                })
+                .eq('id', coderStepId);
+            } catch (saveError: any) {
+              console.warn(`⚠️ Failed to save raw_output_text for fix (non-fatal): ${saveError?.message}`);
+            }
+            
             console.log("[Coder] ✅ DeepSeek V3 fix generation successful!");
             
             // Parsa och uppdatera filer igen - hantera både [FILE:] och ### FILE: format

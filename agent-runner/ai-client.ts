@@ -221,6 +221,81 @@ CRITICAL CODE STRUCTURE RULES:
    - Every component must render actual UI, not placeholders
 `;
 
+// ✅ POST-MORTEM DEBUG: Extract text from any model result format
+function extractTextFromModelResult(res: any): string {
+  if (!res) return "";
+  if (typeof res === "string") return res;
+
+  // OpenAI-ish
+  const oa = res?.choices?.[0]?.message?.content;
+  if (typeof oa === "string") return oa;
+
+  // Anthropic-ish
+  if (Array.isArray(res?.content)) {
+    const parts = res.content.map((x: any) => (typeof x?.text === "string" ? x.text : "")).filter(Boolean);
+    if (parts.length) return parts.join("\n");
+  }
+
+  // Generic
+  if (typeof res?.text === "string") return res.text;
+  if (typeof res?.content === "string") return res.content;
+
+  return "";
+}
+
+// ✅ POST-MORTEM DEBUG: Truncate string with max length
+function truncate(s: string, max = 1_500_000): string {
+  return s.length > max ? s.slice(0, max) + "\n/* TRUNCATED */\n" : s;
+}
+
+// ✅ POST-MORTEM DEBUG: Safe JSON serialization with size limit
+function safeJson(obj: any, maxChars = 300_000) {
+  try {
+    const s = JSON.stringify(obj);
+    return s.length <= maxChars ? obj : { truncated: true, json: s.slice(0, maxChars) };
+  } catch {
+    return { unserializable: true };
+  }
+}
+
+// ✅ POST-MORTEM DEBUG: Persist raw output to pipeline_steps
+async function persistRawOutput(
+  pipelineId: string,
+  step: string,
+  rawResult: any,
+  extractedText: string
+): Promise<void> {
+  try {
+    // Get the most recent step for this pipeline/step combination
+    const { data: stepData } = await supabase
+      .from('pipeline_steps')
+      .select('id')
+      .eq('pipeline_id', pipelineId)
+      .eq('name', step)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!stepData?.id) {
+      console.warn(`⚠️ [Post-Mortem] No step found for pipeline ${pipelineId}, step ${step} - skipping raw output save`);
+      return;
+    }
+
+    const rawText = truncate(extractedText);
+    
+    await supabase
+      .from('pipeline_steps')
+      .update({
+        raw_output_text: rawText,
+        raw_output_json: safeJson(rawResult),
+      })
+      .eq('id', stepData.id);
+  } catch (error: any) {
+    // Non-fatal: don't break the flow if persistence fails
+    console.warn(`⚠️ [Post-Mortem] Failed to persist raw output (non-fatal): ${error?.message}`);
+  }
+}
+
 export async function callAI(opts: AICallOptions): Promise<string> {
   const { pipelineId, step, role, model, messages, errorSignature, temperature = 0.7 } = opts
   
@@ -346,6 +421,11 @@ export async function callAI(opts: AICallOptions): Promise<string> {
       tokensIn = result.usage.input_tokens
       tokensOut = result.usage.output_tokens
       
+      // ✅ POST-MORTEM DEBUG: Persist raw output immediately after API call
+      if (role === 'CODER' || step === 'coder') {
+        await persistRawOutput(pipelineId, step, result, response);
+      }
+      
       // ✅ Phase 1: Extract cache metrics
       cacheWriteTokens = (result.usage as any).cache_creation_input_tokens || 0
       cacheReadTokens = (result.usage as any).cache_read_input_tokens || 0
@@ -378,6 +458,11 @@ export async function callAI(opts: AICallOptions): Promise<string> {
       tokensIn = result.usage?.prompt_tokens || 0
       tokensOut = result.usage?.completion_tokens || 0
       
+      // ✅ POST-MORTEM DEBUG: Persist raw output immediately after API call
+      if (role === 'CODER' || step === 'coder') {
+        await persistRawOutput(pipelineId, step, result, response);
+      }
+      
     } else if (safeModel.startsWith('llama') || safeModel.includes('groq') || safeModel.includes('llama-3')) {
       // ✅ Phase 3: Groq API
       const systemMessages = messages.filter(m => m.role === 'system').map(m => m.content)
@@ -407,6 +492,11 @@ export async function callAI(opts: AICallOptions): Promise<string> {
       tokensIn = result.usage?.prompt_tokens || 0
       tokensOut = result.usage?.completion_tokens || 0
       
+      // ✅ POST-MORTEM DEBUG: Persist raw output immediately after API call
+      if (role === 'CODER' || step === 'coder') {
+        await persistRawOutput(pipelineId, step, result, response);
+      }
+      
     } else if (safeModel.startsWith('deepseek')) {
       // ✅ Phase 3: DeepSeek API
       const systemMessages = messages.filter(m => m.role === 'system').map(m => m.content)
@@ -430,6 +520,11 @@ export async function callAI(opts: AICallOptions): Promise<string> {
       response = result.choices[0]?.message?.content || ''
       tokensIn = result.usage?.prompt_tokens || 0
       tokensOut = result.usage?.completion_tokens || 0
+      
+      // ✅ POST-MORTEM DEBUG: Persist raw output immediately after API call
+      if (role === 'CODER' || step === 'coder') {
+        await persistRawOutput(pipelineId, step, result, response);
+      }
       
     } else if (safeModel.includes('moonshot') || safeModel.includes('kimi')) {
       // ✅ Kimi K2 (Moonshot) API for research synthesis
@@ -504,9 +599,10 @@ export async function callAI(opts: AICallOptions): Promise<string> {
       tokensIn = result.usage?.prompt_tokens || 0
       tokensOut = result.usage?.completion_tokens || 0
       
-      response = result.choices[0]?.message?.content || ''
-      tokensIn = result.usage?.prompt_tokens || 0
-      tokensOut = result.usage?.completion_tokens || 0
+      // ✅ POST-MORTEM DEBUG: Persist raw output immediately after API call
+      if (role === 'CODER' || step === 'coder') {
+        await persistRawOutput(pipelineId, step, result, response);
+      }
       
     } else if (safeModel.includes('gemini') || safeModel.startsWith('gemini-')) {
       // ✅ Google Gemini API for repair/debug tasks
@@ -553,6 +649,11 @@ export async function callAI(opts: AICallOptions): Promise<string> {
       // Gemini doesn't provide token usage in the same way, estimate based on response length
       tokensIn = Math.ceil(fullPrompt.length / 4) // Rough estimate: 4 chars per token
       tokensOut = Math.ceil(response.length / 4)
+      
+      // ✅ POST-MORTEM DEBUG: Persist raw output immediately after API call
+      if (role === 'CODER' || step === 'coder') {
+        await persistRawOutput(pipelineId, step, result, response);
+      }
       
     } else {
       throw new Error(`Unknown model: ${safeModel}`)

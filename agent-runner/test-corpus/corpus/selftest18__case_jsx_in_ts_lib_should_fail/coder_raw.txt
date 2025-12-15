@@ -1,0 +1,3 @@
+```ts file="lib/types.ts"
+export const X = () => <div/>;
+```

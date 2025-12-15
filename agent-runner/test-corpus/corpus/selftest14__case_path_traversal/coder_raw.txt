@@ -1,0 +1,3 @@
+```ts file="../evil.ts"
+console.log('nope')
+```

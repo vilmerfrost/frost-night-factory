@@ -1,0 +1,10 @@
+[
+  {
+    "filePath": "app/page.tsx",
+    "content": "export default function Page(){ return <div>Hello</div>; }\n"
+  },
+  {
+    "filePath": "app/layout.tsx",
+    "content": "export default function Layout({children}:{children:any}){ return <div>{children}</div>; }\n"
+  }
+]

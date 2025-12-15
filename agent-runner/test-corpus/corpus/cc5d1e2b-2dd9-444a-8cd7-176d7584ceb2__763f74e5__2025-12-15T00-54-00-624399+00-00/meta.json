@@ -1,0 +1,24 @@
+{
+  "caseId": "cc5d1e2b-2dd9-444a-8cd7-176d7584ceb2__763f74e5__2025-12-15T00-54-00-624399+00-00",
+  "pipeline": {
+    "id": "cc5d1e2b-2dd9-444a-8cd7-176d7584ceb2",
+    "name": "You are a senior full-stack developer building ...",
+    "status": "failed",
+    "current_phase": "coder",
+    "created_at": "2025-12-15T00:34:12.865584+00:00",
+    "updated_at": "2025-12-15T01:41:15.016+00:00",
+    "initial_prompt": "You are a senior full-stack developer building an MVP tool to read PDF invoices using Claude 4.5 Sonnet Vision. Requirements: Use TypeScript and Next.js (App Router) for frontend + API routes. Backend should call Anthropic Claude 4.5 Sonnet Vision API to parse PDF invoices. Input: one or more PDFs uploaded from frontend. Output from backend: strict JSON with fields from invoice. The JSON structure should look like this: { \"fileName\": \"string\", \"supplier_name\": \"string\", \"invoice_number\": \"string\", \"invoice_date\": \"string\", // ISO 8601 \"due_date\": \"string\", // ISO 8601 \"currency\": \"string\", \"total_excl_vat\": number, \"vat_amount\": number, \"total_incl_vat\": number, \"reference\": \"string\", \"line_items\": [ { \"description\": \"string\", \"quantity\": number, \"unit_price\": number, \"line_total\": number } ], \"raw_text\": \"string\", \"confidence\": number // 0–1, based on heuristics } The model must ALWAYS respond with valid JSON, no extra text. Build: A Next.js API route /api/invoice/extract that: Receives FormData with one or more PDF files. Converts each PDF to base64. Calls Claude Vision (Sonnet 4.5) with the right headers for PDF support. Precisely prompt the model so that it returns strict JSON. Returns an array of JSON objects according to the structure above. A simple Next.js page /invoices/upload that: Has drag-and-drop / file input for multiple PDFs. Shows \"loading\" while the API is running. Renders the result in a table + editable form (e.g. <input> per field). Keeps state in React (useState) so the user can adjust the JSON. Has a \"Save\" button that POSTs JSON to /api/invoice/save (mock it). Use best practices: fetch to API route from frontend. Type everything with TypeScript. Add simple error handling."
+  },
+  "coder_step": {
+    "id": "763f74e5-bc5b-4530-a631-3c0b799f9b0d",
+    "status": "running",
+    "created_at": "2025-12-15T00:54:00.624399+00:00",
+    "updated_at": "2025-12-15T01:33:37.619+00:00"
+  },
+  "planner_step": {
+    "id": "606f0245-dfde-45a7-9ddd-6b8f1e28b606",
+    "status": "completed",
+    "created_at": "2025-12-15T00:48:08.069518+00:00",
+    "updated_at": "2025-12-15T00:53:59.379+00:00"
+  }
+}

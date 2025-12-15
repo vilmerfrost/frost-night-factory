@@ -1,0 +1,3 @@
+```ts file="app/page.ts"
+export default function Page(){ return <div>Hi</div> }
+```

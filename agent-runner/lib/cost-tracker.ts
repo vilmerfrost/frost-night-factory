@@ -31,7 +31,7 @@ export class CostTracker {
   
   // Pricing as of Dec 2025 (per 1M tokens)
   private readonly pricing: Record<string, { input: number; output: number }> = {
-    'claude-sonnet-4-5': { input: 3.00, output: 15.00 },
+    'claude-sonnet-4-5': { input: 3.00, output: 15.00 }, // May 2025 - Fast + Smart
     'claude-3-5-sonnet-20241022': { input: 3.00, output: 15.00 },
     'gpt-4o': { input: 5.00, output: 15.00 },
     'gpt-4o-mini': { input: 0.15, output: 0.60 },
@@ -86,10 +86,10 @@ export class CostTracker {
   }
   
   private normalizeModelName(model: string): string {
-    // Normalize common model name variations
-    if (model.includes('claude') && model.includes('sonnet')) {
-      return 'claude-sonnet-4-5';
-    }
+      // Normalize common model name variations
+      if (model.includes('claude') && model.includes('sonnet')) {
+        return 'claude-sonnet-4-5'; // May 2025 - Fast + Smart
+      }
     if (model.includes('gpt-4o')) {
       return model.includes('mini') ? 'gpt-4o-mini' : 'gpt-4o';
     }
@@ -220,6 +220,56 @@ export class CostTracker {
       averageCostPerPipeline,
       mostExpensiveStep,
       totalPipelines: costs.length,
+    };
+  }
+
+  /**
+   * Get cost summary for a given number of days
+   * Alias for getCostSummary for compatibility
+   */
+  getSummary(days: number): {
+    totalCost: number;
+    byModel: Record<string, number>;
+    byStep: Record<string, number>;
+    averageDailyCost: number;
+  } {
+    return this.getCostSummary(days);
+  }
+
+  /**
+   * Get cost summary for a given number of days
+   */
+  getCostSummary(days: number): {
+    totalCost: number;
+    byModel: Record<string, number>;
+    byStep: Record<string, number>;
+    averageDailyCost: number;
+  } {
+    const costs = CostTracker.loadCosts();
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - days);
+    
+    const recentCosts = costs.filter(c => {
+      const costDate = new Date(c.timestamp);
+      return costDate >= cutoffDate;
+    });
+    
+    const totalCost = recentCosts.reduce((sum, c) => sum + c.totalCost, 0);
+    const byModel: Record<string, number> = {};
+    const byStep: Record<string, number> = {};
+    
+    recentCosts.forEach(pipeline => {
+      pipeline.breakdown.forEach(item => {
+        byModel[item.model] = (byModel[item.model] || 0) + item.cost;
+        byStep[item.step] = (byStep[item.step] || 0) + item.cost;
+      });
+    });
+    
+    return {
+      totalCost,
+      byModel,
+      byStep,
+      averageDailyCost: totalCost / days,
     };
   }
 }

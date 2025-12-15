@@ -1,0 +1,46 @@
+{
+    "compilerOptions": {
+      "target": "ES2022",
+      "lib": ["ES2022"],
+      "module": "esnext",
+      "moduleResolution": "Bundler",
+      "types": ["node"],
+      "strict": true,
+      "skipLibCheck": true,
+      "resolveJsonModule": true,
+      "esModuleInterop": true,
+      "allowSyntheticDefaultImports": true
+    },
+    "include": [
+      "./*.ts",
+      "./lib/**/*.ts",
+      "./src/**/*.ts",
+      "../lib/nightFactory/**/*.ts"
+    ],
+    "exclude": [
+      "node_modules",
+      "workspace",
+      "workspace/**",
+      "**/workspace/**",
+  
+      "**/*.test.ts",
+      "**/*.spec.ts",
+      "test-*.ts",
+  
+      "templates",
+      "templates/**",
+      "data",
+      "data/**",
+  
+      "lib/pact-tester.ts",
+      "lib/playwright-tester.ts",
+      "lib/integration-tester.ts",
+      "lib/build-artifacts.ts",
+      "lib/validator.ts",
+  
+      "../lib/nightFactory/public-api.ts",
+      "../lib/nightFactory/visualAudit.ts",
+      "../lib/nightFactory/vision-audit-system.ts"
+    ]
+  }
+  

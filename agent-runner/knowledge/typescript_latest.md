@@ -1,24 +1,28 @@
-**TypeScript coders MUST follow these rules for 2025 compliance, emphasizing type safety, advanced features, and strict configurations.**
+**TypeScript Coders MUST Follow These Rules (2025 Edition, TS 5.9+):**
 
-### Core Type Safety Rules
-- **Never use `any`**: Define explicit types or rely on inference; prefer `unknown` for unsafe inputs to enforce type guards.[1][6]
-- **Enable strict mode in `tsconfig.json`**: Set `"strict": true` (includes `noImplicitAny`, `strictNullChecks`, `strictFunctionTypes`) to catch errors at compile time.[4][7]
-- **Use type inference maximally**: Omit explicit types where context infers them accurately, reducing verbosity without sacrificing safety.[1]
-
-### Advanced Type System Features (MANDATORY for Reusability)
-- **Mapped types for transformations**: Convert properties, e.g., `type ReadOnly<T> = { readonly [K in keyof T]: T[K] };`.[1]
-- **Template literal types for strings**: Create dynamic unions, e.g., `type ColorCode = `${Color}-color`;` where `Color = "red" | "green" | "blue"`.[1]
-- **Conditional types for logic**: Implement checks like `type IsString<T> = T extends string ? "yes" : "no";`.[1]
-- **Avoid overcomplicating**: Use interfaces/type aliases for readability; limit type assertions to third-party libs.[6]
-
-### Configuration and Tooling Rules
-- **`tsconfig.json` must include**: `"noImplicitReturns": true`, `"noUncheckedIndexedAccess": true`, `"exactOptionalPropertyTypes": true` for 2025 strictness.[7]
-- **Generate docs automatically**: Use TypeDoc for API extraction from types/interfaces; integrate TSDoc for standardized comments.[1][3]
-- **Project structure**: Organize by feature (e.g., `src/components/`, `types/`); ensure PRs update types/docs.[1][6]
-
-### Integration and Performance Rules
-- **Framework hooks**: Type React props/hooks explicitly; leverage first-class TS support in React/Angular/Vue.[1]
-- **Functions**: Type parameters/returns; use rest params, overloading, and higher-order functions with generics.[5]
-- **Avoid pitfalls**: No improper overloads; use union/intersection types efficiently; structure projects consistently.[6]
-
-Violating these yields runtime errors and unmaintainable code—enforce via CI/CD type checks.[1][4]
+- **Enable strict mode in tsconfig.json**: Set `"strict": true` (includes `noImplicitAny`, `strictNullChecks`, `noImplicitReturns`); never disable for production[1][4][6].
+- **Ban `any` entirely**: Replace with `unknown` + type guards (e.g., `if (typeof x === 'string')`); use explicit interfaces/types for all params/returns[1][6].
+- **Rely on type inference**: Omit explicit types where context suffices (e.g., `const users = [{name: 'Alice'}]; // inferred User[]`); add only for clarity[1].
+- **Master advanced types**:
+  | Feature | Rule | Example |
+  |---------|------|---------|
+  | **Mapped Types** | Transform keys/values immutably | `type ReadonlyUser = { readonly [K in keyof User]: User[K] }`[1] |
+  | **Template Literals** | Build string unions dynamically | `type ColorCode = `${Color}-color`; // "red-color" \| "green-color"`[1] |
+  | **Conditional Types** | Distribute logic | `type IsString<T> = T extends string ? true : false`[1] |
+- **Structure projects modularly**: Use ES modules (`"module": "esnext"`); organize with `src/types/`, `src/components/`; avoid global namespaces[1][6].
+- **Type all React/Next.js props/hooks**: Define `interface Props { user: User }`; use `React.FC<Props>` or `function Component(props: Props)`; infer hooks where possible[1].
+- **Generate docs automatically**: Annotate with TSDoc (`/** @param x desc */`); run TypeDoc for HTML/MD output on every PR[1][3].
+- **Avoid type assertions (`as`) except third-party libs**: Prefer guards; never `as any`[6].
+- **Configure tsconfig optimally**:
+  ```json
+  {
+    "compilerOptions": {
+      "strict": true,
+      "noEmit": true,
+      "moduleResolution": "node16",
+      "verbatimModuleSyntax": true  // TS 5.9+: exact emit
+    }
+  }
+  ```
+  [4][8]
+- **Lint with ESLint + typescript-eslint**: Enforce `no-explicit-any`, `@typescript-eslint/prefer-unknown`; run pre-commit[1][6].

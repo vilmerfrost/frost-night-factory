@@ -1,47 +1,23 @@
 {
   "name": "frost-agent-runner",
   "version": "1.0.0",
-  "description": "Frost Night Factory Agent Runner - Runs on your local machine",
-  "main": "index.ts",
+  "private": true,
+  "type": "module",
   "scripts": {
-    "start": "tsx index.ts",
-    "watch": "tsx watcher.ts",
-    "dev": "tsx --watch watcher.ts",
-    "build": "tsc",
-    "run": "node dist/index.js",
-    "test:e2e": "playwright test",
-    "test:contracts": "tsx lib/pact-tester.ts",
-    "audit:performance": "tsx lib/performance-auditor.ts",
-    "costs:report": "tsx -e \"import { CostTracker } from './lib/cost-tracker'; const stats = CostTracker.getStatistics(); console.log('Total Spent:', '$' + stats.totalSpent.toFixed(2)); console.log('Avg Cost:', '$' + stats.averageCostPerPipeline.toFixed(4)); console.log('Total Pipelines:', stats.totalPipelines); console.log('Most Expensive Step:', stats.mostExpensiveStep);\"",
-    "playwright:install": "playwright install chromium",
-    "health-check": "tsx -e \"import('./lib/integration-tester').then(m => console.log('Integration tester loaded'))\"",
-    "test:kimi": "tsx ../scripts/test-kimi-api.ts",
-    "validate-syntax": "tsx ../scripts/validate-syntax.ts .",
-    "fix-imports": "tsx ../scripts/fix-imports.ts .",
-    "diagnose-syntax": "tsx ../scripts/diagnose-syntax.ts ."
+    "start": "tsx index.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",
-    "@supabase/auth-helpers-nextjs": "^0.15.0",
-    "@supabase/supabase-js": "^2.86.2",
-    "chalk": "^5.6.2",
-    "dotenv": "^16.6.1",
-    "glob": "^13.0.0",
-    "groq-sdk": "^0.3.0",
-    "jsonrepair": "^3.13.1",
-    "next": "^16.0.7",
-    "openai": "^6.9.1",
-    "postgres": "^3.4.7",
-    "puppeteer": "^24.31.0",
-    "react": "^19.2.1",
-    "wait-port": "^1.1.0",
-    "zod": "^4.1.13"
+    "@google/generative-ai": "^0.21.0",
+    "@supabase/supabase-js": "^2.39.7",
+    "dotenv": "^17.2.3",
+    "postgres": "^3.4.3",
+    "chalk": "^5.3.0",
+    "glob": "^11.0.0",
+    "typescript": "^5.4.2"
   },
   "devDependencies": {
-    "@types/crypto-js": "^4.2.2",
-    "@types/node": "^20.19.25",
-    "playwright": "^1.57.0",
-    "tsx": "^4.20.6",
-    "typescript": "^5"
+    "@types/node": "^20.11.24",
+    "tsx": "^4.20.6"
   }
 }

@@ -9,6 +9,7 @@ import * as path from 'path';
 
 export interface ImportValidation {
   file: string;
+  path?: string; // Alias for file (for compatibility)
   importPath: string;
   importedNames: string[];
   isValid: boolean;
@@ -26,7 +27,7 @@ export interface ValidationResult {
   valid: boolean;
   issues: ImportValidation[];
   exports: ExportInfo[];
-  fixes: { file: string; content: string }[];
+  fixes: { path: string; content: string }[];
 }
 
 /**
@@ -51,39 +52,53 @@ export function extractImportsFromCode(content: string): {
   const defaultImportRegex = /import\s+(\w+)\s+from\s+['"]([^'"]+)['"]/g;
   let match;
   while ((match = defaultImportRegex.exec(content)) !== null) {
-    imports.push({
-      path: match[2],
-      names: [match[1]],
-      isDefault: true,
-      isType: false,
-      fullStatement: match[0],
-    });
+    const name = match[1] ?? '';
+    const importPath = match[2] ?? '';
+    if (name && importPath) {
+      imports.push({
+        path: importPath,
+        names: [name],
+        isDefault: true,
+        isType: false,
+        fullStatement: match[0] ?? '',
+      });
+    }
   }
   
   // Match: import { X, Y } from 'path'
   const namedImportRegex = /import\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/g;
   while ((match = namedImportRegex.exec(content)) !== null) {
-    const names = match[1].split(',').map(n => n.trim().split(' as ')[0].trim()).filter(Boolean);
-    imports.push({
-      path: match[2],
-      names,
-      isDefault: false,
-      isType: match[0].includes('import type'),
-      fullStatement: match[0],
-    });
+    const namesStr = match[1] ?? '';
+    const importPath = match[2] ?? '';
+    const fullMatch = match[0] ?? '';
+    if (namesStr && importPath && fullMatch) {
+      const names = namesStr.split(',').map(n => (n.trim().split(' as ')[0] ?? '').trim()).filter(Boolean);
+      imports.push({
+        path: importPath,
+        names,
+        isDefault: false,
+        isType: fullMatch.includes('import type'),
+        fullStatement: fullMatch,
+      });
+    }
   }
   
   // Match: import type { X } from 'path'
   const typeImportRegex = /import\s+type\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/g;
   while ((match = typeImportRegex.exec(content)) !== null) {
-    const names = match[1].split(',').map(n => n.trim().split(' as ')[0].trim()).filter(Boolean);
-    imports.push({
-      path: match[2],
-      names,
-      isDefault: false,
-      isType: true,
-      fullStatement: match[0],
-    });
+    const namesStr = match[1] ?? '';
+    const importPath = match[2] ?? '';
+    const fullMatch = match[0] ?? '';
+    if (namesStr && importPath && fullMatch) {
+      const names = namesStr.split(',').map(n => (n.trim().split(' as ')[0] ?? '').trim()).filter(Boolean);
+      imports.push({
+        path: importPath,
+        names,
+        isDefault: false,
+        isType: true,
+        fullStatement: fullMatch,
+      });
+    }
   }
   
   return imports;
@@ -98,13 +113,13 @@ export function extractExportsFromCode(content: string): ExportInfo {
   
   // Match: export default function X
   const defaultFuncMatch = content.match(/export\s+default\s+function\s+(\w+)/);
-  if (defaultFuncMatch) {
+  if (defaultFuncMatch && defaultFuncMatch[1]) {
     defaultExport = defaultFuncMatch[1];
   }
   
   // Match: export default X
   const defaultMatch = content.match(/export\s+default\s+(\w+)/);
-  if (defaultMatch && !defaultExport) {
+  if (defaultMatch && defaultMatch[1] && !defaultExport) {
     defaultExport = defaultMatch[1];
   }
   
@@ -117,14 +132,20 @@ export function extractExportsFromCode(content: string): ExportInfo {
   const namedExportRegex = /export\s+(const|function|class|type|interface|enum)\s+(\w+)/g;
   let match;
   while ((match = namedExportRegex.exec(content)) !== null) {
-    namedExports.push(match[2]);
+    const name = match[2];
+    if (name) {
+      namedExports.push(name);
+    }
   }
   
   // Match: export { X, Y }
   const exportListRegex = /export\s+\{([^}]+)\}/g;
   while ((match = exportListRegex.exec(content)) !== null) {
-    const names = match[1].split(',').map(n => n.trim().split(' as ')[0].trim()).filter(Boolean);
-    namedExports.push(...names);
+    const namesStr = match[1] ?? '';
+    if (namesStr) {
+      const names = namesStr.split(',').map(n => (n.trim().split(' as ')[0] ?? '').trim()).filter(Boolean);
+      namedExports.push(...names);
+    }
   }
   
   return {
@@ -270,13 +291,14 @@ export function autoFixImportExportMismatches(
   for (const issue of issues) {
     if (!issue.suggestion) continue;
     
-    let content = fixedFiles.get(issue.file);
+    const key = issue.file ?? issue.path ?? "unknown.ts";
+    let content = fixedFiles.get(key);
     if (!content) continue;
     
     // Fix: Change default import to named import
     if (issue.issue?.includes('no default export') && issue.suggestion.includes('Use named import')) {
       const namedImportMatch = issue.suggestion.match(/import \{ (\w+) \} from/);
-      if (namedImportMatch) {
+      if (namedImportMatch && namedImportMatch[1] && issue.importedNames[0] && issue.importPath) {
         const oldImport = `import ${issue.importedNames[0]} from '${issue.importPath}'`;
         const newImport = `import { ${namedImportMatch[1]} } from '${issue.importPath}'`;
         content = content.replace(oldImport, newImport);
@@ -292,13 +314,14 @@ export function autoFixImportExportMismatches(
     // Fix: Change named import to default import
     if (issue.issue?.includes('not found in module exports') && issue.suggestion.includes('Use default import')) {
       const defaultName = issue.suggestion.match(/import (\w+) from/)?.[1];
-      if (defaultName) {
+      if (defaultName && issue.importedNames[0] && issue.importPath) {
         // Find the full import statement
+        const escapedPath = issue.importPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const namedImportRegex = new RegExp(
-          `import\\s+\\{[^}]*\\b${issue.importedNames[0]}\\b[^}]*\\}\\s+from\\s+['"]${issue.importPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['"]`
+          `import\\s+\\{[^}]*\\b${issue.importedNames[0]}\\b[^}]*\\}\\s+from\\s+['"]${escapedPath}['"]`
         );
         const match = content.match(namedImportRegex);
-        if (match) {
+        if (match && match[0]) {
           const newImport = `import ${defaultName} from '${issue.importPath}'`;
           content = content.replace(match[0], newImport);
           
@@ -311,7 +334,7 @@ export function autoFixImportExportMismatches(
       }
     }
     
-    fixedFiles.set(issue.file, content);
+    fixedFiles.set(key, content);
   }
   
   return Array.from(fixedFiles.entries()).map(([path, content]) => ({ path, content }));
@@ -354,7 +377,7 @@ export function runSelfAwareValidation(
       valid: remainingIssues.length === 0,
       issues: remainingIssues,
       exports: Array.from(exportMap.values()),
-      fixes: fixedFiles,
+      fixes: fixedFiles.map(f => ({ path: f.path || "unknown.ts", content: f.content })),
     };
   }
   
@@ -364,7 +387,7 @@ export function runSelfAwareValidation(
     valid: true,
     issues: [],
     exports: Array.from(exportMap.values()),
-    fixes: files,
+    fixes: files.map(f => ({ path: f.path || "unknown.ts", content: f.content })),
   };
 }
 

@@ -7,6 +7,31 @@ import dotenv from "dotenv";
 dotenv.config();
 
 // ============================================================
+// Helper functions for safe unknown data handling
+// ============================================================
+
+const asObj = (v: unknown): v is Record<string, unknown> =>
+  !!v && typeof v === "object";
+
+const getResponseString = (data: unknown): string => {
+  if (!asObj(data)) return "";
+  const r = data["response"];
+  return typeof r === "string" ? r : "";
+};
+
+const getChoicesContent = (response: unknown): string => {
+  if (!asObj(response)) return "";
+  const choices = response["choices"];
+  if (!Array.isArray(choices) || choices.length === 0) return "";
+  const firstChoice = choices[0];
+  if (!asObj(firstChoice)) return "";
+  const message = firstChoice["message"];
+  if (!asObj(message)) return "";
+  const content = message["content"];
+  return typeof content === "string" ? content : "";
+};
+
+// ============================================================
 // 1. Google Gemini (Befintlig - för snabba tasks & SQL)
 // ============================================================
 const googleApiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
@@ -247,7 +272,7 @@ export async function generateClaudeHaikuJSON<T>(
       });
 
       const block = msg.content[0];
-      if (!block || block.type !== "text") throw new Error("Unexpected response type from Claude");
+      if (!block || block.type !== "text" || !('text' in block)) throw new Error("Unexpected response type from Claude");
 
       // 1) Extract JSON object (robust to fences/extra text)
       const candidate = extractFirstJsonObject(block.text);
@@ -271,7 +296,7 @@ export async function generateClaudeHaikuJSON<T>(
         });
 
         const repairBlock = repairMsg.content[0];
-        if (!repairBlock || repairBlock.type !== "text") throw new Error("Unexpected repair response type");
+        if (!repairBlock || repairBlock.type !== "text" || !('text' in repairBlock)) throw new Error("Unexpected repair response type");
 
         const repairedCandidate = extractFirstJsonObject(repairBlock.text);
         const repairedParsed = JSON.parse(repairedCandidate) as T;
@@ -337,9 +362,21 @@ OUTPUT FORMAT: Start immediately with { and end with }. No other text.`;
     
     // Clean markdown if present
     if (jsonStr.includes("```json")) {
-      jsonStr = jsonStr.split("```json")[1].split("```")[0].trim();
+      const parts = jsonStr.split("```json");
+      if (parts[1]) {
+        const codeParts = parts[1].split("```");
+        if (codeParts[0]) {
+          jsonStr = codeParts[0].trim();
+        }
+      }
     } else if (jsonStr.includes("```")) {
-      jsonStr = jsonStr.split("```")[1].split("```")[0].trim();
+      const parts = jsonStr.split("```");
+      if (parts[1]) {
+        const codeParts = parts[1].split("```");
+        if (codeParts[0]) {
+          jsonStr = codeParts[0].trim();
+        }
+      }
     }
 
     const parsed = JSON.parse(jsonStr) as T;
@@ -444,7 +481,7 @@ export async function performDeepResearch(topic: string): Promise<string> {
       max_tokens: 4000,
     });
 
-    const researchContent = response.choices[0].message.content || "No research found.";
+    const researchContent = getChoicesContent(response) || "No research found.";
     console.log("✅ Perplexity Research Complete! Length:", researchContent.length);
     return researchContent;
   } catch (error: any) {
@@ -478,7 +515,7 @@ export async function generateClaudeCoder(prompt: string, systemPrompt?: string)
     const msg = await anthropic.messages.create(
       {
         // --- 1. BODY (Själva datan) ---
-        model: "claude-sonnet-4-5", // Claude 4.5 Sonnet (2025)
+        model: "claude-sonnet-4-5", // May 2025 - Fast + Smart
         max_tokens: 8192,
         temperature: 0.2, // Låg temp för exakt kod
         system: [
@@ -502,7 +539,7 @@ export async function generateClaudeCoder(prompt: string, systemPrompt?: string)
 
     // Hantera textblock-retur från Claude
     const textBlock = msg.content[0];
-    if (textBlock.type === 'text') {
+    if (textBlock && textBlock.type === 'text' && 'text' in textBlock) {
         console.log("✅ Claude Success! Output length:", textBlock.text.length);
         return textBlock.text;
     }
@@ -537,7 +574,7 @@ export async function generateDeepSeekPlanner(prompt: string): Promise<string> {
       })
     );
 
-    const content = completion.choices[0].message.content || "";
+    const content = getChoicesContent(completion) || "";
     console.log("✅ DeepSeek Success! Output length:", content.length);
     return content;
   } catch (error: any) {
@@ -571,7 +608,7 @@ export async function generateDeepSeekCoder(prompt: string): Promise<string> {
       })
     );
 
-    const content = completion.choices[0].message.content || "";
+    const content = getChoicesContent(completion) || "";
     console.log("✅ DeepSeek V3 Success! Output length:", content.length);
     return content;
   } catch (error: any) {
@@ -610,7 +647,7 @@ export async function generateKimiPlanner(prompt: string): Promise<string> {
       temperature: 0.3,
     });
 
-    const content = completion.choices[0].message.content || "";
+    const content = getChoicesContent(completion) || "";
     console.log("✅ Kimi Success! Output length:", content.length);
     return content;
   } catch (error: any) {
@@ -681,12 +718,15 @@ export async function runKimiQA(codeSnippets: string): Promise<string> {
       max_tokens: 2000,
     });
 
-    const result = completion.choices[0].message.content || "PASS";
+    const result = getChoicesContent(completion) || "PASS";
     console.log("✅ Kimi QA Audit Complete:", result.substring(0, 200));
     return result;
   } catch (error: any) {
-    console.error("❌ Kimi QA Error:", error?.message);
-    console.error("   Error details:", error?.response?.data || error?.status || 'Unknown');
+    console.error("❌ Kimi QA Error:", error instanceof Error ? error.message : String(error));
+    const errorDetails = (error && typeof error === "object" && "response" in error && error.response && typeof error.response === "object" && "data" in error.response)
+      ? error.response.data
+      : (error && typeof error === "object" && "status" in error ? error.status : 'Unknown');
+    console.error("   Error details:", errorDetails);
     return "PASS"; // Släpp igenom vid API-fel för att inte blockera
   }
 }
@@ -717,7 +757,8 @@ export async function generateLocalCoder(prompt: string, systemPrompt?: string):
     }
     
     const data = await response.json();
-    return data.response || "";
+    const resp = getResponseString(data);
+    return resp.trim();
     
   } catch (err: any) {
     if (err.name === 'AbortError') {
@@ -769,9 +810,10 @@ export async function generateLocalReview(codeSnippet: string, instructions: str
 
     if (response.ok) {
         const data = await response.json();
-        if (data.response) {
+        const resp = getResponseString(data);
+        if (resp) {
           console.log("[LocalAI] Review received!");
-          return data.response.trim();
+          return resp.trim();
         }
     }
     console.warn("[LocalAI] Failed or empty response. Switching to Kimi...");
@@ -796,7 +838,7 @@ export async function generateLocalReview(codeSnippet: string, instructions: str
       ],
       temperature: 0.1,
     });
-    const result = completion.choices[0].message.content || "LGTM";
+    const result = getChoicesContent(completion) || "LGTM";
     console.log("[Kimi] Review received!");
     return result;
   } catch (kimiErr: any) {
@@ -843,7 +885,7 @@ export async function generateBuildFix(errorLog: string, fileContext: string): P
       temperature: 0.1 // Låg temp för exakthet
     });
 
-    const content = response.choices[0].message.content || "";
+    const content = getChoicesContent(response) || "";
     console.log("✅ Watchdog fix generated!");
     return content;
   } catch (err: any) {
@@ -899,9 +941,10 @@ export async function generateLocalFix(errorLog: string, brokenFileContent: stri
 
     if (response.ok) {
       const data = await response.json();
-      if (data.response) {
+      const resp = getResponseString(data);
+      if (resp) {
         console.log("[LocalAI] Fix received!");
-        return data.response;
+        return resp;
       }
     }
     console.warn("[LocalAI] Failed or empty response. Switching to Kimi...");
@@ -932,7 +975,7 @@ export async function generateLocalFix(errorLog: string, brokenFileContent: stri
       ],
       temperature: 0.1,
     });
-    const result = completion.choices[0].message.content || "";
+    const result = getChoicesContent(completion) || "";
     console.log("[Kimi] Fix received!");
     return result;
   } catch (kimiErr: any) {
@@ -970,7 +1013,7 @@ export async function generateGroqFix(errorLog: string, brokenFileContent: strin
       ],
       temperature: 0.1, 
     });
-    const result = completion.choices[0].message.content || "";
+    const result = getChoicesContent(completion) || "";
     console.log("[Groq] ⚡ Fix received!");
     return result;
   } catch (error: any) {
@@ -1000,7 +1043,7 @@ export async function callAI(
     try {
       console.log("👁️ Claude Vision analyzing screenshot...");
       const visionResponse = await anthropic.messages.create({
-        model: "claude-sonnet-4-5",
+        model: "claude-sonnet-4-5", // May 2025 - Fast + Smart
         max_tokens: 1024,
         messages: [{
           role: "user",
@@ -1022,7 +1065,7 @@ export async function callAI(
       });
       
       const textBlock = visionResponse.content[0];
-      if (textBlock.type === 'text') {
+      if (textBlock && textBlock.type === 'text' && 'text' in textBlock) {
         return textBlock.text;
       }
       return "";
@@ -1075,7 +1118,7 @@ export async function callAI(
           
           const elapsed = Date.now() - startTime;
           console.log(`✅ [PLANNER] DeepSeek R1 succeeded in ${elapsed}ms`);
-          responseText = planner.choices[0].message.content || "";
+          responseText = getChoicesContent(planner) || "";
         } catch (e: any) {
           if (e.message?.includes('terminated') || e.message?.includes('timeout')) {
             console.warn('⚠️ DeepSeek R1 timed out (expected for complex planning)');
@@ -1109,7 +1152,7 @@ export async function callAI(
               temperature: 0.1
             });
             console.log("✅ DeepSeek V3 successfully saved the build!");
-            responseText = deepSeekBackup.choices[0].message.content || "";
+            responseText = getChoicesContent(deepSeekBackup) || "";
             break;
           } catch (dsError: any) {
             console.error("❌ DeepSeek Backup also failed!", dsError?.message);
@@ -1135,7 +1178,7 @@ export async function callAI(
               temperature: 0.1
             });
             console.log("✅ DeepSeek V3 successfully saved the build!");
-            responseText = deepSeekBackup.choices[0].message.content || "";
+            responseText = getChoicesContent(deepSeekBackup) || "";
             break;
           } catch (dsError: any) {
             console.error("❌ DeepSeek Backup failed!", dsError?.message);
@@ -1158,7 +1201,7 @@ export async function callAI(
           
           const claude = await anthropic.messages.create(
             {
-              model: "claude-sonnet-4-5",
+              model: "claude-sonnet-4-5", // May 2025 - Fast + Smart
               max_tokens: 8192,
               system: [
                 {
@@ -1178,7 +1221,7 @@ export async function callAI(
 
           // Om vi kommer hit så lyckades det!
           const block = claude.content[0];
-          responseText = block.type === 'text' ? block.text : "";
+          responseText = (block && block.type === 'text' && 'text' in block) ? block.text : "";
           claudeSuccess = true;
           console.log(`✅ Claude Success after ${attempts + 1} attempt(s)!`);
           break;
@@ -1231,7 +1274,7 @@ export async function callAI(
           );
           
           console.log("✅ DeepSeek V3 successfully saved the build!");
-          responseText = deepSeekBackup.choices[0].message.content || "";
+          responseText = getChoicesContent(deepSeekBackup) || "";
 
         } catch (dsError: any) {
           console.error("❌ CRITICAL: DeepSeek Backup also failed!", dsError?.message);
@@ -1275,7 +1318,7 @@ export async function callAI(
           
           const elapsed = Date.now() - startTime;
           console.log(`✅ [BACKEND] DeepSeek V3.2 succeeded in ${elapsed}ms`);
-          responseText = backendResult.choices[0].message.content || "";
+          responseText = getChoicesContent(backendResult) || "";
         } catch (primaryError: any) {
           console.error('❌ [BACKEND] DeepSeek V3.2 failed:', primaryError?.message);
           console.warn('⚠️ Falling back to Gemini 2.0 Flash...');
@@ -1306,7 +1349,7 @@ export async function callAI(
             ],
             temperature: 0.1,
           });
-          responseText = review.choices[0].message.content || "";
+          responseText = getChoicesContent(review) || "";
         } catch (e: any) {
           console.warn("⚠️ Groq Review failed, skipping review to save time.", e?.message);
           responseText = "LGTM"; // Fallback till "looks good" om Groq failar
@@ -1349,7 +1392,7 @@ export async function callAI(
             temperature: 0.1,
             max_tokens: 2000,
           });
-          responseText = kimi.choices[0].message.content || "";
+          responseText = getChoicesContent(kimi) || "";
           console.log("✅ Kimi K2 Thinking audit complete");
         } catch (e: any) {
           console.warn("⚠️ Kimi K2 Thinking failed:", e?.message);
@@ -1366,7 +1409,7 @@ export async function callAI(
                 ],
                 temperature: 0.1,
               });
-              responseText = r1.choices[0].message.content || "";
+              responseText = getChoicesContent(r1) || "";
               console.log("✅ DeepSeek Reasoner fallback succeeded");
             } catch (r1Error: any) {
               console.error("❌ DeepSeek Reasoner fallback also failed:", r1Error?.message);
@@ -1391,7 +1434,7 @@ export async function callAI(
               ],
               temperature: 0.1,
             });
-            responseText = r1.choices[0].message.content || "";
+            responseText = getChoicesContent(r1) || "";
           } catch (e: any) {
             console.error("❌ DeepSeek Reasoner failed:", e?.message);
             responseText = await runKimiQA(fullPrompt); // ✅ Try runKimiQA which has better initialization
@@ -1437,7 +1480,7 @@ export async function callAI(
           
           const elapsed = Date.now() - startTime;
           console.log(`✅ [${role}] DeepSeek V3.2 succeeded in ${elapsed}ms`);
-          responseText = reviewResult.choices[0].message.content || "";
+          responseText = getChoicesContent(reviewResult) || "";
         } catch (e: any) {
           console.warn(`⚠️ DeepSeek V3.2 (${role}) failed:`, e?.message);
           // FALLBACK: Gemini
@@ -1492,7 +1535,7 @@ export async function callAI(
             ],
             temperature: 0.1 // Analytisk och exakt
           });
-          responseText = kimiResponse.choices[0].message.content || "";
+          responseText = getChoicesContent(kimiResponse) || "";
         } catch (e: any) {
           console.warn("⚠️ Kimi unavailable, falling back to DeepSeek R1...");
           // Fallback till DeepSeek Reasoner om Kimi är nere
@@ -1502,7 +1545,7 @@ export async function callAI(
                 model: "deepseek-reasoner",
                 messages: [{ role: "user", content: fullPrompt }]
               });
-              responseText = r1.choices[0].message.content || "";
+              responseText = getChoicesContent(r1) || "";
             } catch (r1Error: any) {
               console.error("❌ DeepSeek Reasoner fallback also failed:", r1Error?.message);
               responseText = "";
@@ -1519,7 +1562,7 @@ export async function callAI(
               model: "deepseek-reasoner",
               messages: [{ role: "user", content: fullPrompt }]
             });
-            responseText = r1.choices[0].message.content || "";
+            responseText = getChoicesContent(r1) || "";
           } catch (r1Error: any) {
             console.error("❌ DeepSeek Reasoner fallback failed:", r1Error?.message);
             responseText = "";
@@ -1556,14 +1599,15 @@ export async function callAI(
       if (anthropic) {
         try {
           const claude = await anthropic.messages.create({
-            model: "claude-sonnet-4-5",
+            model: "claude-sonnet-4-5", // May 2025 - Fast + Smart
             max_tokens: 8192,
             messages: [{
               role: "user",
               content: fullPrompt
             }]
           });
-          responseText = claude.content[0].type === 'text' ? claude.content[0].text : "";
+          const block = claude.content[0];
+          responseText = (block && block.type === 'text' && 'text' in block) ? block.text : "";
         } catch (e: any) {
           console.error("❌ Claude Nuclear failed:", e?.message);
           // Fallback to DeepSeek Reasoner
@@ -1573,7 +1617,7 @@ export async function callAI(
                 model: "deepseek-reasoner",
                 messages: [{ role: "user", content: fullPrompt }],
               });
-              responseText = fallback.choices[0].message.content || "";
+              responseText = getChoicesContent(fallback) || "";
             } catch (fallbackErr: any) {
               console.error("❌ Nuclear fallback failed:", fallbackErr?.message);
               responseText = "";
@@ -1590,7 +1634,7 @@ export async function callAI(
               model: "deepseek-reasoner",
               messages: [{ role: "user", content: fullPrompt }],
             });
-            responseText = fallback.choices[0].message.content || "";
+            responseText = getChoicesContent(fallback) || "";
           } catch (fallbackErr: any) {
             console.error("❌ Nuclear fallback failed:", fallbackErr?.message);
             responseText = "";
@@ -1616,7 +1660,7 @@ export async function callAI(
               ],
               temperature: 0.1,
             });
-            responseText = response.choices[0].message.content || "";
+            responseText = getChoicesContent(response) || "";
           } catch (e: any) {
             console.warn("⚠️ Groq Fixer failed:", e?.message);
             // Fallback till DeepSeek om Groq failar
@@ -1643,7 +1687,7 @@ export async function callAI(
               ],
               temperature: 0.1,
             });
-            responseText = fix.choices[0].message.content || "";
+            responseText = getChoicesContent(fix) || "";
           } catch (e: any) {
             console.warn("⚠️ DeepSeek Fixer failed:", e?.message);
             smartLevel = 'GENIUS'; // Fallback till DeepSeek Reasoner om Chat failar
@@ -1663,7 +1707,7 @@ export async function callAI(
               messages: [{ role: "user", content: "Fix this critical bug:\n" + fullPrompt }],
               temperature: 0.1,
             });
-            responseText = deepThink.choices[0].message.content || "";
+            responseText = getChoicesContent(deepThink) || "";
           } catch (e: any) {
             console.error("❌ DeepSeek Reasoner Fixer failed:", e?.message);
             // Fallback till Kimi om DeepSeek Reasoner failar
@@ -1681,7 +1725,7 @@ export async function callAI(
                   ],
                   temperature: 0.1,
                 });
-                responseText = response.choices[0].message.content || "";
+                responseText = getChoicesContent(response) || "";
                 console.log("✅ Kimi fallback succeeded");
               } catch (kimiErr: any) {
                 console.error("❌ Kimi Fixer also failed:", kimiErr?.message);
@@ -1691,14 +1735,15 @@ export async function callAI(
                 if (anthropic) {
                   try {
                     const claudeFix = await anthropic.messages.create({
-                      model: "claude-sonnet-4-5",
+                      model: "claude-sonnet-4-5", // May 2025 - Fast + Smart
                       max_tokens: 4000,
                       messages: [{
                         role: "user",
                         content: `${context || "You are the Lead Engineer. Solve this complex issue."}\n\n${fullPrompt}`
                       }]
                     });
-                    responseText = claudeFix.content[0].type === 'text' ? claudeFix.content[0].text : "";
+                    const block = claudeFix.content[0];
+                    responseText = (block && block.type === 'text' && 'text' in block) ? block.text : "";
                     console.log("✅ Claude fallback succeeded");
                   } catch (claudeErr: any) {
                     console.error("❌ Claude fallback also failed:", claudeErr?.message);
@@ -1714,14 +1759,15 @@ export async function callAI(
                 try {
                   console.log("🔄 No Kimi, using Claude as GENIUS fallback...");
                   const claudeFix = await anthropic.messages.create({
-                    model: "claude-sonnet-4-5",
+                    model: "claude-sonnet-4-5", // May 2025 - Fast + Smart
                     max_tokens: 4000,
                     messages: [{
                       role: "user",
                       content: `${context || "You are the Lead Engineer. Solve this complex issue."}\n\n${fullPrompt}`
                     }]
                   });
-                  responseText = claudeFix.content[0].type === 'text' ? claudeFix.content[0].text : "";
+                  const block = claudeFix.content[0];
+                  responseText = (block && block.type === 'text' && 'text' in block) ? block.text : "";
                 } catch (claudeErr: any) {
                   console.error("❌ Claude fallback failed:", claudeErr?.message);
                   responseText = "";
@@ -1746,7 +1792,7 @@ export async function callAI(
                 ],
                 temperature: 0.1,
               });
-              responseText = response.choices[0].message.content || "";
+              responseText = getChoicesContent(response) || "";
             } catch (e: any) {
               console.error("❌ Kimi Fixer failed:", e?.message);
               responseText = "";
@@ -1777,7 +1823,7 @@ export async function callAI(
             ],
             // DeepSeek caches context automatically if it's identical at the start!
           });
-          responseText = r1.choices[0].message.content || "";
+          responseText = getChoicesContent(r1) || "";
         } catch (e: any) {
           console.warn("⚠️ DeepSeek R1 Oracle failed:", e?.message);
           // Fallback to Gemini

@@ -3,7 +3,7 @@
 // =============================================================================
 // Self-learning system that caches fixes, learns patterns, and optimizes model selection
 
-import crypto from 'crypto';
+import * as crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import OpenAI from 'openai';
 
@@ -150,14 +150,77 @@ export async function querySolution(
 
 /**
  * Phase 1: Save successful solution
+ * Supports both positional arguments (old signature) and object parameter (new signature)
  */
+// Old signature: errorMessage, filePath, successfulFix, aiModelUsed, errorType
 export async function saveSolution(
   errorMessage: string,
   filePath: string | undefined,
   successfulFix: string,
   aiModelUsed: string,
   errorType: string
+): Promise<void>;
+
+// New signature: pipelineId, step, title, content, filePath
+export async function saveSolution(
+  pipelineId: string,
+  step: string,
+  title: string,
+  content: string,
+  filePath?: string
+): Promise<void>;
+
+// Object parameter version
+export async function saveSolution(params: {
+  pipelineId?: string;
+  step?: string;
+  title?: string;
+  content?: string;
+  filePath?: string;
+  errorMessage?: string;
+  successfulFix?: string;
+  aiModelUsed?: string;
+  errorType?: string;
+}): Promise<void>;
+
+// Implementation
+export async function saveSolution(
+  a: any,
+  b?: any,
+  c?: any,
+  d?: any,
+  e?: any
 ): Promise<void> {
+  // Normalize parameters: support both positional and object
+  let errorMessage: string;
+  let filePath: string | undefined;
+  let successfulFix: string;
+  let aiModelUsed: string;
+  let errorType: string;
+
+  if (typeof a === "object" && a !== null && !Array.isArray(a)) {
+    // Object parameter version
+    errorMessage = a.errorMessage || a.title || a.content || "";
+    filePath = a.filePath;
+    successfulFix = a.successfulFix || a.content || "";
+    aiModelUsed = a.aiModelUsed || a.step || "auto-fixer";
+    errorType = a.errorType || a.pipelineId || "unknown";
+  } else if (typeof a === "string" && typeof b === "string" && typeof c === "string" && typeof d === "string" && typeof e === "string") {
+    // Old signature: errorMessage, filePath, successfulFix, aiModelUsed, errorType
+    errorMessage = a;
+    filePath = b;
+    successfulFix = c;
+    aiModelUsed = d;
+    errorType = e;
+  } else {
+    // New signature: pipelineId, step, title, content, filePath
+    errorMessage = c || ""; // title
+    filePath = e; // filePath
+    successfulFix = d || ""; // content
+    aiModelUsed = b || ""; // step
+    errorType = a || ""; // pipelineId
+  }
+
   const errorSignature = generateErrorSignature(errorMessage, filePath);
   const embedding = await generateEmbedding(errorMessage);
   

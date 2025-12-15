@@ -23,7 +23,7 @@ async function testCostOptimization() {
   await semanticCache.set(query1, 'test-file.ts', "import React from 'react'", 'TS6133', true)
   
   // Second call - should hit
-  const cached = await semanticCache.get(query2, 'TS6133', 0.92)
+  const cached = await semanticCache.get(query2, "TS6133", String(0.92))
   
   if (cached.hit) {
     console.log(`✅ Semantic cache works! Similarity: ${(cached.similarity! * 100).toFixed(1)}%`)

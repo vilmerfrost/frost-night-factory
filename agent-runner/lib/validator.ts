@@ -1,6 +1,9 @@
 import { parse } from '@babel/parser';
-import traverse from '@babel/traverse';
+import traverseModule from '@babel/traverse';
 import * as t from '@babel/types';
+
+const traverse =
+  (traverseModule as unknown as { default?: any }).default ?? traverseModule;
 
 // ✅ 1. STRICT INTERFACE: warnings is mandatory
 export interface ValidationResult {
@@ -56,7 +59,7 @@ function calculateComplexityScore(code: string): number {
       ArrowFunctionExpression() { score += 1; },
       FunctionExpression() { score += 1; },
       JSXElement() { score += 2; },
-      CallExpression(path) {
+      CallExpression(path: any) {
         const callee = path.node.callee;
         if (t.isIdentifier(callee) && /^use[A-Z]/.test(callee.name)) { score += 2; }
       },

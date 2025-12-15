@@ -8,6 +8,7 @@
 // ✅ CORRECTED VERSION: Normalizes to LOWERCASE (not PascalCase)
 
 import fs from "fs/promises";
+import type { Dirent } from "fs";
 import path from "path";
 
 const WATCHED_DIRS = ["src", "app", "components"];
@@ -26,7 +27,7 @@ async function collectTsFiles(projectRoot: string): Promise<Map<string, FileInfo
   const map = new Map<string, FileInfo[]>();
 
   async function walk(dir: string) {
-    let entries: fs.Dirent[];
+    let entries: Dirent[];
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
     } catch {

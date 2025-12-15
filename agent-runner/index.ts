@@ -13,6 +13,7 @@ import path from "path";
 import fs from "fs";
 import { startDispatcher } from "./dispatcher";
 import { startPipelineRunner } from "./pipeline-runner";
+import { getWorkspaceRoot } from "./lib/workspace/config";
 
 // ═══════════════════════════════════════════════════════════════════
 // 🔥 GLOBAL ERROR HANDLERS: Prevent silent crashes
@@ -44,9 +45,8 @@ process.on('uncaughtException', (error) => {
 console.log("❄️  Frost Night Factory Agent Runner");
 console.log("Starting dispatcher and pipeline runner...\n");
 
-// 🔒 SÄKERHET: Definiera sandbox (kuvös) för agenten
-// Denna mapp ligger utanför din källkod, eller i en ignorerad mapp
-const SANDBOX_ROOT = path.resolve(__dirname, "../workspace/sandbox");
+// 🔒 SÄKERHET: Single source of truth för workspace root
+const SANDBOX_ROOT = getWorkspaceRoot();
 
 // Se till att mappen finns
 if (!fs.existsSync(SANDBOX_ROOT)) {

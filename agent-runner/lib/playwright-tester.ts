@@ -1,11 +1,15 @@
+/// <reference lib="dom" />
+/// <reference lib="dom.iterable" />
+
 // =============================================================================
 // PLAYWRIGHT E2E TESTING - Catches broken buttons, 404s, and layout issues
 // =============================================================================
 
-import { chromium, Browser, Page } from 'playwright';
+import { chromium } from 'playwright';
+import type { Browser, Page } from 'playwright';
 import { execSync, spawn } from 'child_process';
-import path from 'path';
-import fs from 'fs';
+import * as path from 'path';
+import * as fs from 'fs';
 
 export interface PlaywrightTestResult {
   success: boolean;
@@ -263,7 +267,7 @@ async function generateTestsFromRoutes(
       
       // Check color contrast (basic check)
       const hasLowContrast = await page.evaluate(() => {
-        const elements = document.querySelectorAll('*');
+        const elements = Array.from(document.querySelectorAll('*'));
         for (const el of elements) {
           const style = window.getComputedStyle(el);
           const bg = style.backgroundColor;

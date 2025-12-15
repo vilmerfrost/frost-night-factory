@@ -40,7 +40,7 @@ VARIANT A: Bold & Modern
 Generate ONLY the page.tsx file with this aesthetic. Use the [FILE: src/app/page.tsx] format.`;
 
   const variantAResponse = await anthropic.messages.create({
-    model: 'claude-sonnet-4-5',
+    model: 'claude-sonnet-4-5', // May 2025 - Fast + Smart
     max_tokens: 4000,
     messages: [{ role: 'user', content: variantAPrompt }],
   });
@@ -80,7 +80,7 @@ VARIANT B: Minimal & Clean
 Generate ONLY the page.tsx file with this aesthetic. Use the [FILE: src/app/page.tsx] format.`;
 
   const variantBResponse = await anthropic.messages.create({
-    model: 'claude-sonnet-4-5',
+    model: 'claude-sonnet-4-5', // May 2025 - Fast + Smart
     max_tokens: 4000,
     messages: [{ role: 'user', content: variantBPrompt }],
   });

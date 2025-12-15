@@ -57,7 +57,7 @@ export async function visionRefineUI(
 
       // Send to Claude Vision
       const response = await anthropic.messages.create({
-        model: 'claude-sonnet-4-5',
+        model: 'claude-sonnet-4-5', // May 2025 - Fast + Smart
         max_tokens: 2000,
         messages: [{
           role: 'user',

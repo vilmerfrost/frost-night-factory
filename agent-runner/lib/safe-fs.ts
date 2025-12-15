@@ -4,6 +4,9 @@
 // All file operations go through this wrapper to ensure lowercase filenames
 // This prevents AI-generated code from creating PascalCase files
 
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+
 import fs from "fs/promises";
 import path from "path";
 

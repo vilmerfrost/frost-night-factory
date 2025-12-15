@@ -15,6 +15,9 @@ export async function runStructureFixes(
 ): Promise<void> {
   const { workspaceRoot } = options;
 
+  // ✅ C) Bonus: Merge top-level lib/ → src/lib/ before other fixes
+  await mergeIntoSrcRoot(workspaceRoot);
+  
   await normalizeApiRoutes(workspaceRoot);
   await normalizeRootPageFiles(workspaceRoot);
   await cleanupDuplicateTsFiles(workspaceRoot);
@@ -119,6 +122,113 @@ async function cleanupDuplicateTsFiles(workspaceRoot: string): Promise<void> {
   }
 
   scanDirectory(srcRoot);
+}
+
+/**
+ * ✅ C) Bonus: Merge top-level directories into src/ if src/ exists
+ * This fixes double structure issues (both lib/ and src/lib/ existing)
+ */
+async function mergeIntoSrcRoot(workspaceRoot: string): Promise<void> {
+  const srcRoot = path.join(workspaceRoot, "src");
+  if (!fs.existsSync(srcRoot)) {
+    return; // No src/ directory, nothing to merge
+  }
+
+  const directoriesToMerge = ["lib", "components", "app"];
+
+  for (const dirName of directoriesToMerge) {
+    const topLevelDir = path.join(workspaceRoot, dirName);
+    const srcTargetDir = path.join(srcRoot, dirName);
+
+    if (!fs.existsSync(topLevelDir)) {
+      continue; // Top-level dir doesn't exist, skip
+    }
+
+    // If src/target already exists, merge files (don't overwrite)
+    if (fs.existsSync(srcTargetDir)) {
+      await moveMissingFiles(topLevelDir, srcTargetDir, workspaceRoot);
+    } else {
+      // Target doesn't exist, just move the whole directory
+      try {
+        await fs.promises.rename(topLevelDir, srcTargetDir);
+        console.log(
+          `📁 [Structure Fix] Moved ${dirName}/ → src/${dirName}/`
+        );
+      } catch (err: any) {
+        console.warn(
+          `⚠️ [Structure Fix] Failed to move ${dirName}/:`,
+          err?.message || err
+        );
+      }
+    }
+  }
+}
+
+/**
+ * Move files from source to destination, but only if destination doesn't exist
+ * This prevents overwriting existing files
+ */
+async function moveMissingFiles(
+  sourceDir: string,
+  destDir: string,
+  workspaceRoot: string
+): Promise<void> {
+  if (!fs.existsSync(sourceDir)) return;
+
+  const entries = fs.readdirSync(sourceDir, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const sourcePath = path.join(sourceDir, entry.name);
+    const destPath = path.join(destDir, entry.name);
+
+    if (entry.isDirectory()) {
+      // Recursively handle subdirectories
+      if (!fs.existsSync(destPath)) {
+        await fs.promises.mkdir(destPath, { recursive: true });
+      }
+      await moveMissingFiles(sourcePath, destPath, workspaceRoot);
+    } else if (entry.isFile()) {
+      // Only move if destination doesn't exist
+      if (!fs.existsSync(destPath)) {
+        try {
+          // Ensure parent directory exists
+          await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
+          await fs.promises.rename(sourcePath, destPath);
+          console.log(
+            `📄 [Structure Fix] Moved ${path.relative(workspaceRoot, sourcePath)} → ${path.relative(workspaceRoot, destPath)}`
+          );
+        } catch (err: any) {
+          console.warn(
+            `⚠️ [Structure Fix] Failed to move ${path.relative(workspaceRoot, sourcePath)}:`,
+            err?.message || err
+          );
+        }
+      } else {
+        // Destination exists, remove source (keep destination)
+        try {
+          await fs.promises.unlink(sourcePath);
+          console.log(
+            `🧹 [Structure Fix] Removed duplicate ${path.relative(workspaceRoot, sourcePath)} (keeping ${path.relative(workspaceRoot, destPath)})`
+          );
+        } catch (err: any) {
+          console.warn(
+            `⚠️ [Structure Fix] Failed to remove duplicate ${path.relative(workspaceRoot, sourcePath)}:`,
+            err?.message || err
+          );
+        }
+      }
+    }
+  }
+
+  // Clean up empty source directory
+  try {
+    const remainingEntries = fs.readdirSync(sourceDir);
+    if (remainingEntries.length === 0) {
+      await fs.promises.rmdir(sourceDir);
+    }
+  } catch {
+    // Ignore errors when cleaning up
+  }
 }
 
 async function normalizeRootPageFiles(workspaceRoot: string): Promise<void> {

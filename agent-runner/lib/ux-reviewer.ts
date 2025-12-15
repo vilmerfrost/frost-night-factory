@@ -145,7 +145,7 @@ Be strict but fair. Only flag real UX issues.`;
     const response = await callAI({
       pipelineId,
       step: 'ux_reviewer',
-      role: 'UX_REVIEWER',
+      role: 'CODER', // Use CODER role (UX_REVIEWER not in union yet, but this works)
       model: routing.model,
       messages: [{ role: 'user', content: prompt }],
     });
@@ -236,7 +236,7 @@ export async function generateUXFixes(
   const fullPath = path.join(projectRoot, componentPath);
   const componentCode = fs.readFileSync(fullPath, 'utf-8');
 
-  const routing = selectModel('ux_fixer', 'coder', 1, [], pipelineId);
+  const routing = await selectModel('ux_fixer', 'coder', 1, [], pipelineId);
   const prompt = `You are a UX fixer. Apply micro-changes to fix UX issues.
 
 COMPONENT:

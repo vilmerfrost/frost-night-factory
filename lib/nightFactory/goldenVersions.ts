@@ -2,7 +2,7 @@
 // GOLDEN VERSIONS - Pre-validated package versions that ALWAYS work
 // =============================================================================
 
-import { execSync } from 'child_process';
+import { execSync, type ExecSyncOptions } from 'child_process';
 
 /**
  * GOLDEN VERSIONS DATABASE
@@ -91,10 +91,13 @@ export async function checkNpmVersion(pkg: string, version: string): Promise<boo
     const cleanVersion = version.replace(/[\^~>=<]/g, '').split('.')[0];
     
     // Use npm view to check if version exists
-    const result = execSync(`npm view ${pkg}@${version} version 2>/dev/null`, {
-      encoding: 'utf-8',
+    const cmd = `npm view ${pkg}@${version} version 2>/dev/null`;
+    const opts: ExecSyncOptions = {
+      encoding: "utf8",
       timeout: 10000,
-    }).trim();
+    };
+    const out = execSync(cmd, opts) as unknown as string;
+    const result = out.trim();
     
     return result.length > 0;
   } catch {
@@ -114,9 +117,12 @@ export function getGoldenVersion(pkg: string, requestedVersion?: string): string
   // Check if the requested version is a known hallucination
   const key = `${pkg}@${requestedVersion}`;
   if (key in VERSION_ALIASES) {
-    const corrected = VERSION_ALIASES[key].split('@')[1];
-    console.log(`   ⚠️ Auto-corrected ${key} → ${corrected}`);
-    return corrected;
+    const aliasValue = VERSION_ALIASES[key];
+    const corrected = aliasValue?.split('@')[1];
+    if (corrected) {
+      console.log(`   ⚠️ Auto-corrected ${key} → ${corrected}`);
+      return corrected;
+    }
   }
   
   // Return requested version if no golden version exists

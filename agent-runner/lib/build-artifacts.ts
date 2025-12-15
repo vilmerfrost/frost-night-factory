@@ -46,7 +46,7 @@ export async function saveBuildArtifacts(
     execSync(`tar -czf "${buildTgzPath}" -C "${projectRoot}" .next`, {
       cwd,
       stdio: 'pipe',
-      shell: true,
+      shell: process.platform === "win32" ? (process.env.ComSpec ?? "cmd.exe") : "/bin/bash",
     });
     console.log(`   ✅ Build artifact archived successfully`);
   } catch (error: any) {
@@ -118,7 +118,7 @@ export async function restoreBuildArtifacts(
         execSync(`tar -xzf "${buildTgzPath}" -C "${projectRoot}"`, {
           cwd: projectRoot,
           stdio: 'pipe',
-          shell: true,
+          shell: process.platform === "win32" ? (process.env.ComSpec ?? "cmd.exe") : "/bin/bash",
         });
         console.log(`   ✅ Build artifact extracted from tar`);
       } catch (error: any) {

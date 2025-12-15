@@ -312,14 +312,14 @@ ${rawText}`;
   }
 
   // ✅ FIX B: Planner wrapper fallback (so coder never blocks)
-  // If both Haiku + Gemini failed, return stable planner-shape anyway
+  // If both Haiku + Gemini failed, return stable planner-shape with FULL RAW TEXT
   if (!result.success) {
-    console.warn("⚠️ [Planner Converter] Both Haiku + Gemini failed. Returning stable planner wrapper fallback.");
+    console.warn("⚠️ [Planner Converter] Both Haiku + Gemini failed. Returning stable planner wrapper fallback with FULL RAW TEXT.");
     
     const fallbackPlanner: PlannerPhaseJSON = {
       phase: "planner",
       timestamp: new Date().toISOString(),
-      full_raw_output: rawText.substring(0, 10000), // Truncate to 10k chars
+      full_raw_output: rawText, // ✅ FULL RAW TEXT - no truncation!
       input_references: {
         research_timestamp: researchContext.timestamp,
         research_summary: sources.perplexity?.summary || 
@@ -366,7 +366,7 @@ ${rawText}`;
       },
       risks_and_mitigations: [],
       success_criteria: [],
-      warnings: ["planner_json_failed"], // ✅ Mark as fallback
+      warnings: ["planner_json_failed", "using_raw_text_fallback"], // ✅ Mark as fallback + raw text mode
     };
     
     return {

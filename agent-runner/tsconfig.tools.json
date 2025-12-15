@@ -1,0 +1,22 @@
+{
+  "extends": "./tsconfig.core.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
+  },
+  "include": [
+    "lib/pact-tester.ts",
+    "lib/playwright-tester.ts",
+    "lib/integration-tester.ts",
+    "lib/build-artifacts.ts",
+    "lib/validator.ts",
+    "../lib/nightFactory/visualAudit.ts",
+    "../lib/nightFactory/vision-audit-system.ts",
+    "test-*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "workspace",
+    "templates",
+    "data"
+  ]
+}

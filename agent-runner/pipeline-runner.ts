@@ -1,12 +1,18 @@
-import fs from 'fs';
-import path from 'path';
-import dotenv from 'dotenv';
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+
+import * as fs from 'fs';
+import * as path from 'path';
+import { fileURLToPath } from "node:url";
+import * as dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
+// @ts-ignore - postgres uses export= which works with esModuleInterop (tsconfig has esModuleInterop: true, compiler passes)
 import postgres from 'postgres';
 import { execSync, spawn } from 'child_process';
 import * as crypto from 'crypto';
 import chalk from 'chalk';
 import { glob } from 'glob';
+import * as ts from "typescript";
 import { 
   generateContent, 
   performDeepResearch, 
@@ -23,15 +29,18 @@ import {
   callAI as callAILegacy
 } from '../lib/nightFactory/modelClient';
 import { GOLDEN_COMPONENTS } from './lib/golden-components';
-import { analyzeUpdateScope, UpdateScope } from '../lib/nightFactory/scopeAnalyzer';
+import { analyzeUpdateScope } from '../lib/nightFactory/scopeAnalyzer';
+import type { UpdateScope } from '../lib/nightFactory/scopeAnalyzer';
 import { optimizeContextForCoder } from '../lib/nightFactory/contextBridge';
 import { generateDockerConfig } from '../lib/nightFactory/dockerAgent';
 import { detectProjectIntent, detectTechMatrix, TechMatrix, ProjectIntent } from '../lib/nightFactory/intentParser';
 import { runVisualAudit } from '../lib/nightFactory/visualAudit';
 import { runDocumentationStep } from '../lib/nightFactory/documentationAgent';
 import { DESIGN_SYSTEM, DESIGN_SYSTEM_EXAMPLES } from '../lib/nightFactory/design-system';
-import { planPerfectFileStructure, FileStructurePlan } from '../lib/nightFactory/structurePlanner';
-import { refinementLoop, VisionAuditResult } from '../lib/nightFactory/vision-audit-system';
+import { planPerfectFileStructure } from '../lib/nightFactory/structurePlanner';
+import type { FileStructurePlan } from '../lib/nightFactory/structurePlanner';
+import { refinementLoop } from '../lib/nightFactory/vision-audit-system';
+import type { VisionAuditResult } from '../lib/nightFactory/vision-audit-system';
 // Note: startDevServerWithVerification is defined locally below
 import { runZeroShotPipeline } from '../lib/nightFactory/zero-shot-validation';
 import { getLatestFrameworkIntel } from '../lib/nightFactory/knowledgeBase';
@@ -39,16 +48,20 @@ import { runIntegrationStep } from '../lib/nightFactory/integrationAgent';
 import { generateSeedData } from '../lib/nightFactory/seederAgent';
 import { consultHiveMind, memorizeSolution } from '../lib/nightFactory/hiveMind';
 import { CodebaseOracle, getOracle } from '../lib/nightFactory/codebaseOracle';
-import { PipelineContext, createPipelineContext, validateContextForStage } from '../lib/nightFactory/contextTypes';
+import { createPipelineContext, validateContextForStage } from '../lib/nightFactory/contextTypes';
+import type { PipelineContext } from '../lib/nightFactory/contextTypes';
 import { verifyDataFlow, logContextState } from '../lib/nightFactory/flowChecker';
 import { generateScaffold, generateComponentRegistry, formatComponentRegistry } from '../lib/nightFactory/scaffoldAgent';
-import { validateCode, autoFixFileExtension, ValidationResult as CodeValidationResult } from './code-validator';
+import { validateCode, autoFixFileExtension } from './code-validator';
+import type { ValidationResult as CodeValidationResult } from './code-validator';
 import { callAI, selectModel } from './ai-client';
-import { classifyError, recordErrorPattern, ErrorAnalysis } from './error-classifier';
+import { classifyError, recordErrorPattern } from './error-classifier';
+import type { ErrorAnalysis } from './error-classifier';
 import { validateCodeCompleteness } from './ast-validator';
 import { generateWithValidation } from './multi-pass-generator';  // ✅ Phase 1: Multi-pass generation
 import { generateRepositoryMap } from './repo-map-generator';  // ✅ Phase 1: Repository map
 import { parsePackageJson, DEFAULT_PACKAGE_JSON, installDependencies } from './lib/dependency-detective';  // ✅ Robust JSON parsing with auto-repair
+import { writeDeterministicPackageJson } from './lib/nightFactory/invariants/packageJsonBuilder';  // ✅ D: Deterministic package.json builder
 import { ErrorClassifier } from './lib/error-classifier';  // ✅ Smart error diagnosis for autonomous self-healing
 import { writeFileToDisk, writeFileSyncSafe } from './lib/file-writer';  // ✅ Atomic file writes
 import { 
@@ -68,6 +81,19 @@ import {
   contextToPromptString,
   clearContextCache
 } from './src/info-transporter';  // ✅ Info Transporter: Proper JSON handling (uses JSON.stringify, never template literals)
+
+function asPathString(value: unknown): string {
+  if (typeof value === "string") return value;
+
+  // Common shapes we’ve seen in pipelines / repo maps
+  if (value && typeof value === "object") {
+    const maybePath = (value as any).path;
+    if (typeof maybePath === "string") return maybePath;
+  }
+
+  return String(value ?? "");
+}
+
 
 /**
  * ✅ SAFE PACKAGE.JSON READER: Reads and parses package.json with auto-repair and fallback
@@ -108,8 +134,8 @@ import {
   scanProjectStructure,
   generateContextSummary,
   getTesterContext,
-  PipelineContext as NewPipelineContext
 } from '../lib/nightFactory/pipelineContext';
+import type { PipelineContext as NewPipelineContext } from '../lib/nightFactory/pipelineContext';
 import { 
   runBatchSurgeon, 
   shouldUseBatchSurgeon, 
@@ -182,12 +208,15 @@ import { GOLDEN_VERSIONS, getGoldenVersion } from '../lib/nightFactory/goldenVer
 // Note: validateAndFixDependencies is defined locally below
 // ✅ REMOVED: Old classifyError import - using new error-classifier.ts instead
 // Keep other imports from old errorClassifier if still needed:
-import { extractTargetFiles, ErrorCategory, ClassifiedError, getFixingStrategy, autoFixPythonError } from '../lib/nightFactory/errorClassifier';
-import { CircuitBreaker, CircuitBreakerError, FixAttempt } from '../lib/nightFactory/circuitBreaker';
+import { extractTargetFiles, getFixingStrategy, autoFixPythonError } from '../lib/nightFactory/errorClassifier';
+import { ErrorCategory, type ClassifiedError } from '../lib/nightFactory/errorClassifier';
+import { CircuitBreaker, CircuitBreakerError } from '../lib/nightFactory/circuitBreaker';
+import type { FixAttempt } from '../lib/nightFactory/circuitBreaker';
 import { recordErrorOccurrence, generatePreventionPrompt, getAutoFixSuggestion, getErrorStats } from '../lib/nightFactory/errorTelemetry';
 import { GOLDEN_TEMPLATES, getGoldenTemplate, hasGoldenTemplate, GOLDEN_NEXT_CONFIG, GOLDEN_TAILWIND_CONFIG, GOLDEN_POSTCSS_CONFIG, GOLDEN_LAYOUT, GOLDEN_PAGE, GOLDEN_TYPES, GOLDEN_MOCK_DATA, GOLDEN_UTILS } from '../lib/nightFactory/goldenTemplates';
 // Note: GOLDEN_PACKAGE_JSON and GOLDEN_TSCONFIG are defined locally below
-import { runPreCommitValidation, ValidationResult } from '../lib/nightFactory/preCommitValidation';
+import { runPreCommitValidation } from '../lib/nightFactory/preCommitValidation';
+import type { ValidationResult } from '../lib/nightFactory/preCommitValidation';
 import { PathManager } from '../lib/nightFactory/pathManager';
 import { logPathOperation, clearPathLog } from '../lib/nightFactory/pathLogger';
 import { PathCircuitBreaker } from '../lib/nightFactory/pathCircuitBreaker';
@@ -2445,6 +2474,50 @@ function validateNextImports(content: string): string[] {
 }
 
 /**
+ * 🔒 SYNTAX GATE: TypeScript syntax validation helper
+ * 
+ * Validates TypeScript syntax using the TypeScript compiler API AST parser.
+ * Prevents half-written TypeScript files from being marked as "validated & wrote".
+ * 
+ * This catches syntax errors like:
+ * - Unterminated template literals
+ * - Unbalanced brackets/braces
+ * - Missing semicolons (in strict mode)
+ * - Invalid type syntax
+ * 
+ * FAIL-OPEN: If the gate itself breaks, don't brick the pipeline.
+ */
+function syntaxGateCheckTypeScript(filePath: unknown, sourceText: unknown) {
+  // Force correct types so TS internals never crash on non-string paths
+  const fileName = typeof filePath === "string" ? filePath : String(filePath ?? "");
+  const text = typeof sourceText === "string" ? sourceText : String(sourceText ?? "");
+
+  try {
+    const safeFileName = asPathString(fileName);
+    // Determine script kind based on file extension
+    const scriptKind = safeFileName.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+    const sf = ts.createSourceFile(safeFileName, text, ts.ScriptTarget.Latest, true, scriptKind);
+
+    const diags = (sf as any).parseDiagnostics as readonly ts.Diagnostic[] | undefined;
+    const parseDiags = Array.isArray(diags) ? diags : [];
+
+    if (parseDiags.length === 0) return { ok: true as const, errors: [] as string[] };
+
+    const errors = parseDiags.map((d) => {
+      const msg = ts.flattenDiagnosticMessageText(d.messageText, "\n");
+      return msg;
+    });
+
+    return { ok: false as const, errors };
+  } catch (err: any) {
+    // FAIL-OPEN: if the gate itself breaks, don't brick the pipeline.
+    const msg = String(err?.message ?? err ?? "Unknown syntax gate error");
+    console.warn(`❌ [SYNTAX GATE] INTERNAL ERROR (fail-open): ${msg}`);
+    return { ok: true as const, errors: [] as string[] };
+  }
+}
+
+/**
  * STRUCTURE VALIDATOR - Ensures critical files exist
  */
 async function validateProjectStructure(
@@ -3305,6 +3378,27 @@ async function validateAndWriteFile(
     validation.warnings.forEach(warn => console.log(`   ${warn}`))
   }
   
+  // ═══════════════════════════════════════════════════════════════════
+  // 🔒 SYNTAX GATE: Check for TypeScript syntax errors BEFORE writing
+  // ═══════════════════════════════════════════════════════════════════
+  if (newFileName.endsWith('.ts') || newFileName.endsWith('.tsx')) {
+    const absoluteFilePath = path.resolve(projectRoot, newFileName);
+    const gate = syntaxGateCheckTypeScript(absoluteFilePath, code);
+    if (!gate.ok) {
+      console.error(`❌ [SYNTAX GATE] TypeScript syntax errors detected (${gate.errors.length}):`);
+      for (const e of gate.errors.slice(0, 10)) console.error(`   ${e}`);
+      // reject this file (content is actually broken)
+      console.log(`❌ CODE REJECTED: ${newFileName} (syntax errors prevent writing)`);
+      return { 
+        success: false, 
+        errors: [
+          `Syntax errors detected: ${gate.errors.length} error(s)`,
+          ...gate.errors.slice(0, 10)
+        ] 
+      };
+    }
+  }
+  
   // STEP 4: Write to disk (ALWAYS write, even if imports are missing)
   try {
     const dir = path.dirname(finalPath)
@@ -3482,6 +3576,11 @@ function stripOuterCodeFences(s: string): string {
 }
 
 /**
+ * Export alias for test compatibility
+ */
+export const stripCodeFences = stripOuterCodeFences;
+
+/**
  * ✅ LAYER A: Ensure single-file wrapper exists
  * Pre-normalizes AI output to always have a file wrapper pattern
  * This prevents "NO FILES MATCHED" errors in single-file generation mode
@@ -3527,13 +3626,18 @@ async function parseAndWriteFiles(
 ): Promise<number> {
   console.log('🔍 [PARSER] Starting file parsing...');
   
+  // ✅ B/C/E: Initialize InvariantOrchestrator once per pipeline workspace
+  const agentRunnerRoot = process.cwd();
+  const { InvariantOrchestrator } = await import('./lib/nightFactory/invariants/invariantOrchestrator');
+  const orchestrator = new InvariantOrchestrator(agentRunnerRoot, localPath);
+  
   // CRITICAL: Remove [END FILE] markers and other Claude artifacts
   const cleanedBlock = codeBlock
     .replace(/\[END FILE\]/g, '')           // Remove end markers
     .replace(/```tsx\n?/g, '')
     .replace(/```ts\n?/g, '')
     .replace(/```\n?$/g, '')                // Remove code fence closes
-    .replace(/<script[^>]*>.*?<\/script>/gs, '')           // Block scripts
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/g, '')           // Block scripts
     .replace(/!\[.*?\]\(https?:\/\/[^)]+\)/g, '')          // Strip external images
     .replace(/eval\(/g, 'BLOCKED_EVAL(')                   // Block eval
     .trim();
@@ -3607,8 +3711,14 @@ async function parseAndWriteFiles(
         
         if (tier === FortressTier.GOLDEN) {
           console.log(`🏰 FORTRESS: ${rawPath} is GOLDEN - blocking AI generation`);
-          // Skip this file - don't write AI-generated content
-          console.log(`   ⚠️ Skipping ${rawPath} - GOLDEN files must use templates`);
+          
+          // ✅ B) GOLDEN-filer måste alltid skrivas från template (inte bara "skip")
+          const { ensureGoldenMaterialized } = await import('./lib/fortress/ensureGoldenMaterialized');
+          const ok = ensureGoldenMaterialized(localPath, rawPath);
+          console.log(ok
+            ? `✅ [GOLDEN] Materialized template: ${rawPath}`
+            : `⚠️ [GOLDEN] No template for: ${rawPath} (left untouched)`);
+          
           skippedFiles.push(rawPath); // Track skipped file
           continue; // Skip to next file
         } else if (tier === FortressTier.REGENERATE_ONLY) {
@@ -3637,19 +3747,23 @@ async function parseAndWriteFiles(
       }
 
       if (rawPath.endsWith('package.json')) {
-        console.log('🛡️ [JSON FORTRESS] Validating package.json...');
-        try {
-          // Remove comments before parsing (JSON doesn't allow comments)
-          const cleanedContent = content
-            .replace(/\/\/.*$/gm, '') // Remove single-line comments
-            .replace(/\/\*[\s\S]*?\*\//g, '') // Remove multi-line comments
-            .replace(/,\s*\/\/.*$/gm, ',') // Remove trailing comments after commas
-            .trim();
-          JSON.parse(cleanedContent);
-        } catch (e) {
-          console.warn('⚠️ [JSON FORTRESS] Invalid JSON (possibly contains comments). Using Golden Template.');
-          content = JSON.stringify(GOLDEN_PACKAGE_JSON, null, 2);
+        console.log('🛡️ [JSON FORTRESS] package.json detected - using deterministic builder');
+        // ✅ D: Overwrite with deterministic builder (never accept LLM-writes of package.json)
+        const missingPackagesSet = new Set<string>(); // Extract from content if needed
+        // Scan content for common dependencies
+        const depMatches = content.match(/"([^"]+)":\s*"[^"]+"/g) || [];
+        for (const match of depMatches) {
+          const pkgMatch = match.match(/"([^"]+)":/);
+          if (pkgMatch && !['name', 'version', 'private', 'scripts'].includes(pkgMatch[1])) {
+            missingPackagesSet.add(pkgMatch[1]);
+          }
         }
+        await writeDeterministicPackageJson(localPath, {
+          name: `pipeline-${pipelineId ?? "app"}`,
+          extraDependencies: Array.from(missingPackagesSet),
+        });
+        console.log('   ✅ package.json overwritten with deterministic builder');
+        continue; // Skip normal write - builder already wrote it
       }
 
       // IMPORT REWRITER: Fix relative imports
@@ -3667,6 +3781,13 @@ async function parseAndWriteFiles(
         content = validateAndFixImportOrder(content, rawPath);
       }
 
+      // ✅ B/C/E: Write file with invariants (GOLDEN, lib no-JSX, atomic write, import healing)
+      const relPathPosix = rawPath.replace(/\\/g, '/');
+      const writeResult = await orchestrator.writeFileWithInvariants(relPathPosix, content);
+      if (writeResult.notes.length > 0) {
+        writeResult.notes.forEach(note => console.log(`   📝 ${note}`));
+      }
+      
       // ═══════════════════════════════════════════════════════════════════
       // CODE VALIDATION GATE: Validate before writing
       // ═══════════════════════════════════════════════════════════════════
@@ -3755,6 +3876,11 @@ async function parseAndWriteFiles(
   }
 
   console.log(`✅ [PARSER] Wrote ${filesWritten.length} files`);
+  
+  // ✅ B/C/E: Heal all source files before TypeScript validation
+  console.log('🔧 [INVARIANT ORCHESTRATOR] Healing all source files...');
+  const healResult = await orchestrator.healAllSourceFiles();
+  console.log(`   ✅ Healed ${healResult.fixed} issues across ${healResult.files} files`);
   
   // VALIDATION: Check for critical missing files
   await validateProjectStructure(localPath, pipelineId || '');
@@ -3845,27 +3971,14 @@ async function runCoderStep(pipeline: any, repoPath: string, context?: any) {
   await updatePipeline(pipeline.id, { current_phase: 'coder' });
   await createStep(pipeline.id, 'coder', 'running');
 
-  // =============================================================================
-  // 🏗️ SCAFFOLD GENERATOR: Lay foundation before AI builds
-  // =============================================================================
-  console.log("\n🏗️ [Scaffold] Generating project structure...");
-  generateScaffold(repoPath);
-  
-  // =============================================================================
-  // 📦 COMPONENT REGISTRY: Generate list of available components
-  // =============================================================================
-  const componentRegistry = generateComponentRegistry(repoPath);
-  const registryPrompt = formatComponentRegistry(componentRegistry);
-  console.log(`📦 [Registry] Found ${Object.keys(componentRegistry).length} components`);
-  
-  // =============================================================================
-  // 🌐 REALITY VISION: Generate file tree for AI context
-  // =============================================================================
-  const fileTree = getFileTree(repoPath);
-  const fileTreePrompt = fileTree 
-    ? `\nCURRENT FILE STRUCTURE:\n${fileTree}\n`
-    : '\n(File structure will be created during generation)\n';
+  // ✅ P0: Ensure critical files exist BEFORE any file generation
+  const { ensureCriticalFiles } = await import("./lib/workspace/critical-files");
+  ensureCriticalFiles(repoPath);
+  console.log("✅ [Critical Files] Verified/created critical files");
 
+  // =============================================================================
+  // 📋 FILE STRUCTURE PLAN: Ensure plan exists (self-healing)
+  // =============================================================================
   const { data: plannerStep } = await supabase
     .from('pipeline_steps')
     .select('output')
@@ -3875,7 +3988,7 @@ async function runCoderStep(pipeline: any, repoPath: string, context?: any) {
     .limit(1)
     .single();
 
-  const plan = plannerStep?.output?.content || "No plan.";
+  // Extract matrix and rootDir FIRST (needed for plan generation)
   const isPython = plannerStep?.output?.isPython || pipeline.is_python || false;
   const intent = plannerStep?.output?.intent || { isPython: isPython, isHybrid: isPython, projectType: isPython ? 'hybrid' : 'web', frameworks: [] };
   const matrix: TechMatrix = plannerStep?.output?.matrix || {
@@ -3884,16 +3997,120 @@ async function runCoderStep(pipeline: any, repoPath: string, context?: any) {
     frontend_framework: "Next.js",
     architecture: isPython ? "Hybrid" : "Monolith",
     complexity: "Production",
-    project_root: "src" // Default to "src" for Next.js projects
+    project_root: "src"
+  };
+  const rootDir = matrix.project_root || 'src';
+
+  // ✅ P0: Self-healing FileStructurePlan - Generate if missing
+  async function ensureFileStructurePlan(): Promise<FileStructurePlan> {
+    let fileStructurePlan: FileStructurePlan | null = null;
+    
+    // 1) Try to extract FileStructurePlan from planner output
+    if (plannerStep?.output) {
+      if (typeof plannerStep.output === 'object' && plannerStep.output.files && Array.isArray(plannerStep.output.files)) {
+        fileStructurePlan = plannerStep.output as FileStructurePlan;
+      } else if (typeof plannerStep.output === 'string') {
+        try {
+          const parsed = JSON.parse(plannerStep.output);
+          if (parsed.files && Array.isArray(parsed.files) && parsed.files.length > 0) {
+            fileStructurePlan = parsed as FileStructurePlan;
+          }
+        } catch {
+          // Not JSON, continue to generation
+        }
+      }
+    }
+    
+    // 2) If missing -> generate plan (V7.5) deterministically
+    if (!fileStructurePlan || !fileStructurePlan.files || fileStructurePlan.files.length === 0) {
+      console.warn("🧠 [Plan] Missing FileStructurePlan -> generating V7.5 plan now...");
+      
+      // Build requirements from context
+      const userPrompt = pipeline.initial_prompt || pipeline.prompt || "";
+      const researchData = context?.research?.full_raw_output || "";
+      const plannerData = typeof plannerStep?.output === 'string' 
+        ? plannerStep.output 
+        : JSON.stringify(plannerStep?.output || {});
+      
+      const requirements = `
+${userPrompt}
+
+${researchData ? `\nRESEARCH FINDINGS:\n${researchData.slice(0, 2000)}\n` : ''}
+
+${plannerData ? `\nPLANNER OUTPUT:\n${plannerData.slice(0, 2000)}\n` : ''}
+`.trim();
+      
+      try {
+        // Generate plan using V7.5 planner
+        fileStructurePlan = await planPerfectFileStructure(requirements, rootDir);
+        
+        // Validate generated plan
+        if (!fileStructurePlan || !fileStructurePlan.files || fileStructurePlan.files.length === 0) {
+          throw new Error("Generated plan is empty");
+        }
+        
+        console.log(`   ✅ Generated FileStructurePlan with ${fileStructurePlan.files.length} files`);
+        
+        // Persist plan to DB (save in coder step output for future rehydration)
+        await updateStep(pipeline.id, 'coder', 'running', JSON.stringify({
+          fileStructurePlan,
+          generated_at: new Date().toISOString(),
+          source: 'v7.5_self_heal'
+        }));
+        
+        console.log(`   ✅ Persisted FileStructurePlan to DB`);
+      } catch (genError: any) {
+        console.error(`   ❌ Failed to generate FileStructurePlan: ${genError.message}`);
+        throw new Error(`P0 INVARIANT VIOLATION: Could not produce a valid FileStructurePlan. Generation failed: ${genError.message}`);
+      }
+    } else {
+      console.log(`✅ [Plan] Loaded FileStructurePlan from planner output (${fileStructurePlan.files.length} files)`);
+    }
+    
+    return fileStructurePlan;
+  }
+  
+  // ✅ Ensure plan exists (self-healing)
+  const fileStructurePlan = await ensureFileStructurePlan();
+  console.log(`✅ [Plan Check] Plan validated: ${fileStructurePlan.files.length} files to generate`);
+
+  // =============================================================================
+  // 🏗️ SCAFFOLD GENERATOR: Lay foundation before AI builds
+  // =============================================================================
+  console.log("\n🏗️ [Scaffold] Generating project structure...");
+  
+  // Convert FileStructurePlan to scaffold config format
+  const scaffoldConfig = {
+    files: fileStructurePlan.files.reduce((acc: Record<string, string>, file) => {
+      // Use description as initial content (scaffold will create empty files)
+      acc[file.path] = `// ${file.description}\n// Type: ${file.type}\n// TODO: Implement this file`;
+      return acc;
+    }, {}),
+    root: fileStructurePlan.root || rootDir,
+    dependencies: fileStructurePlan.dependencies || []
   };
   
-  // Hämta beslutet från pipeline-datat (som Gatekeepern satte)
-  const rootDir = matrix.project_root || 'src';
+  await generateScaffold({ ...scaffoldConfig, projectRoot: repoPath });
+  
+  // =============================================================================
+  // 📦 COMPONENT REGISTRY: Generate list of available components
+  // =============================================================================
+  const componentRegistry = generateComponentRegistry(repoPath);
+  const registryPrompt = formatComponentRegistry(componentRegistry);
+  console.log(`📦 [Registry] Found ${Object.keys(componentRegistry).length} components`);
   
   // Bygg sökvägarna dynamiskt
   const appPath = rootDir === 'src' ? 'src/app' : 'app';
   const componentsPath = rootDir === 'src' ? 'src/components' : 'components';
   const libPath = rootDir === 'src' ? 'src/lib' : 'lib';
+  
+  // =============================================================================
+  // 🌐 REALITY VISION: Generate file tree for AI context
+  // =============================================================================
+  const fileTree = getFileTree(repoPath);
+  const fileTreePrompt = fileTree 
+    ? `\nCURRENT FILE STRUCTURE:\n${fileTree}\n`
+    : '\n(File structure will be created during generation)\n';
   
   // Injicera detta i System Prompten
   const STRICT_STRUCTURE_RULE = `
@@ -4504,7 +4721,7 @@ ${COMPONENT_NAMING_RULE}
 
   const taskPrompt = `
 IMPLEMENTATION PLAN:
-${JSON.stringify(plan).substring(0, 4000)}
+${JSON.stringify(fileStructurePlan).substring(0, 4000)}
 
 Build the core application now. Generate all necessary files.
 You are NOT allowed to use minimal HTML. You must build a professional, dense UI.
@@ -4549,7 +4766,7 @@ TASK: Build the Frontend for "${pipeline.initial_prompt || pipeline.prompt}".
 ${ARCHITECTURE_MEMORY}
 
 IMPLEMENTATION PLAN:
-${JSON.stringify(plan).substring(0, 3000)}
+${JSON.stringify(fileStructurePlan).substring(0, 3000)}
 
 ${STRICT_STRUCTURE_RULE}
 
@@ -4836,7 +5053,7 @@ ROLE: You are a Principal Systems Architect.
 TASK: Build the ${matrix.primary_backend} Backend for "${pipeline.initial_prompt || pipeline.prompt}".
 
 IMPLEMENTATION PLAN:
-${JSON.stringify(plan).substring(0, 3000)}
+${JSON.stringify(fileStructurePlan).substring(0, 3000)}
 
 LATEST FRAMEWORK INTEL (MUST FOLLOW):
 ${ragKnowledge.substring(0, 2000)}
@@ -4939,49 +5156,16 @@ ${STRICT_OUTPUT_FORMAT}
       // ---------------------------------------------------------
       
       // =============================================================================
-      // 🏗️ V7.5: PLAN PERFECT FILE STRUCTURE FIRST (The Architect)
+      // ✅ SINGLE SOURCE OF TRUTH: Use the same plan that scaffold used
       // =============================================================================
-      let structurePlan: FileStructurePlan | null = null;
-      let useV75Planning = isNewProject; // Use V7.5 for new projects
-      
-      // ✅ CHECK FOR RE-HYDRATED PLAN FIRST
-      if (pipeline.file_structure_plan) {
-        structurePlan = pipeline.file_structure_plan as FileStructurePlan;
-        console.log(chalk.green(`✅ Using re-hydrated plan (${structurePlan.files?.length || 0} files)`));
-      } else if (useV75Planning) {
-        // Plan doesn't exist, create it
-        try {
-          console.log(chalk.cyan("\n🏗️ V7.5 FILE STRUCTURE PLANNING: Architecting perfect structure..."));
-          structurePlan = await planPerfectFileStructure(pipeline.initial_prompt || pipeline.prompt || "", rootDir);
-          const fileCount = structurePlan?.files?.length || 0;
-          console.log(chalk.green(`✅ Planned ${fileCount} files.`));
-          
-          // --- SPARA TILL DATABASEN ---
-          await updatePipeline(pipeline.id, {
-            file_structure_plan: structurePlan,
-            current_phase: 'coder_planning_complete' // Bra för debugging
-          });
-          console.log(chalk.green("💾 File structure plan saved to Supabase."));
-          // ----------------------------------
-          
-          // Update rootDir based on plan
-          if (structurePlan.root && structurePlan.root !== rootDir) {
-            console.log(chalk.yellow(`   📁 Plan specifies root: ${structurePlan.root}, updating...`));
-            // rootDir is already set from matrix, but we can use plan's root for file paths
-          }
-        } catch (error: any) {
-          console.warn(chalk.yellow(`⚠️ File structure planning failed: ${error.message}.`));
-          // 🔧 FIX: Don't fall back to V5.5 - force V7.5 mode or fail explicitly
-          console.error(chalk.red(`❌ V7.5 planning is required. V5.5 fallback disabled to prevent ghost imports.`));
-          throw new Error(`V7.5 planning failed: ${error.message}. Cannot proceed without file structure plan.`);
-        }
-      }
-      
       // 🔧 CRITICAL SAFETY CHECK: Ensure plan exists before proceeding
-      if (!structurePlan || !structurePlan.files || structurePlan.files.length === 0) {
-        console.error(chalk.red(`❌ CRITICAL: V7.5 planning is required. Cannot proceed without file structure plan.`));
-        throw new Error('CRITICAL: V7.5 planning is required. Cannot proceed without file structure plan (prevents ghost imports).');
+      if (!fileStructurePlan?.files?.length) {
+        throw new Error("P0: fileStructurePlan missing before sequential coder");
       }
+      
+      // ✅ Use the same plan that was already generated/loaded earlier
+      const structurePlan = fileStructurePlan;
+      console.log(chalk.green(`✅ [SINGLE SOURCE] Using existing plan (${structurePlan.files.length} files)`));
       
       // 🔒 FORCE V7.5 PROTOCOL: Always use Sequential Mode when plan exists
       console.log(chalk.cyan("🔒 Enforcing V7.5 Sequential Mode (Architecture v9.0)"));
@@ -5026,12 +5210,15 @@ ${STRICT_OUTPUT_FORMAT}
           // ═══════════════════════════════════════════════════════════════════
           if (!file || !file.path) continue; // Defensive: skip invalid files
           
-          const isGolden = file.path.includes('src/components/ui/') || 
-                          file.path.includes('shadcn') ||
-                          file.path.includes('/components/ui/');
+          const filePath = asPathString((file as any)?.path);
+          
+          const isGolden =
+            filePath.includes("src/components/ui/") ||
+            filePath.includes("shadcn") ||
+            filePath.includes("/components/ui/");
           
           if (isGolden) {
-            console.log(chalk.cyan(`✨ [GOLDEN] Skipping AI generation for ${file.path} (Using pre-injected component)`));
+            console.log(chalk.cyan(`✨ [GOLDEN] Skipping AI generation for ${filePath} (Using pre-injected component)`));
             continue; // Jump to next file immediately - don't call AI!
           }
           
@@ -7184,7 +7371,11 @@ Output format: [FILE: ${targetFile}]
 `;
               
               try {
+                // Välj repair-modell för JSX-removal (REMOVE_JSX strategy)
+                const chosenModel = selectModel('FIXER', 'medium') || 'gemini-2.5-flash';
+                
                 const fixOutput = await callAI({
+                  model: chosenModel,
                   pipelineId: pipeline?.id || 'fix',
                   step: 'tester',
                   role: 'CODER',
@@ -9764,7 +9955,7 @@ RETURN FORMAT:
               
               // 2. SMART CHECK: Behövs @types?
               // Om paketet inte är ett av de kända som har inbyggda typer, chansa på @types
-              for (const missingPackage of pkgsToInstall) {
+              for (const missingPackage of Array.from(pkgsToInstall)) {
                   // Ignorera scoped packages (@scope/package) och packages som redan är @types
                   if (missingPackage.startsWith('@') || missingPackage.startsWith('@types/')) {
                       continue;
@@ -10257,7 +10448,7 @@ RETURN FORMAT:
       // Filter the graph to save tokens (only relevant files)
       const relevantIntel = knowledgeGraph.files.filter(node => 
         fullLog.includes(node.path) ||                           // File mentioned in error
-        node.path.includes('types') ||                           // Type files always relevant
+        asPathString((node as any)?.path).includes("types") ||   // Type files always relevant
         fullLog.includes(path.basename(node.path, '.tsx')) ||   // Filename without extension
         fullLog.includes(path.basename(node.path, '.ts')) ||
         node.exports.some(exp => fullLog.includes(exp))          // Export mentioned in error
@@ -11386,7 +11577,7 @@ Return ONLY the fixed file content in format:
       pipelineId: pipeline?.id || 'unknown',
       step: 'page_fixer',
       role: 'CODER',
-      model: 'claude-sonnet-4-5',
+      model: 'claude-sonnet-4-5', // May 2025 - Fast + Smart
       messages: [
         { role: 'user', content: prompt }
       ]
@@ -11435,7 +11626,7 @@ function extractMissingDependencies(error: string): string[] {
     }
   }
   
-  return [...new Set(matches)]; // Remove duplicates
+  return Array.from(new Set(matches)); // Remove duplicates
 }
 
 /**
@@ -11495,7 +11686,7 @@ Rules:
       pipelineId: pipeline?.id || 'unknown',
       step: 'build_fixer',
       role: 'CODER',
-      model: 'claude-sonnet-4-5',
+      model: 'claude-sonnet-4-5', // May 2025 - Fast + Smart
       messages: [
         { role: 'user', content: prompt }
       ]
@@ -11977,7 +12168,7 @@ async function runFinalBuildVerification(
     }
     
     // Verify it has content
-    const bodyMatch = html.match(/<body[^>]*>(.*?)<\/body>/is);
+    const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
     const bodyContent = bodyMatch?.[1] || '';
     
     if (bodyContent.length < 100) {
@@ -12059,7 +12250,7 @@ async function generateStubPages(
   workspacePath: string,
   brokenLinks: Array<{file: string, text: string, href: string}>
 ): Promise<void> {
-  const uniqueHrefs = [...new Set(brokenLinks.map(l => l.href))];
+  const uniqueHrefs = Array.from(new Set(brokenLinks.map(l => l.href)));
   
   for (const href of uniqueHrefs) {
     const pageDir = path.join(workspacePath, 'src/app', href);
@@ -12132,7 +12323,7 @@ async function validateAndFixDependencies(workspacePath: string): Promise<void> 
   ]);
   
   // Find missing packages
-  const missingPackages = [...requiredPackages].filter(
+  const missingPackages = Array.from(requiredPackages).filter(
     pkg => !installedPackages.has(pkg)
   );
   
@@ -12431,7 +12622,9 @@ async function runPublisherStep(pipeline: any, repoPath: string) {
                 
                 if (!response.ok) {
                     const errorData = await response.json().catch(() => ({}));
-                    const errorMessage = errorData.message || response.statusText;
+                    const errorMessage = (errorData && typeof errorData === "object" && "message" in errorData && typeof errorData.message === "string")
+                      ? errorData.message
+                      : response.statusText;
                     
                     if (errorMessage.includes("name already exists") || errorMessage.includes("already exists")) {
                         console.warn("⚠️ Repo exists. Activating Auto-Pivot...");
@@ -12908,7 +13101,7 @@ export async function runPipelineLoop(sandboxPath: string) {
       pipeline = await rehydrateMissingPhaseData(pipeline.id, pipeline);
       
       // ✅ LAYER 1: Normalize phase (handle aliases/legacy phases)
-      function normalizePhase(phase: string): string {
+      const normalizePhase = (phase: string): string => {
         if (!phase) return "research";
         const p = phase.trim();
 
@@ -12921,7 +13114,7 @@ export async function runPipelineLoop(sandboxPath: string) {
         if (p === "test" || p === "testing") return "tester";
 
         return p;
-      }
+      };
 
       // Normalize phase before switch
       const normalizedPhase = normalizePhase(pipeline.current_phase);
@@ -13342,7 +13535,9 @@ export async function startPipelineRunner(sandboxPath?: string) {
   }
   pipelineRunnerStarted = true;
 
-  const SANDBOX_DIR = sandboxPath || path.resolve(process.cwd(), "workspace/sandbox");
+  // ✅ Single source of truth för workspace root
+  const { getWorkspaceRoot } = await import("./lib/workspace/config");
+  const SANDBOX_DIR = sandboxPath || getWorkspaceRoot();
 
   console.log(`🚀 Starting Agent Runner in: ${SANDBOX_DIR}`);
 
@@ -13360,7 +13555,16 @@ export async function startPipelineRunner(sandboxPath?: string) {
 }
 
 // ✅ Auto-start if this file is run directly (but idempotent)
-if (require.main === module) {
+const __filename = fileURLToPath((import.meta as any).url);
+
+// ESM-safe "am I the entry file?"
+const isMain =
+  typeof process !== "undefined" &&
+  Array.isArray(process.argv) &&
+  typeof process.argv[1] === "string" &&
+  path.resolve(process.argv[1]) === path.resolve(__filename);
+
+if (isMain) {
   startPipelineRunner().catch((error) => {
     console.error("💀 FATAL ENGINE FAILURE:", error);
     process.exit(1);

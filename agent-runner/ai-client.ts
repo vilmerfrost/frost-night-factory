@@ -2,8 +2,10 @@
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import Groq from 'groq-sdk'  // ✅ Phase 3: Groq client
+import { GoogleGenerativeAI } from '@google/generative-ai'  // ✅ Google Gemini support
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
+import { callClaudeFrontendStrict } from './lib/claude/claude-gateway'  // ✅ Claude gateway (central resilience)
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -27,6 +29,10 @@ const deepseek = new OpenAI({
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!
 })
+
+// ✅ Google Gemini client for repair/debug tasks
+const googleApiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY
+const genAI = googleApiKey ? new GoogleGenerativeAI(googleApiKey) : null
 
 // ✅ Kimi K2 (Moonshot) client for research synthesis
 let kimiClient: OpenAI | null = null
@@ -69,7 +75,7 @@ initKimiClient();
 // ═══════════════════════════════════════════════════════════════════
 const COST_PER_1M_TOKENS = {
   // Claude
-  'claude-sonnet-4-5': { input: 300, output: 1500, cacheWrite: 375, cacheRead: 30 }, // $3/$15/$3.75/$0.30 per 1M
+  'claude-sonnet-4-5': { input: 300, output: 1500, cacheWrite: 375, cacheRead: 30 }, // $3/$15/$3.75/$0.30 per 1M - May 2025 - Fast + Smart
   'claude-haiku-4-5-20251001': { input: 80, output: 400, cacheWrite: 100, cacheRead: 8 },    // $0.80/$4/$1/$0.08 per 1M
   
   // OpenAI
@@ -82,6 +88,10 @@ const COST_PER_1M_TOKENS = {
   
   // Groq (practically free)
   'llama-3.3-70b-versatile': { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 },
+  
+  // Google Gemini (for repair/debug)
+  'gemini-2.5-flash': { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 }, // Free tier
+  'gemini-2.5-flash-preview-09-2025': { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 },
   
   // Kimi K2 (Moonshot) - for research synthesis
   'kimi-k2-thinking': { input: 500, output: 600, cacheWrite: 0, cacheRead: 0 }, // $0.50/$0.60 per 1M
@@ -147,7 +157,7 @@ const FORBIDDEN_TOKENS: Record<string, number> = {
 export interface AICallOptions {
   pipelineId: string
   step: string
-  role: 'PLANNER' | 'CODER' | 'FIXER' | 'REVIEWER' | 'RESEARCHER' | 'PROMPT_ENGINEER' | 'CODE_REVIEWER' | 'SQL_AGENT' | 'PYTHON_FIXER'
+  role: 'PLANNER' | 'CODER' | 'FIXER' | 'REVIEWER' | 'RESEARCHER' | 'PROMPT_ENGINEER' | 'CODE_REVIEWER' | 'SQL_AGENT' | 'PYTHON_FIXER' | 'DEBUGGER' | 'UX_REVIEWER'
   model: string
   messages: Array<{ role: string; content: string }>
   errorSignature?: string
@@ -291,6 +301,7 @@ export async function callAI(opts: AICallOptions): Promise<string> {
         : undefined
       
       // ✅ Phase 1: Use prompt caching if cacheable blocks provided
+      // ✅ Wrap Claude calls with resilience (retry on overload/rate-limit/timeout)
       let result: any
       if (opts.cacheableBlocks && opts.cacheableBlocks.length > 0) {
         // Structure for caching: system blocks get cached
@@ -303,22 +314,32 @@ export async function callAI(opts: AICallOptions): Promise<string> {
         // Extract user message (dynamic part)
         const userMessage = nonSystemMessages.find(m => m.role === 'user')
         
-        result = await anthropic.messages.create({
+        const payload = {
           model: safeModel,
           max_tokens: 8000,
           temperature,
           system: systemBlocks, // Use cacheable blocks if available
-          messages: userMessage ? [{ role: 'user', content: userMessage.content }] : []
-        })
+          messages: userMessage ? [{ role: 'user' as const, content: userMessage.content }] : []
+        }
+        
+        result = await callClaudeFrontendStrict(
+          `${role}:${step}:${safeModel}`,
+          () => anthropic.messages.create(payload)
+        )
       } else {
         // Regular call: use extracted system messages
-        result = await anthropic.messages.create({
+        const payload = {
           model: safeModel,
           max_tokens: 8000,
           temperature,
           ...(systemParam && { system: systemParam }), // Only include if system messages exist
           messages: nonSystemMessages as any // Only non-system messages (no 'system' role!)
-        })
+        }
+        
+        result = await callClaudeFrontendStrict(
+          `${role}:${step}:${safeModel}`,
+          () => anthropic.messages.create(payload)
+        )
       }
       
       response = result.content[0].type === 'text' ? result.content[0].text : ''
@@ -487,6 +508,52 @@ export async function callAI(opts: AICallOptions): Promise<string> {
       tokensIn = result.usage?.prompt_tokens || 0
       tokensOut = result.usage?.completion_tokens || 0
       
+    } else if (safeModel.includes('gemini') || safeModel.startsWith('gemini-')) {
+      // ✅ Google Gemini API for repair/debug tasks
+      if (!genAI) {
+        throw new Error('Google Gemini API key not configured. Set GOOGLE_API_KEY or GEMINI_API_KEY');
+      }
+      
+      // Extract system messages and user messages
+      const systemMessages = messages.filter(m => m.role === 'system').map(m => m.content)
+      const userMessages = messages.filter(m => m.role !== 'system')
+      
+      // ✅ Add CODE_GENERATION_RULES for CODER role
+      const finalSystemMessages = (role === 'CODER' || role === 'FIXER')
+        ? [CODE_GENERATION_RULES, ...systemMessages]
+        : systemMessages
+      
+      // Normalize model name (accept both gemini-2.5-flash and gemini-2.5-flash-preview-09-2025)
+      let modelName = safeModel
+      if (!modelName.startsWith('gemini-')) {
+        // Fallback: if model doesn't start with gemini-, use default
+        modelName = 'gemini-2.5-flash'
+      }
+      
+      const geminiModel = genAI.getGenerativeModel({ 
+        model: modelName,
+        generationConfig: {
+          temperature,
+          maxOutputTokens: opts.maxTokens || 8000,
+        }
+      })
+      
+      // Combine system and user messages for Gemini (Gemini uses simple string prompt)
+      const systemPrompt = finalSystemMessages.length > 0 
+        ? finalSystemMessages.join('\n\n') + '\n\n'
+        : ''
+      const userPrompt = userMessages.map(m => m.content).join('\n\n')
+      const fullPrompt = systemPrompt + userPrompt
+      
+      console.log(`🤖 [Gemini] Using model: ${modelName} for ${safeRole}`)
+      
+      const result = await geminiModel.generateContent(fullPrompt)
+      
+      response = result.response.text()
+      // Gemini doesn't provide token usage in the same way, estimate based on response length
+      tokensIn = Math.ceil(fullPrompt.length / 4) // Rough estimate: 4 chars per token
+      tokensOut = Math.ceil(response.length / 4)
+      
     } else {
       throw new Error(`Unknown model: ${safeModel}`)
     }
@@ -588,10 +655,10 @@ export function selectModel(
     return 'deepseek-reasoner' // Best bang for buck
   }
   
-  // CODER: Use expensive for main generation
-  if (role === 'CODER') {
-    return 'claude-sonnet-4-5'
-  }
+    // CODER: Use expensive for main generation
+    if (role === 'CODER') {
+      return 'claude-sonnet-4-5' // May 2025 - Fast + Smart
+    }
   
   // REVIEWER: Cheap model is fine
   if (role === 'REVIEWER') {

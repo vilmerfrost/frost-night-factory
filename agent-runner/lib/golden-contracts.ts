@@ -2,9 +2,9 @@
 // GOLDEN CONTRACTS - Auto-restore core contract files from golden copies
 // =============================================================================
 
-import fs from 'fs/promises';
-import path from 'path';
-import crypto from 'crypto';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import * as crypto from 'crypto';
 
 const GOLDEN_ROOT = path.join(__dirname, '..', 'data', 'golden', 'invoice');
 
@@ -19,7 +19,7 @@ const GOLDEN_CONTRACTS = [
  * Hash a string using SHA-256
  */
 function hash(s: string): string {
-  return crypto.createHash('sha256').update(s, 'utf8').digest('hex');
+  return crypto.createHash("sha256").update(Buffer.from(s, "utf8") as unknown as string).digest("hex");
 }
 
 /**

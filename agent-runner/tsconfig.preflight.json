@@ -1,0 +1,36 @@
+{
+    "compilerOptions": {
+      "target": "ES2022",
+      "module": "ESNext",
+      "moduleResolution": "Node",
+      "baseUrl": ".",
+      "paths": { "@/*": ["./src/*"] },
+      "esModuleInterop": true,
+      "resolveJsonModule": true,
+      "types": ["node"],
+      "lib": ["ES2022"],
+      "skipLibCheck": true,
+      "strict": false
+    },
+    "include": [
+      "pipeline-runner.ts",
+      "ai-client.ts",
+      "repo-map-generator.ts",
+      "multi-pass-generator.ts",
+      "lib/**/*.ts",
+      "lib/**/*.tsx",
+      "src/**/*.ts",
+      "src/**/*.tsx",
+      "scripts/**/*.ts"
+    ],
+    "exclude": [
+      "node_modules",
+      "workspace/**",
+      "templates/**",
+      "data/**",
+      "**/.next/**",
+      "**/*.spec.*",
+      "**/*.test.*"
+    ]
+  }
+  

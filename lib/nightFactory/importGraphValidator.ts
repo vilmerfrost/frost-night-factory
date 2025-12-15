@@ -51,13 +51,13 @@ function extractExportsFromFile(filePath: string): ExportInfo {
   
   // Match: export default function X
   const defaultFuncMatch = content.match(/export\s+default\s+function\s+(\w+)/);
-  if (defaultFuncMatch) {
+  if (defaultFuncMatch && defaultFuncMatch[1]) {
     defaultExport = defaultFuncMatch[1];
   }
   
   // Match: export default X (variable/const)
   const defaultVarMatch = content.match(/export\s+default\s+(\w+)(?:\s|;|$)/);
-  if (defaultVarMatch && !defaultExport) {
+  if (defaultVarMatch && defaultVarMatch[1] && !defaultExport) {
     defaultExport = defaultVarMatch[1];
   }
   
@@ -70,17 +70,23 @@ function extractExportsFromFile(filePath: string): ExportInfo {
   const namedExportRegex = /export\s+(?:const|function|class|type|interface|enum|let|var)\s+(\w+)/g;
   let match;
   while ((match = namedExportRegex.exec(content)) !== null) {
-    namedExports.push(match[1]);
+    const name = match[1];
+    if (name) {
+      namedExports.push(name);
+    }
   }
   
   // Match: export { X, Y }
   const exportListRegex = /export\s+\{([^}]+)\}/g;
   while ((match = exportListRegex.exec(content)) !== null) {
-    const names = match[1]
-      .split(',')
-      .map(n => n.trim().split(' as ')[0].trim())
-      .filter(Boolean);
-    namedExports.push(...names);
+    const namesStr = match[1];
+    if (namesStr) {
+      const names = namesStr
+        .split(',')
+        .map(n => (n.trim().split(' as ')[0] ?? '').trim())
+        .filter(Boolean);
+      namedExports.push(...names);
+    }
   }
   
   return {
@@ -103,7 +109,7 @@ function extractImportsFromFile(filePath: string): ImportInfo[] {
   lines.forEach((line, index) => {
     // Match: import X from 'path'
     const defaultMatch = line.match(/import\s+(\w+)\s+from\s+['"]([^'"]+)['"]/);
-    if (defaultMatch) {
+    if (defaultMatch && defaultMatch[1] && defaultMatch[2]) {
       imports.push({
         file: filePath,
         importPath: defaultMatch[2],
@@ -115,10 +121,11 @@ function extractImportsFromFile(filePath: string): ImportInfo[] {
     
     // Match: import { X, Y } from 'path'
     const namedMatch = line.match(/import\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/);
-    if (namedMatch) {
-      const names = namedMatch[1]
+    if (namedMatch && namedMatch[1] && namedMatch[2]) {
+      const namesStr = namedMatch[1];
+      const names = namesStr
         .split(',')
-        .map(n => n.trim().split(' as ')[0].trim())
+        .map(n => (n.trim().split(' as ')[0] ?? '').trim())
         .filter(Boolean);
       imports.push({
         file: filePath,
@@ -380,7 +387,7 @@ function autoFixIssues(
   issues: ValidationIssue[]
 ): number {
   let fixedCount = 0;
-  const filesToFix = new Map<string, string[]>();
+  const filesToFix = new Map<string, number[]>();
   
   // Group issues by file
   for (const issue of issues) {
@@ -410,12 +417,12 @@ function autoFixIssues(
       // Fix: Change default import to named import
       if (issue.issue.includes('no default export') && issue.suggestion.includes('Use named import')) {
         const namedMatch = issue.suggestion.match(/import \{ (\w+) \} from/);
-        if (namedMatch) {
+        if (namedMatch && namedMatch[1] && issue.importedNames[0]) {
           const newName = namedMatch[1];
           const oldImport = `import ${issue.importedNames[0]} from`;
           const newImport = `import { ${newName} } from`;
           
-          if (line.includes(oldImport)) {
+          if (line && line.includes(oldImport)) {
             contentLines[lineIndex] = line.replace(oldImport, newImport);
             // Also replace usage in the file
             content = content.replace(
@@ -430,12 +437,12 @@ function autoFixIssues(
       // Fix: Change named import to default import
       if (issue.issue.includes('not found in module exports') && issue.suggestion.includes('Use default import')) {
         const defaultMatch = issue.suggestion.match(/import (\w+) from/);
-        if (defaultMatch) {
+        if (defaultMatch && defaultMatch[1] && issue.importedNames[0]) {
           const defaultName = defaultMatch[1];
           const oldImport = `import { ${issue.importedNames[0]} } from`;
           const newImport = `import ${defaultName} from`;
           
-          if (line.includes(oldImport)) {
+          if (line && line.includes(oldImport)) {
             contentLines[lineIndex] = line.replace(oldImport, newImport);
             // Also replace usage
             content = content.replace(

@@ -9,6 +9,7 @@ import { selectOptimalModel, estimateComplexity, getModelName, routeModel, infer
 import { MODELS } from './lib/models'  // ✅ Model constants
 import { generateRepositoryMap } from './repo-map-generator'  // ✅ Phase 1: For caching
 import { needsJsxSanitization } from './lib/jsx-sanitizer'  // ✅ JSX sanitizer
+import { ClaudeOverloadExhaustedError } from './lib/claude/claude-gateway'  // ✅ Claude gateway (central resilience)
 import * as fs from 'fs'
 import * as path from 'path'
 
@@ -179,6 +180,9 @@ export async function generateWithValidation(
 - Output valid TypeScript only.
 - If you need UI, it belongs in /src/components or /src/app, not /src/lib.
 - Return plain objects, strings, numbers, or functions - NOT JSX elements.
+- ✅ NO TEMPLATE LITERALS (backticks): Use string concatenation or regular strings instead.
+- ✅ Avoid backticks entirely to prevent unterminated template literal errors.
+- ✅ Use single quotes (') or double quotes (") for strings, NOT backticks (\`).
 `;
 
   // Prepend NO-JSX guard if this is a lib file
@@ -219,12 +223,22 @@ export async function generateWithValidation(
           : inferTaskKindFromFile(targetFile);
       
       // Use forced model if set (from provider termination), otherwise route normally
-      const modelName = forcedNextModel || routeModel({
+      const pickedModel = forcedNextModel || routeModel({
         task: taskKind,
         phase: "coder",
         filePath: targetFile,
         reason: strategy || undefined,
       });
+      
+      // ✅ Ensure model is always a string (handle case where routeModel might return object)
+      const modelName =
+        typeof pickedModel === "string"
+          ? pickedModel
+          : typeof pickedModel === "object" && pickedModel && typeof (pickedModel as any).model === "string"
+            ? (pickedModel as any).model
+            : typeof MODELS.GEMINI_25_FLASH === "string"
+              ? MODELS.GEMINI_25_FLASH
+              : "gemini-2.5-flash"; // Final fallback
       
       console.log(`🤖 [ROUTING] Using ${modelName} for ${taskKind} task (attempt ${attempts}/${MAX_TOTAL_LOOPS})`)
       if (forcedNextModel) {
@@ -270,6 +284,9 @@ Alternative formats (also accepted):
       // Prepend OUTPUT FORMAT to user prompt
       const finalPrompt = `${OUTPUT_FORMAT_STRICT}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n${promptToUse}`;
       
+      // ✅ Ensure modelName is string before using .includes()
+      const modelStr = String(modelName);
+      
       // Generate code with caching (callAI determines provider from model name)
       const code = await callAI({
         pipelineId,
@@ -279,7 +296,7 @@ Alternative formats (also accepted):
         messages: [
           { role: 'user', content: finalPrompt }
         ],
-        cacheableBlocks: modelName.includes('claude') ? cacheableBlocks : undefined  // Only Claude supports caching
+        cacheableBlocks: modelStr.includes('claude') ? cacheableBlocks : undefined  // Only Claude supports caching
       })
       
       console.log(`   Generated ${code?.length || 0} characters`)
@@ -462,6 +479,49 @@ Rewrite the code as pure TypeScript with NO JSX.`;
       // If we get here, validation passed!
       previousErrorCount = 0;  // Reset for next file
       
+      // ═══════════════════════════════════════════════════════════════════
+      // 🔒 SYNTAX GATE: Check for TypeScript syntax errors BEFORE marking as valid
+      // ═══════════════════════════════════════════════════════════════════
+      if (targetFile.endsWith('.ts') || targetFile.endsWith('.tsx')) {
+        const { getSyntaxErrors, getSyntaxErrorString } = await import('./lib/validation/tsSyntaxGuard');
+        const syntaxErrors = getSyntaxErrors(finalCode || '', targetFile);
+        
+        if (syntaxErrors.length > 0) {
+          const errorString = getSyntaxErrorString(finalCode || '', targetFile);
+          console.log(`   ❌ [SYNTAX GATE] TypeScript syntax errors detected (${syntaxErrors.length}):`);
+          console.log(`      ${errorString?.split('\n').join('\n      ') || 'Unknown syntax error'}`);
+          
+          // Build targeted repair prompt for syntax errors
+          const syntaxErrorMessages = syntaxErrors
+            .map(e => `${e.file}:${e.line}:${e.column} ${e.message}${e.code ? ` (TS${e.code})` : ''}`)
+            .join('\n');
+          
+          currentPrompt = `${prompt}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔒 SYNTAX ERROR DETECTED - TARGETED REPAIR REQUIRED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The generated code has TypeScript syntax errors that must be fixed:
+
+${syntaxErrorMessages}
+
+COMMON FIXES:
+- Unterminated template literal: Check for missing closing backtick (\`)
+- Unbalanced brackets: Check for missing }, ], or )
+- Missing semicolon: Add semicolon if required
+- Invalid type syntax: Fix type annotations
+
+${isLibFile ? NO_JSX_GUARD : ''}
+
+Fix ONLY the syntax errors. Do not change the logic or structure.
+Return the complete, syntactically valid file.`;
+          
+          console.log(`   🔧 [SYNTAX GATE] Triggering targeted repair for syntax errors...`);
+          continue; // Try again with syntax repair prompt
+        }
+      }
+      
       // AST completeness check (skip for config files)
       const isConfigFile = /\.config\.(ts|js|mjs)$/.test(targetFile) || 
                            /^(next|tailwind|postcss|tsconfig|jest|vitest)\.config/.test(targetFile) ||
@@ -491,8 +551,8 @@ Rewrite the code as pure TypeScript with NO JSX.`;
         }
       }
       
-      // SUCCESS!
-      console.log(`   ✅ Code validated successfully!`)
+      // SUCCESS! (Only reached if syntax is valid AND completeness check passes)
+      console.log(`   ✅ Code validated successfully! (syntax + completeness)`)
       
       // ✅ LONG-TERM FIX: Only cache AFTER validation passes
       // This prevents caching bad code (like JSX in .ts files)
@@ -517,6 +577,17 @@ Rewrite the code as pure TypeScript with NO JSX.`;
       
     } catch (error: any) {
       console.error(`   ❌ Generation error:`, error.message)
+      
+      // ✅ Claude overload exhausted - don't retry 10 times, fail fast
+      // Overload = BLOCKA pipen och respektera att Claude är nere
+      if (error instanceof ClaudeOverloadExhaustedError) {
+        console.error(`🧯 Claude overloaded too long — marking pipeline as BLOCKED_OVERLOAD and stopping cleanly.`)
+        console.error(`   Attempts: ${error.attempts}, Retry after: ${error.retryAfterMs}ms, Last message: ${error.lastMessage}`)
+        // 1) Pipeline status uppdateras i DB (blocked / waiting) - hanteras av dispatcher/pipeline-runner
+        // 2) File som var aktivt sparas i error message - kan resume senare
+        // 3) Throw kontrollerat så dispatcher inte spinnar
+        throw error; // Re-throw så outer loop kan hantera det
+      }
       
       // Classify error to decide if we should retry
       // ✅ Pass filePath when available for better classification

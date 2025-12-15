@@ -77,7 +77,7 @@ describe('QuarantineZone', () => {
     });
 
     it('should detect incomplete template literals', async () => {
-      const badCode = 'const str = `hello world';'; // Missing closing backtick
+      const badCode = "const str = `hello world';"; // Missing closing backtick
       const qId = await quarantine.receive(badCode);
       const validation = await quarantine.validate(qId, 'test.ts');
       

@@ -18,7 +18,7 @@ export interface ErrorAnalysis {
   classification: ErrorClass
   errorCode: string
   errorSignature: string
-  fixStrategy: 'SANITIZE' | 'REGEN' | 'GOLDEN_TEMPLATE' | 'AI_FIX' | 'STOP' | 'REMOVE_JSX'
+  fixStrategy: '' | 'SANITIZE' | 'REGEN' | 'GOLDEN_TEMPLATE' | 'AI_FIX' | 'STOP' | 'REMOVE_JSX' | 'JSON_REPAIR' | 'IMPORT_FIX' | 'PATCH' | 'VALIDATION_REPAIR'
   maxRetries: number
   backoffMs: number
   canCache: boolean

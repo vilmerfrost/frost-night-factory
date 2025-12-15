@@ -3,11 +3,28 @@
 // =============================================================================
 
 import { execSync, spawn } from 'child_process';
-import fs from 'fs';
-import path from 'path';
+import * as fs from 'fs';
+import * as path from 'path';
 import { promisify } from 'util';
 
 const sleep = promisify(setTimeout);
+
+// =============================================================================
+// OpenAPI Schema Type Guards
+// =============================================================================
+
+type OpenApiLike = {
+  paths?: Record<string, unknown>;
+};
+
+const isObj = (v: unknown): v is Record<string, unknown> =>
+  !!v && typeof v === "object" && !Array.isArray(v);
+
+const asOpenApiLike = (v: unknown): OpenApiLike => {
+  if (!isObj(v)) return {};
+  const paths = v["paths"];
+  return { paths: isObj(paths) ? (paths as Record<string, unknown>) : {} };
+};
 
 export interface IntegrationTestConfig {
   workspaceRoot: string;
@@ -130,7 +147,8 @@ export async function runIntegrationTestSuite(
       
       if (openApiResponse.ok) {
         const openApiSchema = await openApiResponse.json();
-        const paths = Object.keys(openApiSchema.paths || {});
+        const openApi = asOpenApiLike(openApiSchema);
+        const paths = Object.keys(openApi.paths ?? {});
         endpointsTested += paths.length;
         console.log(`   ✅ Found ${paths.length} API endpoints`);
 
@@ -171,7 +189,9 @@ export async function runIntegrationTestSuite(
         // Step 6: Test each endpoint
         console.log('   🧪 Testing API endpoints...');
         for (const endpointPath of paths.slice(0, 5)) { // Test first 5 endpoints
-          const methods = Object.keys(openApiSchema.paths[endpointPath] || {});
+          const openApi = asOpenApiLike(openApiSchema);
+          const endpoint = openApi.paths?.[endpointPath];
+          const methods = Object.keys(isObj(endpoint) ? endpoint : {});
           for (const method of methods) {
             if (method === 'get' && !endpointPath.includes('{')) {
               try {
@@ -289,7 +309,8 @@ async function generateMockData(workspaceRoot: string, backendPort: number): Pro
     mocks.push('// This file is regenerated on each integration test');
     mocks.push('');
 
-    const paths = schema.paths || {};
+    const openApi = asOpenApiLike(schema);
+    const paths = openApi.paths ?? {};
     for (const [path, methods] of Object.entries(paths)) {
       const pathMethods = methods as any;
       if (pathMethods.get?.responses?.['200']?.content?.['application/json']?.schema) {

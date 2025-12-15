@@ -1,3 +1,6 @@
+/// <reference lib="dom" />
+/// <reference lib="dom.iterable" />
+
 import puppeteer from 'puppeteer';
 import waitPort from 'wait-port';
 import { callAI } from './modelClient';
@@ -197,7 +200,7 @@ export async function runVisualAudit(projectPath: string): Promise<VisualAuditRe
       
       // Försök hitta tomma listor/containers och fyll dem med mock-data
       const emptyLists = document.querySelectorAll('ul:empty, ol:empty, [data-empty="true"]');
-      emptyLists.forEach((list, index) => {
+      emptyLists.forEach((list: Element, index: number) => {
         if (list.children.length === 0) {
           // Skapa några mock-items för visuell feedback
           for (let i = 0; i < 3; i++) {
@@ -212,7 +215,7 @@ export async function runVisualAudit(projectPath: string): Promise<VisualAuditRe
       
       // Försök hitta tomma cards/containers och fyll dem
       const emptyCards = document.querySelectorAll('[class*="card"]:empty, [class*="Card"]:empty');
-      emptyCards.forEach((card, index) => {
+      emptyCards.forEach((card: Element, index: number) => {
         if (card.textContent?.trim() === '') {
           const placeholder = document.createElement('div');
           placeholder.textContent = 'Sample Content';
@@ -257,7 +260,7 @@ export async function runVisualAudit(projectPath: string): Promise<VisualAuditRe
     const scoreMatch = critique.match(/score[:\s]+(\d+)\/10/i) || 
                       critique.match(/(\d+)\/10/i) ||
                       critique.match(/score[:\s]+(\d+)/i);
-    if (scoreMatch) {
+    if (scoreMatch && scoreMatch[1]) {
       score = parseInt(scoreMatch[1], 10);
     }
 
@@ -266,7 +269,7 @@ export async function runVisualAudit(projectPath: string): Promise<VisualAuditRe
       console.error(`❌ DESIGN REJECTED! Score: ${score}/10 (below threshold of 8)`);
       // Extract critique text
       const critiqueMatch = critique.match(/CRITIQUE:\s*([\s\S]*?)(?:\n\n|$)/i);
-      const critiqueText = critiqueMatch ? critiqueMatch[1].trim() : critique;
+      const critiqueText = critiqueMatch && critiqueMatch[1] ? critiqueMatch[1].trim() : critique;
       // Return screenshot så Coder kan se vad som är fel
       return { 
         success: false, 
@@ -304,7 +307,7 @@ export async function runVisualAudit(projectPath: string): Promise<VisualAuditRe
             // Vänta lite och döda hårdare om det behövs
             setTimeout(() => {
               try {
-                process.kill(-server.pid, 'SIGKILL');
+                if (server.pid) process.kill(-server.pid, 'SIGKILL');
               } catch (e) {}
             }, 1000);
           } catch (e) {

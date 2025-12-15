@@ -75,11 +75,18 @@ function scanDirectory(dir: string, results: ExportInfo[], projectRoot: string) 
   }
 }
 
+function toFileNameSafe(x: unknown, fallback = "unknown.ts"): string {
+  if (typeof x === "string") return x;
+  if (x && typeof x === "object" && typeof (x as any).path === "string") return (x as any).path;
+  return fallback;
+}
+
 function analyzeFile(filePath: string, projectRoot: string): ExportInfo | null {
   try {
     const content = fs.readFileSync(filePath, 'utf8')
+    const safe = toFileNameSafe(filePath, "repo-map.ts");
     const sourceFile = ts.createSourceFile(
-      filePath,
+      safe,
       content,
       ts.ScriptTarget.Latest,
       true
@@ -108,7 +115,10 @@ function analyzeFile(filePath: string, projectRoot: string): ExportInfo | null {
          ts.isTypeAliasDeclaration(node) ||
          ts.isEnumDeclaration(node) ||
          ts.isVariableStatement(node)) &&
-        node.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword)
+        (() => {
+          const mods = ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
+          return mods?.some(m => m.kind === ts.SyntaxKind.ExportKeyword);
+        })()
       ) {
         // export function X, export class Y, etc.
         if ('name' in node && node.name) {
@@ -123,8 +133,10 @@ function analyzeFile(filePath: string, projectRoot: string): ExportInfo | null {
       }
       
       // Find default exports
-      if (node.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword) &&
-          node.modifiers?.some(m => m.kind === ts.SyntaxKind.DefaultKeyword)) {
+      const mods = ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
+      const isExported = !!mods?.some(m => m.kind === ts.SyntaxKind.ExportKeyword);
+      const isDefault = !!mods?.some(m => m.kind === ts.SyntaxKind.DefaultKeyword);
+      if (isExported && isDefault) {
         if ('name' in node && node.name) {
           exports.push('default')
         } else if (ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node)) {

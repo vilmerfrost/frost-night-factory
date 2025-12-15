@@ -6,6 +6,12 @@ import * as ts from 'typescript';
 import path from 'path';
 import { isDangerousContent } from './write-file-safe';
 
+function toFileNameSafe(x: unknown, fallback = "unknown.ts"): string {
+  if (typeof x === "string") return x;
+  if (x && typeof x === "object" && typeof (x as any).path === "string") return (x as any).path;
+  return fallback;
+}
+
 /**
  * Validate generated code using TypeScript compiler
  */
@@ -21,8 +27,9 @@ export async function validateGeneratedCode(
   }
   
   // Create a temporary source file
+  const safe = toFileNameSafe(filePath, "validator.ts");
   const sourceFile = ts.createSourceFile(
-    filePath,
+    safe,
     code,
     ts.ScriptTarget.Latest,
     true

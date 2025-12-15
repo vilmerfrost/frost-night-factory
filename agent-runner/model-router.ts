@@ -13,7 +13,7 @@ export interface ModelConfig {
   speed: 'fast' | 'medium' | 'slow'
 }
 
-const MODELS: Record<string, ModelConfig> = {
+const MODEL_CONFIGS: Record<string, ModelConfig> = {
   'groq-fast': {
     provider: 'groq',
     model: 'llama-3.3-70b-versatile',
@@ -40,7 +40,7 @@ const MODELS: Record<string, ModelConfig> = {
   },
   'claude-premium': {
     provider: 'anthropic',
-    model: 'claude-sonnet-4-5',
+    model: 'claude-sonnet-4-5', // May 2025 - Fast + Smart
     inputCost: 3.00,
     outputCost: 15.00,
     maxTokens: 200000,
@@ -73,16 +73,16 @@ export function selectOptimalModel(
         errorType.includes('unused') ||
         errorType.includes('syntax') ||
         errorType.includes('TS2304')) {
-      return MODELS['groq-fast']  // 95% cheaper than Claude
+      return MODEL_CONFIGS['groq-fast']  // 95% cheaper than Claude
     }
     
     // Simple fixes → DeepSeek cheap
-    return MODELS['deepseek-cheap']  // 95% cheaper than Claude
+    return MODEL_CONFIGS['deepseek-cheap']  // 95% cheaper than Claude
   }
   
   // Medium tasks → DeepSeek V3
   if (complexity === 'medium') {
-    return MODELS['deepseek-cheap']  // 95% cheaper than Claude
+    return MODEL_CONFIGS['deepseek-cheap']  // 95% cheaper than Claude
   }
   
   // Hard tasks or retries → Escalate
@@ -91,14 +91,14 @@ export function selectOptimalModel(
     if (errorType.includes('architecture') ||
         errorType.includes('refactor') ||
         attemptNumber > 5) {
-      return MODELS['claude-premium']  // Best quality
+      return MODEL_CONFIGS['claude-premium']  // Best quality
     }
     
-    return MODELS['deepseek-smart']  // Good reasoning
+    return MODEL_CONFIGS['deepseek-smart']  // Good reasoning
   }
   
   // Default: DeepSeek cheap (safe choice)
-  return MODELS['deepseek-cheap']
+  return MODEL_CONFIGS['deepseek-cheap']
 }
 
 /**
@@ -168,7 +168,7 @@ export function selectModel(config: {
   
   // Coder
   if (config.role === 'CODER') {
-    return { provider: 'anthropic', model: 'claude-sonnet-4-5' };
+    return { provider: 'anthropic', model: 'claude-sonnet-4-5' }; // May 2025 - Fast + Smart
   }
   
   // Code review
@@ -221,26 +221,58 @@ function isBackendishFile(p: string): boolean {
 /**
  * Route model based on task kind and file path
  * Claude = bulk frontend, Gemini 2.5 Flash = debug/repair, DeepSeek = backend-heavy
+ * 
+ * CRITICAL: Always returns a valid ModelId, never undefined
+ * 
+ * ✅ C) Claude-only policy for coder phase (so you don't accidentally use Gemini)
  */
 export function routeModel(input: RouteInput): ModelId {
   const file = input.filePath ? input.filePath.replaceAll("\\", "/") : "";
+  const isCoderPhase = input.phase === "coder";
+  
+  // ✅ C) Hard rule: Claude-only during coder phase
+  if (isCoderPhase) {
+    // ✅ hard rule: no other model during coder
+    return MODELS.CLAUDE_SONNET_45;
+  }
+
+  let model: ModelId | undefined;
 
   // 1) Repair/debug lane: cheapest + fast + good at patching
-  if (input.task === "repair") return MODELS.GEMINI_25_FLASH;
-
+  if (input.task === "repair") {
+    model = MODELS.GEMINI_25_FLASH;
+  }
   // 2) Coder lane: decide by file type
-  if (input.task === "bulk_frontend") return MODELS.CLAUDE_SONNET_45;
-
-  if (input.task === "backend_heavy") return MODELS.DEEPSEEK_CHAT;
-
+  else if (input.task === "bulk_frontend") {
+    model = MODELS.CLAUDE_SONNET_45;
+  }
+  else if (input.task === "backend_heavy") {
+    model = MODELS.DEEPSEEK_CHAT;
+  }
   // Fallback heuristics (if caller passes weird task)
-  if (file) {
-    if (isFrontendFile(file)) return MODELS.CLAUDE_SONNET_45;
-    if (isBackendishFile(file)) return MODELS.DEEPSEEK_CHAT;
+  else if (file) {
+    if (isFrontendFile(file)) {
+      model = MODELS.CLAUDE_SONNET_45;
+    } else if (isBackendishFile(file)) {
+      model = MODELS.DEEPSEEK_CHAT;
+    }
   }
 
   // Default: Gemini flash (safe/cheap)
-  return MODELS.GEMINI_25_FLASH;
+  if (!model) {
+    model = MODELS.GEMINI_25_FLASH;
+  }
+
+  // Hard guard: never undefined, never empty string
+  if (!model || typeof model !== "string") {
+    throw new Error(
+      `[MODEL_ROUTER] Invalid model for purpose="${input.task}". ` +
+      `Got: ${String(model)}. ` +
+      `Available models: ${Object.values(MODELS).join(", ")}`
+    );
+  }
+
+  return model;
 }
 
 /**
@@ -251,5 +283,34 @@ export function inferTaskKindFromFile(filePath: string): TaskKind {
   if (isFrontendFile(posix)) return "bulk_frontend";
   if (isBackendishFile(posix)) return "backend_heavy";
   return "backend_heavy";
+}
+
+/**
+ * Safe model picker - always returns a valid ModelId, never undefined
+ * This is a convenience wrapper around routeModel with explicit purpose types
+ */
+export type RoutePurpose = "bulk_frontend" | "backend" | "repair" | "json_convert";
+
+export function pickModel(purpose: RoutePurpose): ModelId {
+  const taskKind: TaskKind =
+    purpose === "repair" ? "repair" :
+    purpose === "bulk_frontend" ? "bulk_frontend" :
+    purpose === "backend" ? "backend_heavy" :
+    "repair"; // Default to repair for json_convert (safe/cheap)
+
+  const model = routeModel({
+    task: taskKind,
+    phase: "coder",
+    reason: purpose,
+  });
+
+  // Hard guard: never undefined, never empty string
+  if (!model || typeof model !== "string") {
+    throw new Error(
+      `[MODEL_ROUTER] Invalid model for purpose="${purpose}". Got: ${String(model)}`
+    );
+  }
+
+  return model;
 }
 

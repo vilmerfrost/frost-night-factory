@@ -98,7 +98,7 @@ export async function auditUI(
     // Read screenshot if it's a path
     let imageData: Buffer;
     if (typeof screenshotPath === 'string') {
-      imageData = fs.readFileSync(screenshotPath);
+      imageData = fs.readFileSync(screenshotPath) as unknown as Buffer;
     } else {
       imageData = screenshotPath;
     }
@@ -172,7 +172,10 @@ Be HONEST. If it looks like Windows 95, say so. If it's premium, acknowledge it.
       ],
     });
     
-    const responseText = message.content[0].type === 'text' ? message.content[0].text : '';
+    const firstContent = message.content[0];
+    const responseText = firstContent && firstContent.type === 'text' && 'text' in firstContent 
+      ? firstContent.text 
+      : '';
     
     // Parse JSON response
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
@@ -320,8 +323,8 @@ export async function refinementLoop(
         let filesFound = 0;
         
         while ((match = fileRegex.exec(code)) !== null) {
-          const relativePath = match[1].trim();
-          let fileContent = match[2].trim();
+          const relativePath = match[1]?.trim() ?? '';
+          let fileContent = match[2]?.trim() ?? '';
           
           // Remove code block markers
           fileContent = fileContent.replace(/^```tsx?\n?/i, '').replace(/```$/m, '');

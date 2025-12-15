@@ -10,6 +10,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { convertPlannerToJSON, convertCoderToJSON } from "../../lib/pipeline/json-converter";
+import { convertPlannerToManifestStable } from "../lib/nightFactory/invariants/plannerManifest";
 import type {
   ResearchPhaseJSON,
   PlannerPhaseJSON,
@@ -192,29 +193,40 @@ export async function transportPhaseContext(
     }
 
     if (fromPhase === "planner") {
-      // Planner conversion needs a stable research context contract.
-      const researchContext = (await transportPhaseContext(
-        pipelineId,
-        "research",
-        "planner"
-      )) as ResearchPhaseJSON;
-
-      const plannerJson = await convertPlannerToJSON(rawOutput, researchContext);
-      if (plannerJson?.success && plannerJson.data) {
-        return plannerJson.data as PlannerPhaseJSON;
-      }
-
-      // Fallback: convert with empty research context if converter failed
-      const fallbackJson = await convertPlannerToJSON(rawOutput, makeEmptyResearchContext());
-      if (fallbackJson?.success && fallbackJson.data) {
-        return fallbackJson.data as PlannerPhaseJSON;
-      }
-
+      // ✅ A: Use stable planner manifest converter (always returns typed object + raw)
+      const plannerManifest = await convertPlannerToManifestStable(rawOutput ?? "");
+      
+      // Return typed object with _raw field (Coder always gets typed object, never just RAW text)
+      // Map PlannerManifest to PlannerPhaseJSON with all required fields
       return {
         phase: "planner",
         timestamp: new Date().toISOString(),
-        full_raw_output: rawOutput,
-      };
+        // PlannerManifest doesn't have these fields, so provide defaults
+        input_references: {
+          research_timestamp: "",
+          research_summary: "",
+        },
+        project_overview: {
+          name: "",
+          description: "",
+          objectives: [],
+        },
+        tech_stack: {
+          frontend: { framework: "", language: "", ui_library: "", styling: "" },
+          backend: { runtime: "", language: "" },
+          database: { type: "", provider: "" },
+        },
+        feature_breakdown: { phase_1_mvp: [] },
+        database_schema_outline: { tables: [] },
+        component_tree: { app: { children: [] }, components: {} },
+        api_routes_planned: (plannerManifest.apiRoutes || []).map(route => typeof route === "string" ? { path: route, method: "GET", description: "" } : route),
+        timeline: { total_weeks: 0, phases: [] },
+        risks_and_mitigations: [],
+        success_criteria: [],
+        full_raw_output: plannerManifest._raw || rawOutput || "",
+        // Include PlannerManifest fields for compatibility
+        _manifest: plannerManifest,
+      } as PlannerPhaseJSON & { _manifest?: typeof plannerManifest };
     }
 
     if (fromPhase === "coder") {
@@ -422,6 +434,49 @@ export async function accumulateAllContexts(
 }
 
 export function contextToPromptString(context: Record<string, any>, maxLength = 5000): string {
+  // ✅ RAW TEXT FALLBACK: If planner JSON conversion failed, use raw text directly
+  if (context.planner && (context.planner as any).raw_text_fallback) {
+    const planner = context.planner as PlannerPhaseJSON & { raw_text_fallback?: boolean };
+    const rawText = planner.full_raw_output || "";
+    
+    if (rawText) {
+      console.log("📝 [Info Transporter] Using RAW TEXT fallback for planner (JSON conversion failed)");
+      
+      // Build a prompt-friendly version with raw text
+      const fallbackSection = `
+═══════════════════════════════════════════════════════════════════
+⚠️ PLANNER OUTPUT (RAW TEXT - JSON conversion failed)
+═══════════════════════════════════════════════════════════════════
+The planner phase generated output, but JSON conversion failed.
+Here is the FULL RAW TEXT output from the planner:
+
+${rawText.substring(0, maxLength - 500)}
+${rawText.length > maxLength - 500 ? "\n... (truncated for length)" : ""}
+
+═══════════════════════════════════════════════════════════════════
+Please extract the following from the raw text above:
+- Project structure and file organization
+- Technology stack decisions
+- Feature breakdown
+- API routes planned
+- Database schema outline
+- Component tree structure
+═══════════════════════════════════════════════════════════════════
+`;
+      
+      // Include other context (research, etc.) but prioritize raw text
+      const otherContext: Record<string, any> = { ...context };
+      delete otherContext.planner; // Remove planner from JSON (we're using raw text)
+      
+      const otherContextStr = Object.keys(otherContext).length > 0
+        ? `\n\nOTHER CONTEXT:\n${JSON.stringify(otherContext, null, 2).substring(0, 2000)}`
+        : "";
+      
+      return fallbackSection + otherContextStr;
+    }
+  }
+  
+  // Normal path: stringify context as JSON
   const s = JSON.stringify(context, null, 2);
   return s.length > maxLength ? s.slice(0, maxLength) + "\n... (truncated)" : s;
 }

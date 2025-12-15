@@ -3,7 +3,6 @@
 // =============================================================================
 
 import { supabase } from '../supabase-client';
-import { getCostSummary } from './cost-tracker';
 
 export interface Alert {
   id: string;
@@ -21,18 +20,27 @@ export async function checkCostSpikes(): Promise<Alert[]> {
   const alerts: Alert[] = [];
 
   try {
-    // Get cost summary for last 7 days
-    const summary7d = await getCostSummary(7);
-    const summary1d = await getCostSummary(1);
+    // Get cost summary for last 7 days (using CostTracker instance)
+    const tracker = new (await import('./cost-tracker')).CostTracker();
+    const summary7d = tracker.getSummary(7);
+    const summary1d = tracker.getSummary(1);
 
     // Calculate average daily cost per model
     const avgDailyCost: Record<string, number> = {};
-    for (const [model, totalCost] of Object.entries(summary7d.byModel)) {
-      avgDailyCost[model] = totalCost / 7; // Average over 7 days
+    const byModel7d = (summary7d as any).byModel || {};
+    for (const [model, totalCost] of Object.entries(byModel7d)) {
+      const cost = Number(totalCost);
+      if (Number.isFinite(cost)) {
+        avgDailyCost[model] = cost / 7; // Average over 7 days
+      }
     }
 
     // Check if today's cost exceeds 2x average
-    for (const [model, todayCost] of Object.entries(summary1d.byModel)) {
+    const byModel1d = (summary1d as any).byModel || {};
+    for (const [model, todayCostRaw] of Object.entries(byModel1d)) {
+      const todayCost = Number(todayCostRaw);
+      if (!Number.isFinite(todayCost)) continue;
+      
       const avgCost = avgDailyCost[model] || 0;
       if (avgCost > 0 && todayCost > avgCost * 2) {
         alerts.push({

@@ -2,6 +2,7 @@
 
 import fs from 'fs/promises';
 import path from 'path';
+import { fileURLToPath } from "node:url";
 import { glob } from 'glob';
 
 interface FileExports {
@@ -240,6 +241,15 @@ async function main() {
 }
 
 // Check if run directly
-if (require.main === module) {
+const __filename = fileURLToPath((import.meta as any).url);
+
+// ESM-safe "am I the entry file?"
+const isMain =
+  typeof process !== "undefined" &&
+  Array.isArray(process.argv) &&
+  typeof process.argv[1] === "string" &&
+  path.resolve(process.argv[1]) === path.resolve(__filename);
+
+if (isMain) {
   main();
 }

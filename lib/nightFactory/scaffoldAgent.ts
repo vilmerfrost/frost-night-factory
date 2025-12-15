@@ -81,7 +81,11 @@ export async function generateScaffold(config: any) {
   const fileCount = Object.keys(filesToGenerate).length;
   console.log(`🏗️ Scaffold: Processing ${fileCount} files...`);
 
-  const results = { generated: [], errors: [], skipped: [] };
+  const results: { skipped: string[]; generated: string[]; errors: string[] } = {
+    skipped: [],
+    generated: [],
+    errors: [],
+  };
   const entries = Object.entries(filesToGenerate);
 
   for (const [path, content] of entries) {

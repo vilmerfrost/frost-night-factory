@@ -1,6 +1,9 @@
 // agent-runner/lib/file-writer.ts
 // Atomic file writer - prevents partial reads and corruption
 
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+
 import fs from 'fs/promises';
 import path from 'path';
 

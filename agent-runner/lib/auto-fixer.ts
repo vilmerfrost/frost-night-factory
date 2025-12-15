@@ -3,10 +3,11 @@
 // =============================================================================
 // Automatically fixes common errors instead of blocking pipeline
 
-import fs from 'fs';
-import path from 'path';
+import * as fs from 'fs';
+import * as path from 'path';
 import { execSync } from 'child_process';
-import { detectEnvFromCode, generateEnvFile, EnvDetectionResult } from './env-detector';
+import { detectEnvFromCode, generateEnvFile } from './env-detector';
+import type { EnvDetectionResult } from './env-detector';
 import { 
   querySolution, 
   saveSolution, 
@@ -20,7 +21,9 @@ import {
 } from './hive-mind';
 import { 
   runE2EDebugger, 
-  applyDebuggerPatch, 
+  applyDebuggerPatch
+} from './e2e-debugger';
+import type { 
   E2EFailure, 
   DebuggerResult 
 } from './e2e-debugger';
@@ -389,7 +392,7 @@ async function fixA11YContrast(ctx: FixContext): Promise<FixResult> {
   }
 }
 `;
-    content = content.replace(/@layer base\s*\{[^}]*\}/s, (match) => {
+    content = content.replace(/@layer base\s*\{[\s\S]*?\}/, (match) => {
       return match + contrastPatch;
     });
   }
@@ -421,14 +424,36 @@ body {
  */
 async function fixMissingEnv(ctx: FixContext): Promise<FixResult> {
   // ✅ Detect env requirements
-  const envDetection = ctx.detectedEnv || await detectEnvFromCode(ctx.projectRoot);
+  const detected = ctx.detectedEnv || await detectEnvFromCode(ctx.projectRoot);
+  
+  // ✅ Normalize: handle both array and object returns with robust optional-check
+  type EnvReqLike = { detected?: boolean; optional?: boolean; required?: boolean; isOptional?: boolean };
+  
+  const isOptionalReq = (r: EnvReqLike): boolean => {
+    if (typeof r.optional === "boolean") return r.optional;
+    if (typeof r.isOptional === "boolean") return r.isOptional;
+    if (typeof r.required === "boolean") return !r.required;
+    return false;
+  };
+  
+  const envDetection = Array.isArray(detected)
+    ? {
+        required: detected.filter((x) => x.detected && !isOptionalReq(x as EnvReqLike)),
+        optional: detected.filter((x) => !x.detected || isOptionalReq(x as EnvReqLike)),
+        demoMode: false,
+      }
+    : detected;
   
   // ✅ Generate .env.local with demo values
-  generateEnvFile(ctx.projectRoot, {
-    required: envDetection.required || [],
-    optional: envDetection.optional || [],
-    demoMode: true, // Use demo mode until user configures
-  });
+  const envContent = generateEnvFile(
+    {}, // Empty env values (will be filled with demo values)
+    envDetection,
+    true // demoMode
+  );
+  
+  // Write to .env.local file
+  const envFilePath = path.join(ctx.projectRoot, '.env.local');
+  fs.writeFileSync(envFilePath, envContent, 'utf-8');
   
   console.log(`   ✅ Generated .env.local with demo values`);
   
@@ -800,14 +825,13 @@ export async function withAutoFix<T>(
           if (lastFix.success) {
             const errorSignature = generateErrorSignature(result.log, lastFix.kind);
             try {
-              await saveSolution({
-                error_signature: errorSignature,
-                error_type: lastFix.kind,
-                target_file: null, // Would need to track file path
-                error_message: result.log.substring(0, 500),
-                successful_fix: lastFix.message,
-                ai_model_used: 'auto-fixer', // Track which model was used
-              });
+              await saveSolution(
+                result.log.substring(0, 500), // errorMessage
+                undefined, // filePath (would need to track file path)
+                lastFix.message, // successfulFix
+                'auto-fixer', // aiModelUsed
+                lastFix.kind // errorType
+              );
               console.log(`   💾 [Hive Mind] Saved successful fix for future reuse`);
             } catch (err) {
               console.warn(`   ⚠️ Failed to save to Hive Mind: ${err}`);

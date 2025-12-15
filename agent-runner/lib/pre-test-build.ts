@@ -3,8 +3,8 @@
 // Runs tsc --noEmit and eslint BEFORE test phase and fixes issues
 
 import { execSync } from 'child_process';
-import fs from 'fs';
-import path from 'path';
+import * as fs from 'fs';
+import * as path from 'path';
 import { callAI, selectModel } from '../ai-client';
 
 export interface BuildError {
@@ -19,10 +19,10 @@ export interface PreTestBuildResult {
   passed: boolean;
   fixedCount?: number;
   unfixableErrors?: Array<{ error: BuildError; fixed: boolean; code: string }>;
-  typescript?: { errors: BuildError[] };
-  eslint?: { errors: BuildError[] };
-  imports?: { errors: BuildError[] };
-  exports?: { errors: BuildError[] };
+  typescript: { errors: BuildError[] };
+  eslint: { errors: BuildError[] };
+  imports: { errors: BuildError[] };
+  exports: { errors: BuildError[] };
 }
 
 /**
@@ -34,7 +34,8 @@ export async function simulateBuild(
 ): Promise<PreTestBuildResult> {
   console.log('\n🔨 [Pre-Test Build] Simulating build...');
 
-  const results = {
+  const results: PreTestBuildResult = {
+    passed: false,
     typescript: await runTypeScript(repoPath),
     eslint: await runESLint(repoPath),
     imports: await validateAllImports(repoPath),
@@ -50,7 +51,13 @@ export async function simulateBuild(
 
   if (allErrors.length === 0) {
     console.log('✅ [Pre-Test Build] Build simulation passed!');
-    return { passed: true };
+    return {
+      passed: true,
+      typescript: { errors: [] },
+      eslint: { errors: [] },
+      imports: { errors: [] },
+      exports: { errors: [] },
+    };
   }
 
   console.log(`⚠️  [Pre-Test Build] Found ${allErrors.length} build errors`);
@@ -286,7 +293,7 @@ async function attemptAutoFixes(
   }
 
   // Fix each file
-  for (const [filePath, fileErrors] of errorsByFile) {
+  for (const [filePath, fileErrors] of Array.from(errorsByFile)) {
     const fullPath = path.join(repoPath, filePath);
     if (!fs.existsSync(fullPath)) continue;
 
@@ -376,10 +383,10 @@ Return the complete fixed file:`;
   const unfixableErrors = fixedErrors.filter(e => !e.fixed);
 
   return {
+    ...results,
     passed: fixedCount === errors.length,
     fixedCount,
     unfixableErrors,
-    ...results,
   };
 }
 

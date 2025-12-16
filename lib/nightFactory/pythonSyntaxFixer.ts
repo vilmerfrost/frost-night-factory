@@ -4,6 +4,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { lineAt, charAt } from '../utils/text';
 
 /**
  * Balance brackets in Python code
@@ -21,7 +22,11 @@ export function balanceBrackets(code: string, errorLine?: number): string {
   
   // Track bracket positions
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+    const line = lineAt(lines, i);
+    
+    // ✅ Guard: Skip if line is undefined
+    if (!line) continue;
+    
     const lineNum = i + 1;
     
     // Skip if error line is specified and we're past it
@@ -30,14 +35,23 @@ export function balanceBrackets(code: string, errorLine?: number): string {
     }
     
     for (let j = 0; j < line.length; j++) {
-      const char = line[j];
+      const char = charAt(line, j);
+      
+      // ✅ Guard: Skip if char is undefined
+      if (!char) continue;
       
       // Skip strings and comments
       if (char === '"' || char === "'") {
         // Find end of string
         const quote = char;
         j++;
-        while (j < line.length && (line[j] !== quote || (j > 0 && line[j - 1] === '\\'))) {
+        while (j < line.length) {
+          const nextChar = charAt(line, j);
+          if (!nextChar) break;
+          if (nextChar === quote) {
+            const prevChar = charAt(line, j - 1);
+            if (prevChar !== '\\') break;
+          }
           j++;
         }
         continue;
@@ -60,8 +74,11 @@ export function balanceBrackets(code: string, errorLine?: number): string {
           continue;
         }
         
-        const last = stack.pop()!;
+        const last = stack.pop();
+        if (!last) continue;
+        
         const expected = brackets[last.char];
+        if (!expected) continue;
         
         if (char !== expected) {
           // Mismatched bracket - fix it
@@ -73,17 +90,30 @@ export function balanceBrackets(code: string, errorLine?: number): string {
   
   // Add missing closing brackets at the end
   while (stack.length > 0) {
-    const last = stack.pop()!;
+    const last = stack.pop();
+    
+    // ✅ Guard: Skip if last is undefined
+    if (!last) break;
+    
     const closing = brackets[last.char];
+    
+    // ✅ Guard: Skip if closing is undefined
+    if (!closing) continue;
     
     // Add closing bracket at the end of the file or after the error line
     if (errorLine && last.line <= errorLine) {
       // Insert after the error line
       const insertLine = Math.min(errorLine, lines.length - 1);
-      lines[insertLine] += closing;
+      const insertLineContent = lineAt(lines, insertLine);
+      if (insertLineContent !== undefined) {
+        lines[insertLine] = insertLineContent + closing;
+      }
     } else {
       // Add at the end
-      lines[lines.length - 1] += closing;
+      const lastLine = lineAt(lines, lines.length - 1);
+      if (lastLine !== undefined) {
+        lines[lines.length - 1] = lastLine + closing;
+      }
     }
   }
   
@@ -101,13 +131,22 @@ export function fixIndentation(code: string, errorLine: number): string {
     return code;
   }
   
-  const errorLineContent = lines[targetLine];
+  const errorLineContent = lineAt(lines, targetLine);
+  
+  // ✅ Guard: Skip if errorLineContent is undefined
+  if (!errorLineContent) {
+    return code;
+  }
   
   // Check if line ends with colon (needs indented block)
   if (errorLineContent.trim().endsWith(':')) {
     // Find next non-empty line
     for (let i = targetLine + 1; i < lines.length; i++) {
-      const nextLine = lines[i];
+      const nextLine = lineAt(lines, i);
+      
+      // ✅ Guard: Skip if nextLine is undefined
+      if (!nextLine) continue;
+      
       if (nextLine.trim().length === 0) {
         continue; // Skip empty lines
       }
@@ -139,7 +178,12 @@ export function fixMissingColon(code: string, errorLine: number): string {
     return code;
   }
   
-  const line = lines[targetLine];
+  const line = lineAt(lines, targetLine);
+  
+  // ✅ Guard: Skip if line is undefined
+  if (!line) {
+    return code;
+  }
   
   // Check if line should have a colon (if, for, def, class, etc.)
   const colonKeywords = ['if', 'elif', 'else', 'for', 'while', 'def', 'class', 'try', 'except', 'finally', 'with'];
@@ -252,7 +296,12 @@ export function hasPythonSyntaxErrors(filePath: string): boolean {
     // Check for common issues
     const lines = code.split('\n');
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
+      const rawLine = lineAt(lines, i);
+      
+      // ✅ Guard: Skip if line is undefined
+      if (!rawLine) continue;
+      
+      const line = rawLine.trim();
       
       // Missing colon after keywords
       const colonKeywords = ['if', 'elif', 'else', 'for', 'while', 'def', 'class'];

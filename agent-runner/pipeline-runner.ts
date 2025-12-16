@@ -6126,7 +6126,8 @@ Only fix the files that have issues. Keep everything else unchanged.
                 content = codeContent.trim();
               } else {
                 // Fallback: Remove [GOAL] and markdown
-                content = content.split(/\[GOAL\]/)[0].trim();
+                const goalSplit = content.split(/\[GOAL\]/);
+                content = (goalSplit[0] || content).trim();
                 if (content.startsWith("```")) {
                   content = content.replace(/^```[a-z]*\n/, "").replace(/```$/, "");
                 }
@@ -6172,7 +6173,8 @@ Only fix the files that have issues. Keep everything else unchanged.
                   content = codeContent.trim();
                 } else {
                   // Fallback: THE SANITIZER: Ta bort alla Markdown-artefakter
-                  content = content.split(/### END_FILE/)[0].trim();
+                  const endFileSplit = content.split(/### END_FILE/);
+                  content = (endFileSplit[0] || content).trim();
                   content = content.replace(/^```[a-zA-Z0-9]*\n?/m, '');
                   content = content.replace(/```$/m, '');
                   content = content.replace(/^### FILE:.*\n?/m, '');
@@ -7358,7 +7360,9 @@ async function runAuditLoop(pipeline: any, repoPath: string): Promise<boolean> {
               // Vi antar att det är den filen Kimi klagade mest på (page.tsx)
               // Eller så letar vi efter filnamnet i texten.
               // Förenkling: Vi skriver till app/page.tsx om det verkar vara en React-komponent
-              const content = codeBlockMatch[1].trim();
+              const codeContent = codeBlockMatch[1];
+              if (!codeContent) continue;
+              const content = codeContent.trim();
               if (content.includes("export default function")) {
                  const fallbackFile = "app/page.tsx"; // Golden Stack - root structure
                  const p = path.join(repoPath, fallbackFile);
@@ -7397,12 +7401,17 @@ function detectLazyPythonPass(content: string, filePath: string): boolean {
   const lines = content.split('\n');
   
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
+    const rawLine = lines[i];
+    
+    // ✅ Guard: Skip if line is undefined
+    if (!rawLine) continue;
+    
+    const line = rawLine.trim();
     
     if (line === 'pass' || line.endsWith(' pass')) {
       // Check if pass is in a valid context
-      const prevLine = lines[i - 1]?.trim() || '';
-      const nextLine = lines[i + 1]?.trim() || '';
+      const prevLine = i > 0 ? lines[i - 1]?.trim() || '' : '';
+      const nextLine = i < lines.length - 1 ? lines[i + 1]?.trim() || '' : '';
       
       // Valid pass contexts:
       const validContexts = [
@@ -7543,9 +7552,14 @@ function scanForLaziness(projectPath: string): { found: boolean; issues: string[
       if (content.includes(': any') || content.includes('<any>')) {
         const lines = content.split('\n');
         for (let i = 0; i < lines.length; i++) {
-          if (lines[i].includes(': any') || lines[i].includes('<any>')) {
+          const line = lines[i];
+          
+          // ✅ Guard: Skip if line is undefined
+          if (!line) continue;
+          
+          if (line.includes(': any') || line.includes('<any>')) {
             // Skip React.MouseEvent<any> and similar generic type params
-            if (!lines[i].includes('React.') && !lines[i].includes('Event<')) {
+            if (!line.includes('React.') && !line.includes('Event<')) {
               issues.push(`Found 'any type' in ${file} at line ${i + 1}`);
             }
           }
@@ -7861,8 +7875,8 @@ async function runIntelligentBatchFixer(
           
           // Extract Python file from error message
           const pythonFileMatch = currentError.match(/(?:File|file)\s+["']([^"']+\.py)["']/);
-          if (pythonFileMatch) {
-            const pythonFile = pythonFileMatch[1];
+          const pythonFile = pythonFileMatch?.[1];
+          if (pythonFile) {
             const filePath = path.join(repoPath, pythonFile);
             
             const fixed = await autoFixPythonError({
@@ -7968,8 +7982,9 @@ Output format: [FILE: ${targetFile}]
                 
                 // Parse fix output
                 const fixMatch = fixOutput.match(/\[FILE:\s*([^\]]+)\]\s*([\s\S]*?)(?:\[GOAL\]|$)/i);
-                if (fixMatch) {
-                  const fixedContent = fixMatch[2].trim();
+                const fixedContentMatch = fixMatch?.[2];
+                if (fixMatch && fixedContentMatch) {
+                  const fixedContent = fixedContentMatch.trim();
                   fs.writeFileSync(filePath, fixedContent, 'utf-8');
                   fixedFiles.push(targetFile);
                   fixSuccess = true;
@@ -7990,10 +8005,17 @@ Output format: [FILE: ${targetFile}]
             console.log("💡 Auto-fixing 'use client' directive...");
             
             const targetFile = filesToFix[0];
+            
+            // ✅ Guard: Skip if targetFile is undefined
+            if (!targetFile) continue;
+            
             const filePath = path.join(repoPath, targetFile);
             
             if (fs.existsSync(filePath)) {
               let content = fs.readFileSync(filePath, 'utf-8');
+              
+              // ✅ Guard: Skip if content is undefined
+              if (!content) continue;
               
               // Check if 'use client' already exists
               if (!content.includes("'use client'") && !content.includes('"use client"')) {
@@ -8133,8 +8155,14 @@ OUTPUT FORMAT:
               const fileRegex = /\[FILE:\s*([^\]]+)\]([\s\S]*?)(?=\[GOAL\]|\[FILE:|$)/gi;
               let match;
               while ((match = fileRegex.exec(fixOutput)) !== null) {
-                const fileName = match[1].trim();
-                let content = match[2].trim();
+                const fileNameMatch = match[1];
+                const contentMatch = match[2];
+                
+                // ✅ Guard: Skip if capture groups are undefined
+                if (!fileNameMatch || !contentMatch) continue;
+                
+                const fileName = fileNameMatch.trim();
+                let content = contentMatch.trim();
                 
                 // Clean markdown if present
                 content = content.replace(/^```[a-z]*\n?/m, '').replace(/```$/m, '').trim();
@@ -8230,8 +8258,14 @@ OUTPUT FORMAT:
             const fileRegex = /\[FILE:\s*([^\]]+)\]([\s\S]*?)(?=\[GOAL\]|\[FILE:|$)/gi;
             let match;
             while ((match = fileRegex.exec(fixOutput)) !== null) {
-              const fileName = match[1].trim();
-              let content = match[2].trim();
+              const fileNameMatch = match[1];
+              const contentMatch = match[2];
+              
+              // ✅ Guard: Skip if capture groups are undefined
+              if (!fileNameMatch || !contentMatch) continue;
+              
+              const fileName = fileNameMatch.trim();
+              let content = contentMatch.trim();
               
               // Clean markdown if present
               content = content.replace(/^```[a-z]*\n?/m, '').replace(/```$/m, '').trim();
@@ -10101,8 +10135,14 @@ RETURN FORMAT:
           let fileMatch;
           let fixed = false;
           while ((fileMatch = fileRegex.exec(pythonFixOutput)) !== null) {
-            const fileName = fileMatch[1].trim();
-            let content = fileMatch[2].trim();
+            const fileNameMatch = fileMatch[1];
+            const contentMatch = fileMatch[2];
+            
+            // ✅ Guard: Skip if capture groups are undefined
+            if (!fileNameMatch || !contentMatch) continue;
+            
+            const fileName = fileNameMatch.trim();
+            let content = contentMatch.trim();
             // Sanitize markdown artifacts
             content = content.replace(/^```[a-z]*\n/i, "").replace(/```$/, "");
             const filePath = path.join(repoPath, fileName);
@@ -11148,9 +11188,9 @@ CRITICAL EXPORT RULES (MANDATORY):
       };
 
       // ✅ Guard: Ensure pipeline.id exists
-      const pipelineId = pipeline?.id || 'unknown';
+      const fixPipelineId = pipeline?.id || 'unknown';
       const fixOutput = await callAI({
-        pipelineId,
+        pipelineId: fixPipelineId,
         step: 'tester',
         role: 'FIXER',
         model: selectModel('FIXER', complexityMap[smartLevel]),
@@ -11212,10 +11252,10 @@ CRITICAL EXPORT RULES (MANDATORY):
       // =============================================================================
       // Wrap file writes with transaction rollback and fortress guard
       // ✅ Guard: Ensure pipeline.id exists
-      const pipelineId = pipeline?.id || 'unknown';
+      const repairPipelineId = pipeline?.id || 'unknown';
       const repairResult = await withTransaction(
         snapshotManager,
-        pipelineId,
+        repairPipelineId,
         repoPath,
         `Tester repair attempt ${attempt}`,
         () => countTypeScriptErrors(repoPath),
@@ -11238,11 +11278,13 @@ CRITICAL EXPORT RULES (MANDATORY):
             
             // ✅ STRICT PARSING: Extract only code blocks
             const codeBlockMatch = content.match(/```(?:typescript|tsx|ts|js|jsx|json|css|html)?\n([\s\S]*?)```/);
-            if (codeBlockMatch) {
-              content = codeBlockMatch[1].trim();
+            const codeContent = codeBlockMatch?.[1];
+            if (codeContent) {
+              content = codeContent.trim();
             } else {
               // Fallback: THE SANITIZER: Ta bort alla Markdown-artefakter
-              content = content.split(/\[GOAL\]/)[0].trim();
+              const goalSplit = content.split(/\[GOAL\]/);
+              content = (goalSplit[0] || content).trim();
               content = content.replace(/^```[a-zA-Z0-9]*\n?/m, '');
               content = content.replace(/```$/m, '');
               content = content.replace(/^### FILE:.*\n?/m, '');
@@ -11358,8 +11400,14 @@ CRITICAL EXPORT RULES (MANDATORY):
             let fileMatch;
             
             while ((fileMatch = fileRegex.exec(finalFixOutput)) !== null) {
-              const fileName = fileMatch[1].trim();
-              let content = fileMatch[2].trim();
+              const fileNameMatch = fileMatch[1];
+              const contentMatch = fileMatch[2];
+              
+              // ✅ Guard: Skip if capture groups are undefined
+              if (!fileNameMatch || !contentMatch) continue;
+              
+              const fileName = fileNameMatch.trim();
+              let content = contentMatch.trim();
               
               // THE SANITIZER: Ta bort alla Markdown-artefakter
               content = content.replace(/^```[a-zA-Z0-9]*\n?/m, '');
@@ -11430,8 +11478,9 @@ CRITICAL EXPORT RULES (MANDATORY):
         
         // Kolla om vi har ett markdown-block
         const codeBlockMatch = finalFixOutput.match(/```(?:typescript|tsx|ts|js)?\n([\s\S]*?)```/);
-        if (codeBlockMatch) {
-          const content = codeBlockMatch[1].trim();
+        const codeContent = codeBlockMatch?.[1];
+        if (codeContent) {
+          const content = codeContent.trim();
           const filePath = path.join(repoPath, brokenFile); // Använd filen vi siktade på
           
           const dir = path.dirname(filePath);
@@ -11513,7 +11562,10 @@ Provide a comprehensive solution that addresses the root cause, not just symptom
             
             // Record telemetry
             if (errorHistory.length > 0) {
-              recordErrorOccurrence(errorHistory[errorHistory.length - 1], ErrorCategory.RUNTIME_ERROR);
+              const lastError = errorHistory[errorHistory.length - 1];
+              if (lastError) {
+                recordErrorOccurrence(lastError, ErrorCategory.RUNTIME_ERROR);
+              }
             }
             
             // Break out of the loop
@@ -12094,7 +12146,8 @@ Return ONLY the fixed page.tsx code in format:
     if (response && response.length > 100) {
       // Extract code from response
       const codeMatch = response.match(/\[FILE:\s*src\/app\/page\.tsx\]([\s\S]*?)(?:\[GOAL\]|$)/i);
-      const fixedCode = codeMatch ? codeMatch[1].trim() : response;
+      const codeContent = codeMatch?.[1];
+      const fixedCode = codeContent ? codeContent.trim() : response;
       
       await fs.promises.writeFile(pagePath, fixedCode, 'utf-8');
       await clearNextCache(projectRoot);
@@ -12136,7 +12189,12 @@ function checkImportOrderIssue(content: string): boolean {
 
 function findLastImportIndex(lines: string[]): number {
   for (let i = lines.length - 1; i >= 0; i--) {
-    if (lines[i].trim().startsWith('import ')) {
+    const line = lines[i];
+    
+    // ✅ Guard: Skip if line is undefined
+    if (!line) continue;
+    
+    if (line.trim().startsWith('import ')) {
       return i;
     }
   }
@@ -12253,8 +12311,9 @@ function extractMissingDependencies(error: string): string[] {
 function extractCodeFromAIResponse(response: string): string {
   // Try to extract code block first
   const codeBlockMatch = response.match(/```(?:typescript|tsx|ts|js|jsx|json|css|html)?\n([\s\S]*?)```/);
-  if (codeBlockMatch) {
-    return codeBlockMatch[1].trim();
+  const codeContent = codeBlockMatch?.[1];
+  if (codeContent) {
+    return codeContent.trim();
   }
   
   // Remove common prompt artifacts
@@ -12427,8 +12486,11 @@ async function ensureEnvExample(repoPath: string) {
         .map(line => {
           if (!line || line.startsWith('#')) return line;
           if (line.includes('=')) {
-            const key = line.split('=')[0].trim();
-            return `${key}="YOUR_VALUE_HERE"`;
+            const keyParts = line.split('=');
+            const key = keyParts[0]?.trim();
+            if (key) {
+              return `${key}="YOUR_VALUE_HERE"`;
+            }
           }
           return line;
         })
@@ -12950,7 +13012,8 @@ async function validateAndFixDependencies(workspacePath: string): Promise<void> 
       } else {
         // Unscoped package: take first segment only
         // Ignore subpaths like /dist/types, /lib/utils, etc.
-        pkgName = pkg.split('/')[0];
+        const pkgParts = pkg.split('/');
+        pkgName = pkgParts[0] || pkg;
       }
       
       requiredPackages.add(pkgName);

@@ -10,7 +10,15 @@
     "resolveJsonModule": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
-    "jsx": "preserve"
+    "jsx": "preserve",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "../app/*",
+        "../lib/*",
+        "../components/*"
+      ]
+    }
   },
   "include": [
     "./**/*.ts",

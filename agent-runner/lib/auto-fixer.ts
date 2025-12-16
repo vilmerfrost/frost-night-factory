@@ -19,6 +19,7 @@ import {
   updateModelPerformance,
   collectTrainingData,
 } from './hive-mind';
+import { assertNonEmptyArray } from '@/lib/utils/assert';
 import { 
   runE2EDebugger, 
   applyDebuggerPatch
@@ -821,6 +822,7 @@ export async function withAutoFix<T>(
         
         // ✅ V8.0: Save successful fixes to Hive Mind
         if (fixes.length > 0 && result.log) {
+          assertNonEmptyArray(fixes, "Expected at least one fix in fix history");
           const lastFix = fixes[fixes.length - 1];
           if (lastFix.success) {
             const errorSignature = generateErrorSignature(result.log, lastFix.kind);

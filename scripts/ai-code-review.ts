@@ -8,6 +8,8 @@ import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { blockText, hasText } from '@/lib/utils/contentBlocks';
+import { toUtf8 } from '@/lib/utils/bytes';
+import { argAt } from '@/lib/utils/argv';
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY,
@@ -25,7 +27,8 @@ interface ReviewResult {
  */
 function getStagedDiff(): string {
   try {
-    return execSync('git diff --staged', { encoding: 'utf-8' });
+    const result = execSync('git diff --staged', { encoding: 'utf-8' });
+    return toUtf8(result);
   } catch (error: any) {
     // Not a git repo or no staged changes
     return '';
@@ -37,7 +40,8 @@ function getStagedDiff(): string {
  */
 function getUnstagedDiff(): string {
   try {
-    return execSync('git diff', { encoding: 'utf-8' });
+    const result = execSync('git diff', { encoding: 'utf-8' });
+    return toUtf8(result);
   } catch {
     return '';
   }
@@ -173,8 +177,11 @@ async function main(): Promise<void> {
   let diff: string | undefined;
   
   if (diffFile) {
-    const filePath = diffFile.split('=')[1];
-    diff = fs.readFileSync(filePath, 'utf-8');
+    const parts = diffFile.split('=');
+    const filePath = parts[1];
+    if (filePath) {
+      diff = fs.readFileSync(filePath, 'utf-8');
+    }
   }
   
   const result = await reviewChanges(diff);
@@ -218,6 +225,4 @@ if (require.main === module) {
     process.exit(1);
   });
 }
-
-export { reviewChanges };
 

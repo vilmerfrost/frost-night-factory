@@ -140,7 +140,13 @@ export function stripJsxAst(filePath: string, content: string): string {
       removeComments: false,
     });
 
-    const out = printer.printFile(result.transformed[0]);
+    const transformedFile = result.transformed[0];
+    if (!transformedFile) {
+      result.dispose();
+      return content;
+    }
+
+    const out = printer.printFile(transformedFile);
     result.dispose();
 
     return out;

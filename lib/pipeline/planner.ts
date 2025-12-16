@@ -349,7 +349,15 @@ export function legacyToPlannerPhaseJSON(
           .map(e => `${e.method} ${e.path}`),
         npm_packages: [],
         estimated_hours: 8,
-        dependencies: i > 0 && legacy.entities[i - 1] ? [`feat-${legacy.entities[i - 1].name}`] : [],
+        dependencies: (() => {
+          if (i > 0) {
+            const prevEntity = legacy.entities[i - 1];
+            if (prevEntity) {
+              return [`feat-${prevEntity.name}`];
+            }
+          }
+          return [];
+        })(),
         priority: i + 1,
         status: "planned"
       })),

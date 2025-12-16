@@ -90,6 +90,7 @@ export async function normalizeWindowsCasing(projectRoot: string): Promise<void>
   for (const [lowerKey, infos] of fileMap.entries()) {
     if (infos.length === 1) {
       const info = infos[0];
+      if (!info) continue;
       // ✅ CRITICAL FIX: Normalize to LOWERCASE, not PascalCase!
       if (info.relativePath !== lowerKey) {
         const from = info.fullPath;
@@ -110,7 +111,8 @@ export async function normalizeWindowsCasing(projectRoot: string): Promise<void>
     // Multiple variants: choose LOWERCASE as canonical (not PascalCase!)
     const canonicalPath = path.join(projectRoot, lowerKey);
 
-    const [first] = infos;
+    const first = infos[0];
+    if (!first) continue;
     if (first.relativePath !== lowerKey) {
       try {
         await fs.mkdir(path.dirname(canonicalPath), { recursive: true });

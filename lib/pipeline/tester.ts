@@ -102,7 +102,8 @@ export async function runTesterPhaseJSON(
     const startTime = Date.now();
     try {
       const { validateNoCasingIssues } = await import("../../agent-runner/lib/windows-casing-fix");
-      const casingValidation = validateNoCasingIssues(repoPath);
+      const casingValidationPromise = validateNoCasingIssues(repoPath);
+      const casingValidation = await casingValidationPromise;
       
       if (!casingValidation.valid) {
         // Try to fix automatically

@@ -88,9 +88,21 @@ Return ONLY the JSON object, no markdown code blocks, no explanations.`;
   // Extract JSON
   let jsonStr = response.trim();
   if (jsonStr.includes("```json")) {
-    jsonStr = jsonStr.split("```json")[1].split("```")[0].trim();
+    const parts = jsonStr.split("```json");
+    if (parts[1]) {
+      const codeParts = parts[1].split("```");
+      if (codeParts[0]) {
+        jsonStr = codeParts[0].trim();
+      }
+    }
   } else if (jsonStr.includes("```")) {
-    jsonStr = jsonStr.split("```")[1].split("```")[0].trim();
+    const parts = jsonStr.split("```");
+    if (parts[1]) {
+      const codeParts = parts[1].split("```");
+      if (codeParts[0]) {
+        jsonStr = codeParts[0].trim();
+      }
+    }
   }
 
   try {

@@ -78,13 +78,16 @@ export function buildDeterministicPackageJson(opts: {
 
   // If you use Tailwind, keep it deterministic too
   if (deps["tailwindcss"] || deps["postcss"] || deps["autoprefixer"]) {
-    deps["tailwindcss"] = PINNED["tailwindcss"];
-    deps["postcss"] = PINNED["postcss"];
-    deps["autoprefixer"] = PINNED["autoprefixer"];
+    const tailwindVersion = PINNED["tailwindcss"];
+    const postcssVersion = PINNED["postcss"];
+    const autoprefixerVersion = PINNED["autoprefixer"];
+    if (tailwindVersion) deps["tailwindcss"] = tailwindVersion;
+    if (postcssVersion) deps["postcss"] = postcssVersion;
+    if (autoprefixerVersion) deps["autoprefixer"] = autoprefixerVersion;
   }
 
   const pkg: PackageJson = {
-    name,
+    name: name ?? "frost-night-factory",
     private: true,
     version: "0.0.0",
     scripts: { ...DEFAULT_SCRIPTS },

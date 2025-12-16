@@ -106,7 +106,8 @@ export async function autoFixImports(filePath: string): Promise<boolean> {
     // Find last import statement
     let lastImportLine = -1;
     for (let i = 0; i < lines.length; i++) {
-      if (lines[i].trim().startsWith('import ')) {
+      const line = lines[i];
+      if (line && line.trim().startsWith('import ')) {
         lastImportLine = i;
       }
     }
@@ -118,7 +119,8 @@ export async function autoFixImports(filePath: string): Promise<boolean> {
     } else {
       // Check for 'use client' directive
       for (let i = 0; i < lines.length; i++) {
-        if (lines[i].trim().startsWith("'use client'") || lines[i].trim().startsWith('"use client"')) {
+        const line = lines[i];
+        if (line && (line.trim().startsWith("'use client'") || line.trim().startsWith('"use client"'))) {
           insertLine = i + 1;
           break;
         }

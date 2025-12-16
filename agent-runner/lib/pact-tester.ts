@@ -125,17 +125,19 @@ async function parseEndpointsFromFastAPI(filePath: string): Promise<APIEndpoint[
   let match;
   
   while ((match = routeRegex.exec(content)) !== null) {
-    const method = match[1].toUpperCase();
+    const method = match[1]?.toUpperCase();
     const path = match[2];
+    if (!method || !path) continue;
     
     // Try to find the function definition
-    const functionMatch = content.slice(match.index).match(/def\s+(\w+)\([^)]*\):/);
+    const functionMatch = content.slice(match.index ?? 0).match(/def\s+(\w+)\([^)]*\):/);
     
     if (functionMatch) {
       const functionName = functionMatch[1];
+      if (!functionName) continue;
       
       // Try to infer response from function
-      const functionBody = content.slice(match.index + match[0].length).split('def ')[0];
+      const functionBody = content.slice((match.index ?? 0) + match[0].length).split('def ')[0];
       
       endpoints.push({
         method,

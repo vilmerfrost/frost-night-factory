@@ -20,10 +20,16 @@ export function toUtf8(input: ByteLike): string {
   if (input instanceof ArrayBuffer) return Buffer.from(input).toString("utf-8");
 
   // ArrayBufferView inkluderar t.ex. Uint8Array / DataView
-  const view =
-    input instanceof Uint8Array
-      ? input
-      : new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
+  // Copy to avoid ArrayBufferLike issues
+  let view: Uint8Array;
+  if (input instanceof Uint8Array) {
+    view = new Uint8Array(input.byteLength);
+    view.set(input);
+  } else {
+    const temp = new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
+    view = new Uint8Array(temp.byteLength);
+    view.set(temp);
+  }
 
   return Buffer.from(view).toString("utf-8");
 }
@@ -35,7 +41,17 @@ export function toBuffer(input: ByteLike): Buffer {
   if (Buffer.isBuffer(input)) return input;
   if (typeof input === "string") return Buffer.from(input, "utf-8");
   if (input instanceof ArrayBuffer) return Buffer.from(input);
-  const view = input instanceof Uint8Array ? input : new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
+  
+  // Copy to avoid ArrayBufferLike issues
+  let view: Uint8Array;
+  if (input instanceof Uint8Array) {
+    view = new Uint8Array(input.byteLength);
+    view.set(input);
+  } else {
+    const temp = new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
+    view = new Uint8Array(temp.byteLength);
+    view.set(temp);
+  }
   return Buffer.from(view);
 }
 

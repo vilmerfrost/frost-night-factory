@@ -135,10 +135,10 @@ export async function runEnhancedPreFlight(
         const match = err.message.match(/Cannot find name ['"]([\w]+)['"]/);
         if (match) {
           const typeName = match[1];
-          if (!typeName) continue;
-          const suggestedImport = getImportForType(typeName);
-          
-          if (suggestedImport) {
+          if (typeName) {
+            const suggestedImport = getImportForType(typeName);
+            
+            if (suggestedImport) {
             errors.push(
               `Missing import in ${err.file}:${err.line} - ${suggestedImport}`
             );

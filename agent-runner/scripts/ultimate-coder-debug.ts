@@ -244,8 +244,8 @@ function parseArgs(argv: string[]): Args {
 
     if (k === "--out") {
       const nextArg = argv[++i];
-      assertDefined(nextArg, "--out requires a directory path");
-      args.outDir = path.resolve(process.cwd(), nextArg);
+      const outDir = assertDefined(nextArg, "--out requires a directory path");
+      args.outDir = path.resolve(process.cwd(), outDir);
     } else if (k === "--limit") args.limit = Number(argv[++i] ?? "200");
     else if (k === "--replayLimit") {
       const nextArg = argv[++i];
@@ -257,8 +257,8 @@ function parseArgs(argv: string[]): Args {
       if (nextArg) args.sinceDays = Number(nextArg);
     } else if (k === "--corpus") {
       const nextArg = argv[++i];
-      assertDefined(nextArg, "--corpus requires a directory path");
-      args.corpusDir = path.resolve(process.cwd(), nextArg);
+      const corpusDir = assertDefined(nextArg, "--corpus requires a directory path");
+      args.corpusDir = path.resolve(process.cwd(), corpusDir);
     } else if (k === "--checks") {
       const v = String(argv[++i] ?? "basic");
       if (v === "none") args.checks = "none";

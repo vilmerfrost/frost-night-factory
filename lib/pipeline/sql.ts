@@ -61,11 +61,11 @@ Start directly with CREATE TABLE statements.`;
   }
 
   // Write migration file
-  const timestamp = new Date()
+  const timestampParts = new Date()
     .toISOString()
     .replace(/[-:]/g, "")
-    .split(".")[0]
-    .replace("T", "");
+    .split(".");
+  const timestamp = timestampParts[0]?.replace("T", "") ?? new Date().toISOString().replace(/[-:T.]/g, "");
   const migrationName = `${timestamp}_auto_init.sql`;
   const migrationsDir = path.join(repoPath, "supabase", "migrations");
 
@@ -258,11 +258,11 @@ Return ONLY SQL code. No markdown code blocks. Start with comments.`;
   // 5. WRITE MIGRATION FILE
   // ============================================================
 
-  const timestamp = new Date()
+  const timestampParts = new Date()
     .toISOString()
     .replace(/[-:]/g, "")
-    .split(".")[0]
-    .replace("T", "");
+    .split(".");
+  const timestamp = timestampParts[0]?.replace("T", "") ?? new Date().toISOString().replace(/[-:T.]/g, "");
   const migrationName = `${timestamp}_auto_schema.sql`;
   const migrationsDir = path.join(repoPath, "supabase", "migrations");
 
@@ -416,7 +416,7 @@ export function legacyToSqlEditorPhaseJSON(
     },
     rls_policies: [],
     migrations_created: [{
-      version: legacy.migration_name.split("_")[0],
+      version: legacy.migration_name.split("_")[0] ?? legacy.migration_name,
       description: "Auto-generated migration",
       sql_file: `supabase/migrations/${legacy.migration_name}`,
       status: "ready_to_apply",

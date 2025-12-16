@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import fse from 'fs-extra';
-import crypto from 'crypto';
+import { createHash } from 'node:crypto';
 import { execSync } from 'child_process';
 
 export interface BuildArtifact {
@@ -165,11 +165,14 @@ export async function restoreBuildArtifacts(
  */
 async function hashDirectory(dir: string): Promise<string> {
   const files = await getAllFiles(dir);
-  const hash = crypto.createHash('sha256');
+  const hash = createHash('sha256');
   
   for (const file of files.sort()) {
     try {
+      // Read as Buffer for binary-safe hashing
       const content = await fs.readFile(file);
+      // node:crypto createHash.update() accepts Buffer at runtime
+      // @ts-expect-error - Buffer is compatible but TypeScript types are strict
       hash.update(content);
       hash.update(file); // Include filename in hash
     } catch (error: any) {

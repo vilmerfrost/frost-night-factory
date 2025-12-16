@@ -12,6 +12,8 @@ import { needsJsxSanitization } from './lib/jsx-sanitizer'  // ✅ JSX sanitizer
 import { ClaudeOverloadExhaustedError } from './lib/claude/claude-gateway'  // ✅ Claude gateway (central resilience)
 import * as fs from 'fs'
 import * as path from 'path'
+import { ensurePreferredExtension, isSrcLibFile } from './lib/path-rules'
+import { sanitizeModelOutput } from './pipeline-runner'
 
 export interface GenerationResult {
   success: boolean
@@ -39,10 +41,8 @@ async function preScaffoldImports(prompt: string, projectRoot: string): Promise<
       ? importPath 
       : `src/${importPath}`;
     
-    // Add .tsx extension if missing
-    const fullPath = filePath.endsWith('.tsx') || filePath.endsWith('.ts')
-      ? filePath
-      : `${filePath}.tsx`;
+    // ✅ Use centralized path-rules to determine correct extension
+    const fullPath = ensurePreferredExtension(filePath);
     
     imports.add(fullPath);
   }
@@ -75,14 +75,25 @@ async function preScaffoldImports(prompt: string, projectRoot: string): Promise<
         fs.mkdirSync(dir, { recursive: true });
       }
       
-      // Create stub file
-      const componentName = path.basename(importPath, '.tsx').replace(/[^a-zA-Z0-9]/g, '');
-      const stubContent = `'use client';
+      // ✅ Use correct extension based on path-rules
+      const isLib = isSrcLibFile(importPath);
+      const componentName = path.basename(importPath, importPath.endsWith('.tsx') ? '.tsx' : '.ts')
+        .replace(/[^a-zA-Z0-9]/g, '') || 'Component';
+      
+      let stubContent: string;
+      if (importPath.endsWith('.tsx') && !isLib) {
+        stubContent = `'use client';
 
-export default function ${componentName}Stub() {
+export default function ${componentName}() {
   return null;
 }
 `;
+      } else {
+        // .ts file (lib or default)
+        stubContent = `export {}; // Stub
+`;
+      }
+      
       fs.writeFileSync(fullPath, stubContent, 'utf-8');
       console.log(`   📄 Created stub: ${importPath}`);
       stubsCreated++;
@@ -288,7 +299,7 @@ Alternative formats (also accepted):
       const modelStr = String(modelName);
       
       // Generate code with caching (callAI determines provider from model name)
-      const code = await callAI({
+      let rawCode = await callAI({
         pipelineId,
         step,
         role: 'CODER',
@@ -299,10 +310,24 @@ Alternative formats (also accepted):
         cacheableBlocks: modelStr.includes('claude') ? cacheableBlocks : undefined  // Only Claude supports caching
       })
       
-      console.log(`   Generated ${code?.length || 0} characters`)
+      console.log(`   Generated ${rawCode?.length || 0} characters`)
+      
+      // ✅ CRITICAL FIX: Sanitize model output BEFORE any validation/caching
+      // This ensures sanitized code flows through entire pipeline (cache, repair loop, etc.)
+      let sanitizedCode = sanitizeModelOutput(rawCode || '', targetFile);
+      
+      // Track what was sanitized for debugging
+      const sanitizationLog: string[] = [];
+      if (sanitizedCode !== rawCode) {
+        if (rawCode?.includes('declare module')) sanitizationLog.push('removedDeclareModule');
+        if (rawCode?.includes('```')) sanitizationLog.push('removedFences');
+        if (sanitizationLog.length > 0) {
+          console.log(`   🔧 [SANITIZER] Cleaned model output: ${sanitizationLog.join(', ')}`);
+        }
+      }
       
       // ✅ LAYER 2: JSX Post-processor for .ts lib files (auto-sanitize, not retry loop)
-      let finalCode = code || '';
+      let finalCode = sanitizedCode;
       if (needsJsxSanitization(targetFile, finalCode)) {
         console.log(`🔧 [JSX SANITIZER] Detected JSX in .ts lib file. Sanitizing...`);
         const { sanitizeJsxFromTs } = await import('./lib/jsx-sanitizer');
@@ -312,6 +337,9 @@ Alternative formats (also accepted):
           console.log(`   ✅ JSX sanitized: ${sanitized.warnings.join(', ')}`);
         }
       }
+      
+      // ✅ Use sanitized code for all subsequent operations
+      const code = finalCode;
       
       // CRITICAL: Validate BEFORE saving (defensive: ensure code exists)
       const validation = await validateCodeStrict(finalCode || '', targetFile, projectRoot)
@@ -555,9 +583,10 @@ Return the complete, syntactically valid file.`;
       console.log(`   ✅ Code validated successfully! (syntax + completeness)`)
       
       // ✅ LONG-TERM FIX: Only cache AFTER validation passes
-      // This prevents caching bad code (like JSX in .ts files)
+      // ✅ CRITICAL: Cache SANITIZED code (not raw), so repair loops get clean code
+      // This prevents caching bad code (like JSX in .ts files) and ensures sanitized code flows through
       if (validation.valid && code) {
-        await semanticCache.set(prompt, targetFile, code, errorAnalysis.errorCode, true) // ✅ isValidated = true
+        await semanticCache.set(prompt, targetFile, code, errorAnalysis.errorCode, true) // ✅ isValidated = true, code is sanitized
       } else {
         console.warn(`   ⚠️ Skipping cache (validation failed or no code)`);
       }

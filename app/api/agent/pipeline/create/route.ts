@@ -120,7 +120,7 @@ Goal:
     // Note: RPC function already created all 5 steps atomically, no need to create research step manually
 
     // 7. Uppdatera Ticket status
-    const { error: updateError } = await supabase
+    const { error: updateTicketError } = await supabase
       .from("tickets")
       .update({
         pipeline_id: pipeline.id,
@@ -129,8 +129,8 @@ Goal:
       })
       .eq("id", ticketId);
 
-    if (updateError) {
-      console.error("⚠️ Error updating ticket:", updateError);
+    if (updateTicketError) {
+      console.error("⚠️ Error updating ticket:", updateTicketError);
       // Continue anyway - pipeline is created
     }
 

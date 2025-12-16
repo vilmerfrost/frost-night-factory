@@ -11,6 +11,27 @@ export interface ProjectValidationResult {
 }
 
 /**
+ * ✅ Common validation result type with diagnostics support
+ * Used by pipeline-runner.ts and other validation consumers
+ */
+export interface ValidationDiagnostic {
+  message: string;
+  code?: number;
+  file?: string;
+  line?: number;
+  character?: number;
+}
+
+export interface CodeValidationResult {
+  success: boolean;
+  passed: boolean;
+  errors: { message: string }[];
+  fixedCode: string | null;
+  shouldRetryPhase: boolean;
+  diagnostics?: string[]; // ✅ Optional diagnostics array
+}
+
+/**
  * 🛡️ The New Brain: ProjectValidator
  */
 export class ProjectValidator {
@@ -73,6 +94,16 @@ export class ProjectValidator {
     const success = formattedErrors.length === 0;
     if (!success) {
       console.log(`❌ Validator: Found ${formattedErrors.length} errors.`);
+      
+      // ✅ CRITICAL: Print first ~20 errors with file:line + message for debugging
+      const errorsToShow = Math.min(20, formattedErrors.length);
+      console.log(`\n📋 First ${errorsToShow} errors:`);
+      formattedErrors.slice(0, errorsToShow).forEach((error, idx) => {
+        console.log(`   ${idx + 1}. ${error}`);
+      });
+      if (formattedErrors.length > errorsToShow) {
+        console.log(`   ... and ${formattedErrors.length - errorsToShow} more errors`);
+      }
     } else {
       console.log("✅ Validator: Project clean.");
     }
@@ -94,7 +125,7 @@ export async function validateCoderPhaseOutput(
     coderJSON: any,                 // Accepted but ignored
     projectRoot: string = process.cwd(), 
     pipelineId?: string             // Accepted but ignored
-) {
+): Promise<CodeValidationResult> {
   // console.log("🔄 Adapter: Routing legacy call to ProjectValidator...");
   
   const validator = new ProjectValidator(projectRoot);
@@ -110,6 +141,8 @@ export async function validateCoderPhaseOutput(
     passed: result.success,
     errors: errorObjects,
     fixedCode: null,           // No auto-fix in this phase
-    shouldRetryPhase: !result.success
+    shouldRetryPhase: !result.success,
+    // ✅ Add diagnostics property for pipeline-runner.ts compatibility
+    diagnostics: result.diagnostics
   };
 }

@@ -65,7 +65,7 @@ async function callClaudeJSON(client: Anthropic, model: string, prompt: string) 
   return extractJsonLoose(text);
 }
 
-async function materializePlan(client: Anthropic, model: string, plan: Plan, groupSize: number) {
+async function materializePlan(client: Anthropic, model: string, plan: Plan, groupSize: number, errorDir: string) {
   const groups = chunk(plan.files, groupSize);
   const all: { path: string; content: string }[] = [];
 
@@ -96,7 +96,9 @@ ${JSON.stringify(group, null, 2)}
       obj = await callClaudeJSON(client, model, prompt);
     } catch (parseError: any) {
       // ✅ Robust: Save raw response and continue to next case
-      const rawPath = path.join(dir, `materialize_error_group_${gi + 1}_raw.txt`);
+      const groupErrorDir = path.join(errorDir, `materialize_error_group_${gi + 1}`);
+      fs.mkdirSync(groupErrorDir, { recursive: true });
+      const rawPath = path.join(groupErrorDir, `materialize_error_group_${gi + 1}_raw.txt`);
       console.error(`❌ [Group ${gi + 1}/${groups.length}] JSON parse failed, saving raw response to ${rawPath}`);
       writeUtf8(rawPath, parseError?.message || String(parseError));
       // Continue to next group instead of crashing entire batch
@@ -106,7 +108,9 @@ ${JSON.stringify(group, null, 2)}
     const files = obj?.files;
     if (!Array.isArray(files) || files.length === 0) {
       // Save error info but continue
-      const errorPath = path.join(dir, `materialize_error_group_${gi + 1}_no_files.txt`);
+      const groupErrorDir = path.join(errorDir, `materialize_error_group_${gi + 1}`);
+      fs.mkdirSync(groupErrorDir, { recursive: true });
+      const errorPath = path.join(groupErrorDir, `materialize_error_group_${gi + 1}_no_files.txt`);
       writeUtf8(errorPath, `Materializer returned no files for group ${gi + 1}/${groups.length}\n\nResponse: ${JSON.stringify(obj, null, 2)}`);
       console.error(`❌ [Group ${gi + 1}/${groups.length}] No files returned, saved error to ${errorPath}`);
       continue;
@@ -114,13 +118,17 @@ ${JSON.stringify(group, null, 2)}
 
     for (const f of files) {
       if (typeof f?.path !== "string" || typeof f?.content !== "string") {
-        const errorPath = path.join(dir, `materialize_error_group_${gi + 1}_invalid_schema.txt`);
+        const groupErrorDir = path.join(errorDir, `materialize_error_group_${gi + 1}`);
+        fs.mkdirSync(groupErrorDir, { recursive: true });
+        const errorPath = path.join(groupErrorDir, `materialize_error_group_${gi + 1}_invalid_schema.txt`);
         writeUtf8(errorPath, `Materializer returned invalid file schema\n\nFile: ${JSON.stringify(f, null, 2)}`);
         console.error(`❌ [Group ${gi + 1}/${groups.length}] Invalid file schema, saved error to ${errorPath}`);
         continue;
       }
       if (f.content.trim().length < 50) {
-        const errorPath = path.join(dir, `materialize_error_group_${gi + 1}_short_content.txt`);
+        const groupErrorDir = path.join(errorDir, `materialize_error_group_${gi + 1}`);
+        fs.mkdirSync(groupErrorDir, { recursive: true });
+        const errorPath = path.join(groupErrorDir, `materialize_error_group_${gi + 1}_short_content.txt`);
         writeUtf8(errorPath, `Materializer returned too short content for ${f.path}\n\nContent length: ${f.content.trim().length}`);
         console.error(`❌ [Group ${gi + 1}/${groups.length}] Too short content for ${f.path}, saved error to ${errorPath}`);
         continue;
@@ -175,7 +183,7 @@ async function main() {
     console.log(`🧱 Materializing plan-only case: ${path.basename(dir)} (${plan.files.length} files)`);
 
     try {
-      const files = await materializePlan(client, model, plan, groupSize);
+      const files = await materializePlan(client, model, plan, groupSize, dir);
 
       // ✅ Guard: Ensure we got files
       if (files.length === 0) {

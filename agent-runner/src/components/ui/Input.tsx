@@ -1,3 +1,3 @@
-// Styled input field component
-// Type: component
+// Input component
+// Type: ui
 // TODO: Implement this file

@@ -15,7 +15,12 @@ function toFileNameSafe(x: unknown, fallback = "unknown.ts"): string {
 }
 
 /**
- * True JSX detection via AST (no regex false-positives on generics like <T>()).
+ * ✅ CRITICAL FIX: Safe JSX detection via AST (no false positives on generics)
+ * 
+ * Strategy:
+ * - For .tsx files: Parse as TSX, look for JSX nodes
+ * - For .ts files: Parse as TS first. Only check for JSX if regex suggests real tags.
+ *   This prevents Promise<InvoiceData> from triggering false positives.
  * 
  * @param filePath - File path for source file context
  * @param content - File content to check
@@ -23,8 +28,49 @@ function toFileNameSafe(x: unknown, fallback = "unknown.ts"): string {
  */
 export function containsJsxAst(filePath: string, content: string): boolean {
   try {
-    // Parse as TSX so JSX nodes can exist if present.
     const safe = toFileNameSafe(filePath, "jsx-check.ts");
+    const isTsxFile = safe.endsWith('.tsx');
+    
+    // Quick guard: if no <, definitely no JSX
+    if (!content.includes("<")) return false;
+    
+    // ✅ For .tsx files: Parse as TSX directly
+    if (isTsxFile) {
+      const sf = ts.createSourceFile(
+        safe,
+        content,
+        ts.ScriptTarget.Latest,
+        /*setParentNodes*/ true,
+        ts.ScriptKind.TSX
+      );
+
+      let found = false;
+      const visit = (node: ts.Node) => {
+        if (
+          ts.isJsxElement(node) ||
+          ts.isJsxSelfClosingElement(node) ||
+          ts.isJsxFragment(node)
+        ) {
+          found = true;
+          return;
+        }
+        ts.forEachChild(node, visit);
+      };
+
+      visit(sf);
+      return found;
+    }
+    
+    // ✅ For .ts files: Parse as TS first, only check JSX if regex suggests real tags
+    // This prevents generics like Promise<InvoiceData> from triggering
+    const looksLikeJsxTag = /(^|[=\(\{\s,;:])<[A-Za-z][^>]*>/.test(content);
+    
+    if (!looksLikeJsxTag) {
+      // No JSX-like pattern → definitely no JSX
+      return false;
+    }
+    
+    // Regex suggests JSX → parse as TSX to confirm with AST
     const sf = ts.createSourceFile(
       safe,
       content,

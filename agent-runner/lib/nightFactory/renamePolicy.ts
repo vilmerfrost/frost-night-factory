@@ -3,6 +3,8 @@
 // This module is read-only for AI agents and controls all file extension evolution
 
 import * as path from "path";
+import { containsJsxAst } from "./jsxAst";
+import { isSrcLibFile } from "../path-rules";
 
 /**
  * Check if a file path is within the sandbox workspace
@@ -31,11 +33,21 @@ export function isFortressPath(filePath: string): boolean {
 }
 
 /**
- * Heuristic: Does the file content look like it contains JSX?
+ * ✅ AST-based JSX detection (no false positives on generics)
+ * Uses TypeScript compiler API to detect real JSX nodes
  */
-export function fileContentLooksLikeJsx(content: string): boolean {
+export function fileContentLooksLikeJsx(content: string, filePath?: string): boolean {
   if (!content) return false;
-
+  
+  // Quick guard: if no <, definitely no JSX
+  if (!content.includes("<")) return false;
+  
+  // ✅ Use AST-based detection if filePath provided (no false positives)
+  if (filePath) {
+    return containsJsxAst(filePath, content);
+  }
+  
+  // Fallback to regex heuristics (for backward compatibility)
   const jsxPatterns = [
     /return\s*<[\w]/,
     /<\w+[^>]*className=("|')/,
@@ -59,6 +71,7 @@ const NEVER_RENAME_PATTERNS = [
   /\/lib\/types\.ts$/,  // ✅ GOLDEN/FORTRESS: types.ts is always .ts, never .tsx
   /\/lib\/api\.ts$/,     // ✅ lib/api.ts should be pure TypeScript (fetch/helpers)
   /\/lib\/claude-client\.ts$/,  // ✅ lib/claude-client.ts should be pure TypeScript (client wrapper)
+  /\/src\/lib\/.*\.ts$/,  // ✅ CRITICAL: src/lib/** should ALWAYS be .ts (never .tsx)
 ];
 
 /**
@@ -79,14 +92,23 @@ export function shouldAllowJsxInTs(filePath: string): boolean {
 /**
  * Main policy function: Should this .ts file be renamed to .tsx?
  * 
+ * ✅ CRITICAL FIX: Uses AST-based JSX detection (no false positives on generics)
+ * ✅ CRITICAL FIX: src/lib/** files NEVER get renamed (hard rule)
+ * 
  * Returns true if:
  * - File is in sandbox (not Fortress)
- * - File contains JSX
+ * - File contains REAL JSX (AST-based, not generics)
  * - File doesn't match NEVER_RENAME patterns
+ * - File is NOT in src/lib/** (hard rule)
  * - JSX is not explicitly allowed in .ts for this path
  */
 export function shouldRenameTsToTsx(filePath: string, content: string): boolean {
   const normalized = filePath.replace(/\\/g, "/");
+
+  // ✅ CRITICAL: src/lib/** files NEVER get renamed (hard rule)
+  if (isSrcLibFile(normalized)) {
+    return false;
+  }
 
   // 1️⃣ Fortress-kod får ALDRIG rename:as automatiskt
   if (isFortressPath(normalized)) {
@@ -108,16 +130,17 @@ export function shouldRenameTsToTsx(filePath: string, content: string): boolean 
     return false;
   }
 
-  // 5️⃣ Inga JSX-heuristik-träffar → inget att göra
-  if (!fileContentLooksLikeJsx(content)) {
+  // 5️⃣ ✅ AST-based JSX detection (no false positives on generics)
+  if (!fileContentLooksLikeJsx(content, normalized)) {
     return false;
   }
 
   // 6️⃣ Nu vet vi:
   // - filen ligger i sandbox
   // - inte Fortress
+  // - inte src/lib/**
   // - inte undantagen
-  // - innehåller JSX
+  // - innehåller RIKTIG JSX (AST-baserad)
   // → den SKA bli .tsx
   return true;
 }

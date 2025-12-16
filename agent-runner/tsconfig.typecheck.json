@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["./**/*.ts", "./**/*.tsx"],
+  "exclude": [
+    "workspace/**",
+    "templates/**",
+    "test-corpus/**",
+    "data/**",
+    "../.coder-regression/**",
+    "../.coder-ultimate-debug/**",
+    "../.coder-ultimate-debug2/**",
+    "../.coder-ultimate-debug3/**",
+    "**/*.test.*",
+    "**/*.spec.*"
+  ]
+}
+

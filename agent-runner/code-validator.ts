@@ -97,24 +97,25 @@ export function detectPlaceholderCode(code: string, fileName: string): Validatio
 // LAYER 2: FILE EXTENSION ENFORCER
 // ═══════════════════════════════════════════════════════════════════
 
-const JSX_PATTERNS = [
-  /<[A-Z][A-Za-z0-9]*[^>]*>/,     // React component tags <Component>
-  /<[a-z]+[^>]*>/,                 // HTML tags <div>
-  /<\/[A-Za-z]+>/,                 // Closing tags </div>
-  /<[A-Za-z]+[^>]*\/>/,            // Self-closing tags <img />
-]
+// Import AST-based JSX detector (no false positives on generics)
+import { hasRealJsx } from './lib/jsx-detector';
+import { containsJsxAst } from './lib/nightFactory/jsxAst';
 
+/**
+ * ✅ CRITICAL FIX: Use AST-based JSX detection (no false positives)
+ * Replaces regex patterns that trigger on generics like Promise<InvoiceData>
+ */
 export function validateFileExtension(code: string, fileName: string): ValidationResult {
   const errors: string[] = []
   const warnings: string[] = []
   
   // Only check .ts files (not .tsx)
   if (fileName.endsWith('.ts') && !fileName.endsWith('.d.ts')) {
-    for (const pattern of JSX_PATTERNS) {
-      if (pattern.test(code)) {
-        errors.push(`[${fileName}] JSX syntax detected in .ts file. Rename to .tsx or remove JSX.`)
-        break
-      }
+    // ✅ Use AST-based detection (no false positives on generics)
+    const hasJSX = hasRealJsx(fileName, code);
+    
+    if (hasJSX) {
+      errors.push(`[${fileName}] JSX syntax detected in .ts file. Rename to .tsx or remove JSX.`)
     }
   }
   
@@ -223,7 +224,8 @@ export async function validateCode(
   // ═══════════════════════════════════════════════════════════════════
   // 🔧 EXTENSION ENFORCER: Detect JSX in .ts files (The "Loop Killer")
   // ═══════════════════════════════════════════════════════════════════
-  const hasJSX = /<[A-Z][A-Za-z0-9]*[^>]*>/.test(code) || /<>[^<]+<\/>/.test(code) || /<\/[A-Za-z]+>/.test(code);
+  // ✅ CRITICAL FIX: Use AST-based JSX detection (no false positives on generics)
+  const hasJSX = hasRealJsx(fileName, code);
   const isTS = fileName.endsWith('.ts') && !fileName.endsWith('.d.ts');
   
   if (hasJSX && isTS) {
@@ -363,14 +365,12 @@ export function autoFixFileExtension(code: string, fileName: string): { code: st
   
   // If .ts file has JSX, rename to .tsx
   if (fileName.endsWith('.ts') && !fileName.endsWith('.d.ts')) {
-    // Only rename if ACTUAL JSX is present (not just imports)
-    const hasJSX = /<[a-zA-Z][a-zA-Z0-9]*[\s>]/.test(code) ||  // <div>, <Component>
-                   /<>/.test(code) ||                          // <>
-                   /React\.createElement/.test(code);
+    // ✅ Use AST-based detection (no false positives on generics)
+    const hasJSX = containsJsxAst(fileName, code);
     
     if (hasJSX) {
       const newFileName = fileName.replace(/\.ts$/, '.tsx')
-      console.log(`🔧 Auto-fixing: Renamed ${fileName} → ${newFileName} (JSX detected)`)
+      console.log(`🔧 Auto-fixing: Renamed ${fileName} → ${newFileName} (JSX detected via AST)`)
       return { code, newFileName }
     }
   }

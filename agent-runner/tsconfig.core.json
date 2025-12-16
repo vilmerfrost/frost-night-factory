@@ -31,6 +31,12 @@
       "templates/**",
       "data",
       "data/**",
+      "test-corpus/**",
+  
+      "../.coder-regression/**",
+      "../.coder-ultimate-debug/**",
+      "../.coder-ultimate-debug2/**",
+      "../.coder-ultimate-debug3/**",
   
       "lib/pact-tester.ts",
       "lib/playwright-tester.ts",

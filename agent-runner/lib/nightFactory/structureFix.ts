@@ -1,6 +1,7 @@
 // agent-runner/lib/nightFactory/structureFix.ts
 import * as fs from 'fs';
 import * as path from 'path';
+import { isSrcLibFile } from '../path-rules';
 
 export interface StructureFixOptions {
   workspaceRoot: string;
@@ -106,12 +107,25 @@ async function cleanupDuplicateTsFiles(workspaceRoot: string): Promise<void> {
         const tsxPath = fullPath.replace(/\.ts$/, '.tsx');
         if (fs.existsSync(tsxPath)) {
           try {
-            // Check if .tsx file has content (not empty stub)
-            const tsxContent = fs.readFileSync(tsxPath, 'utf-8');
-            if (tsxContent.trim().length > 0) {
-              // .tsx exists and has content - delete old .ts file
-              fs.unlinkSync(fullPath);
-              console.log(`🧹 [Structure Fix] Removed duplicate: ${path.relative(workspaceRoot, fullPath)} (${path.basename(tsxPath)} exists)`);
+            // ✅ Use centralized path-rules
+            const isLib = isSrcLibFile(fullPath);
+            
+            if (isLib) {
+              // In lib/: Keep .ts, remove .tsx (lib should never have .tsx)
+              const tsxContent = fs.readFileSync(tsxPath, 'utf-8');
+              if (tsxContent.trim().length > 0) {
+                // .tsx exists in lib/ - this is wrong, delete it
+                fs.unlinkSync(tsxPath);
+                console.log(`🧹 [Structure Fix] Removed duplicate: ${path.relative(workspaceRoot, tsxPath)} (keeping .ts in lib/)`);
+              }
+            } else {
+              // Outside lib/: Prefer .tsx over .ts (component evolution)
+              const tsxContent = fs.readFileSync(tsxPath, 'utf-8');
+              if (tsxContent.trim().length > 0) {
+                // .tsx exists and has content - delete old .ts file
+                fs.unlinkSync(fullPath);
+                console.log(`🧹 [Structure Fix] Removed duplicate: ${path.relative(workspaceRoot, fullPath)} (${path.basename(tsxPath)} exists)`);
+              }
             }
           } catch (err) {
             console.warn(`⚠️ [Structure Fix] Failed to cleanup ${fullPath}:`, err);

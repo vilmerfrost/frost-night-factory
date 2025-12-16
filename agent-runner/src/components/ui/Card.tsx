@@ -1,3 +1,3 @@
-// Card component with header, content, and footer
-// Type: component
+// Card component
+// Type: ui
 // TODO: Implement this file

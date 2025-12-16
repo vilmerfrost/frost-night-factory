@@ -1,3 +1,3 @@
-// Homepage with dashboard and upload CTA
+// Home page redirects to /invoices when authenticated
 // Type: page
 // TODO: Implement this file

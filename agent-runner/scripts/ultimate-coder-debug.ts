@@ -705,7 +705,7 @@ function extractFilesFromRawText(raw: string): GenFile[] {
     let filePath = parsed?.filePath;
 
     if (!filePath) {
-      filePath = inferFilePathNearIndex(text, m.index);
+      filePath = inferFilePathNearIndex(text, m.index) ?? undefined;
     }
 
     if (!filePath) continue;
@@ -977,7 +977,7 @@ function writeSandbox(caseOutDir: string, files: GenFile[]) {
     const abs = safeJoin(caseOutDir, rel);
     ensureDir(path.dirname(abs));
     fs.writeFileSync(abs, f.content, "utf8");
-    bytes += Buffer.byteLength(f.content ?? "", "utf8");
+    bytes += Buffer.from(f.content ?? "", "utf8").byteLength;
   }
 
   return bytes;

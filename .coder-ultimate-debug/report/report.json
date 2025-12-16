@@ -1,0 +1,131 @@
+{
+  "generatedAt": "2025-12-15T22:59:33.358Z",
+  "outDir": "C:\\Users\\vilme\\frost-night-factory\\.coder-ultimate-debug",
+  "corpusDir": "C:\\Users\\vilme\\frost-night-factory\\.coder-ultimate-debug\\corpus",
+  "totals": {
+    "cases": 3,
+    "ok": 3,
+    "failed": 0
+  },
+  "heatmap": [],
+  "results": [
+    {
+      "caseId": "cc5d1e2b-2dd9-444a-8cd7-176d7584ceb2__763f74e5__2025-12-15T00-54-00-624399+00-00",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 18,
+        "writtenFiles": 18,
+        "renamedCount": 5,
+        "importRewrites": 0,
+        "bytesWritten": 31152
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "src/actions/invoiceActions.ts",
+            "to": "src/actions/invoiceActions.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          },
+          {
+            "from": "src/lib/types.ts",
+            "to": "src/lib/types.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          },
+          {
+            "from": "src/lib/schemas.ts",
+            "to": "src/lib/schemas.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          },
+          {
+            "from": "src/lib/claude.ts",
+            "to": "src/lib/claude.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          },
+          {
+            "from": "src/lib/utils.ts",
+            "to": "src/lib/utils.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      }
+    },
+    {
+      "caseId": "cc5d1e2b-2dd9-444a-8cd7-176d7584ceb2__a84960a6__2025-12-15T01-32-05-20405+00-00",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 18,
+        "writtenFiles": 18,
+        "renamedCount": 4,
+        "importRewrites": 0,
+        "bytesWritten": 30330
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "src/lib/types.ts",
+            "to": "src/lib/types.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          },
+          {
+            "from": "src/lib/schemas.ts",
+            "to": "src/lib/schemas.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          },
+          {
+            "from": "src/lib/claude.ts",
+            "to": "src/lib/claude.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          },
+          {
+            "from": "src/lib/utils.ts",
+            "to": "src/lib/utils.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      }
+    },
+    {
+      "caseId": "cc5d1e2b-2dd9-444a-8cd7-176d7584ceb2__e02ea170__2025-12-15T00-54-00-465923+00-00",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 18,
+        "writtenFiles": 18,
+        "renamedCount": 5,
+        "importRewrites": 0,
+        "bytesWritten": 30397
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "src/lib/types.ts",
+            "to": "src/lib/types.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          },
+          {
+            "from": "src/lib/schemas.ts",
+            "to": "src/lib/schemas.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          },
+          {
+            "from": "src/lib/claude.ts",
+            "to": "src/lib/claude.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          },
+          {
+            "from": "src/lib/utils.ts",
+            "to": "src/lib/utils.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          },
+          {
+            "from": "src/lib/constants.ts",
+            "to": "src/lib/constants.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      }
+    }
+  ]
+}

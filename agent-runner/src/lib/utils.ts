@@ -1,3 +1,3 @@
-// Shared utility functions and helpers
-// Type: utilities
+// Utility functions (cn, formatCurrency, etc.)
+// Type: utility
 // TODO: Implement this file

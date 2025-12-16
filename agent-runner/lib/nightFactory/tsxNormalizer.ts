@@ -90,10 +90,12 @@ export function normalizeTsxInSandbox(
     try {
       const content = fs.readFileSync(tsFile, "utf8");
 
-      if (!fileContentLooksLikeJsx(content)) continue;
+      // ✅ Use AST-based detection (no false positives on generics)
+      if (!fileContentLooksLikeJsx(content, tsFile)) continue;
 
       if (!shouldRenameTsToTsx(tsFile, content)) {
-        // Policy says no rename - log but let invariant check handle it
+        // ✅ Policy says no rename (e.g., src/lib/**)
+        // This is expected for lib files - invariant check will handle JSX stripping
         logger.warn(
           "[TSX Normalizer] JSX detected in .ts but renamePolicy said NO:",
           tsFile

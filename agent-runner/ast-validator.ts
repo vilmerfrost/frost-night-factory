@@ -1,6 +1,8 @@
 // agent-runner/ast-validator.ts
 // AST-Based Completeness Validator (Gemini's brilliant idea)
 
+import { hasRealJsxSyntax } from './lib/jsx-detector';
+
 interface CompletenessResult {
   complete: boolean
   score: number
@@ -102,7 +104,7 @@ export function validateCodeCompleteness(
   
   // 🔧 FIXED: Relax validator - if it parses as valid TSX and has an export, give at least 0.5
   const hasExport = /export\s+(default\s+)?(function|const|class|interface|type)/.test(code);
-  const hasJSX = /<[a-zA-Z][a-zA-Z0-9]*[\s>]/.test(code) || /<\/[a-zA-Z]+>/.test(code);
+  const hasJSX = hasRealJsxSyntax(code);
   
   if (hasExport && hasJSX && score < 0.5) {
     score = Math.max(score, 0.5); // Minimum score for valid TSX with export

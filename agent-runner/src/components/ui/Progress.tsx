@@ -1,3 +1,3 @@
-// Progress indicator for upload/processing
+// Progress bar component
 // Type: component
 // TODO: Implement this file

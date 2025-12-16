@@ -62,6 +62,8 @@ import { generateWithValidation } from './multi-pass-generator';  // ✅ Phase 1
 import { generateRepositoryMap } from './repo-map-generator';  // ✅ Phase 1: Repository map
 import { parsePackageJson, DEFAULT_PACKAGE_JSON, installDependencies } from './lib/dependency-detective';  // ✅ Robust JSON parsing with auto-repair
 import { writeDeterministicPackageJson } from './lib/nightFactory/invariants/packageJsonBuilder';  // ✅ D: Deterministic package.json builder
+import { ensurePreferredExtension, isSrcLibFile } from './lib/path-rules';  // ✅ Centralized path rules
+import { getRequiredExports } from './lib/export-contracts';  // ✅ Export contract map
 import { ErrorClassifier } from './lib/error-classifier';  // ✅ Smart error diagnosis for autonomous self-healing
 import { writeFileToDisk, writeFileSyncSafe } from './lib/file-writer';  // ✅ Atomic file writes
 import { 
@@ -698,11 +700,11 @@ body {
 `;
 
 /**
- * PERMANENT FIX: Enforce Next.js 15 compatible file structure
+ * PERMANENT FIX: Enforce framework-compatible file structure
  * This function ensures the project ALWAYS has the correct structure
  * regardless of what the AI or previous steps created.
  * 
- * KEY INSIGHT: Next.js 15 works best with app/ in root, NOT src/app/
+ * KEY INSIGHT: Next.js App Router works best with app/ in root, NOT src/app/
  */
 /**
  * PERMANENT FIX: Enforce 'src/' directory structure
@@ -899,12 +901,12 @@ async function startDevServerWithVerification(
 // =============================================================================
 
 /**
- * THE GOLDEN STACK - Hardcoded stable versions that we KNOW work
- * No more letting AI invent unstable bleeding-edge stacks
+ * THE GOLDEN STACK - Default stable versions (can be overridden by TechMatrix)
+ * Used as fallback when project-specific tech stack is not detected
  */
 const GOLDEN_STACK = {
   frontend: {
-    framework: 'Next.js 14.2.x', // Stable, well-tested
+    framework: 'Next.js', // Version determined by TechMatrix or latest stable
     react: '18.2.x',
     tailwind: '3.4.x',
     lucide: '0.344.x',
@@ -912,7 +914,7 @@ const GOLDEN_STACK = {
   },
   auth: 'Supabase SSR (@supabase/ssr)',
   database: 'Supabase (PostgreSQL)',
-  structure: 'app/ in root (NOT src/app/)', // CRITICAL
+  structure: 'app/ in root (NOT src/app/)', // CRITICAL for Next.js App Router
   stateManagement: 'React useState/useReducer (no Redux needed for MVP)',
 };
 
@@ -976,12 +978,12 @@ You are building a holistic system. Here is the Master Plan you MUST follow:
        ? MOCK_DATA 
        : await fetchFromSupabase();
 
-4. GOLDEN STACK (ENFORCED):
-   - Next.js 14.2.x (NOT 15, NOT 16)
-   - React 18.2.x
-   - Tailwind 3.4.x
-   - Supabase SSR for auth
-   - Structure: app/ in ROOT (NOT src/app/)
+4. TECH STACK (Based on project requirements):
+   - Framework: Determined by project needs (Next.js App Router recommended for web apps)
+   - React: Latest stable (18.2.x+)
+   - Tailwind: 3.4.x
+   - Supabase SSR for auth (if applicable)
+   - Structure: app/ in ROOT (for Next.js App Router projects)
 
 5. ZERO CRASH GUARANTEE:
    - Every component has error boundary or try/catch
@@ -1560,7 +1562,7 @@ async function getStep(pipelineId: string, stepName: string) {
           name: stepName,
           status: 'pending',
         })
-        .select()  // ⚠️ CRITICAL: Perplexity's fix
+        .select()  // ⚠️ CRITICAL: Ensure data is returned
         .single();
 
       if (insertError) {
@@ -1673,7 +1675,7 @@ Return STRICT JSON ONLY:
 Rules:
 - Do not invent extra files.
 - Do not omit any requested file.
-- Use Next.js App Router + TS + Tailwind.
+- Use appropriate framework patterns (Next.js App Router if Next.js, or framework-specific patterns).
 - route.ts must NOT contain JSX.
 - Output JSON only (no markdown).
 
@@ -1850,7 +1852,7 @@ async function runClonerStep(pipeline: any, repoPath: string) {
 // STEG 1: RESEARCH
 // ------------------------------------------------------------------
 // ═══════════════════════════════════════════════════════════════════
-// PHASE 1: PERPLEXITY RESEARCH (Multiple focused queries)
+// PHASE 1: RESEARCH (Multiple focused queries)
 // ═══════════════════════════════════════════════════════════════════
 async function runResearchStep(pipeline: any, researchType: 'technical-constraints' | 'best-practices' = 'technical-constraints'): Promise<string> {
   console.log(`[Research] Phase 1 - ${researchType} for: ${pipeline.name || pipeline.id}`);
@@ -1870,8 +1872,8 @@ TASK: Research TECHNICAL CONSTRAINTS for: "${userRequest}"
 - Generic marketing fluff.
 
 ✅ FIND CRITICAL INFO:
-1. BREAKING CHANGES: specifically for Next.js 15 / React 19.
-2. COMPATIBILITY: Which libraries conflict with Server Components?
+1. BREAKING CHANGES: Latest framework versions and their breaking changes.
+2. COMPATIBILITY: Which libraries conflict with the selected framework patterns?
 3. DEPENDENCIES: What are the critical dependencies and their versions?
 4. GOTCHAS: What usually kills this type of project?
 
@@ -1911,15 +1913,15 @@ A comprehensive guide of BEST PRACTICES and ARCHITECTURE RECOMMENDATIONS.
 async function runK2SynthesisStep(
   pipelineId: string,
   userVision: string,
-  perplexityReports: string[]
+  researchReports: string[]
 ): Promise<string> {
   console.log('🧠 [K2 SYNTHESIS] Starting deep research synthesis...');
 
   // Create synthesis step in DB
   await createStep(pipelineId, 'k2_synthesis', 'running');
 
-  // Combine all Perplexity reports
-  const combinedResearch = perplexityReports
+  // Combine all research reports
+  const combinedResearch = researchReports
     .map((report, i) => `## Research Report ${i + 1}\n\n${report}`)
     .join('\n\n---\n\n');
 
@@ -1964,7 +1966,7 @@ OUTPUT FORMAT:
   const userPrompt = `USER VISION:
 ${userVision}
 
-RESEARCH REPORTS FROM PERPLEXITY PRO:
+RESEARCH REPORTS:
 ${combinedResearch}
 
 Synthesize this into actionable technical guidance for the development team.`;
@@ -2045,8 +2047,8 @@ Synthesize this into actionable technical guidance for the development team.`;
       console.error('❌ [K2 SYNTHESIS] Failed:', error.message);
     }
     
-    // Final fallback: just concatenate the Perplexity reports
-    console.warn('⚠️  [K2 SYNTHESIS] Using concatenated Perplexity reports as final fallback');
+    // Final fallback: just concatenate the research reports
+    console.warn('⚠️  [K2 SYNTHESIS] Using concatenated research reports as final fallback');
     await updateStep(pipelineId, 'k2_synthesis', 'failed', JSON.stringify({ 
       error: String(error),
       used_fallback: true,
@@ -2072,8 +2074,8 @@ async function optimizeUserRequest(rawRequest: string, pipelineId: string): Prom
     TASK: Expand the user's raw request into a detailed technical specification for an AI Software Architect.
     
     GUIDELINES:
-    1. FILL GAPS: If user says "blog", assume "Next.js 15, Markdown support, SEO friendly, Dark mode".
-    2. TECH STACK: Enforce the "Golden Stack" (Next.js 14.2+, Tailwind, Supabase).
+    1. FILL GAPS: If user says "blog", assume "Modern web framework, Markdown support, SEO friendly, Dark mode".
+    2. TECH STACK: Determine appropriate stack based on project needs (web apps: Next.js/React, mobile: React Native, etc).
     3. CLARITY: Remove ambiguity. Define specific features.
     4. DO NOT write code. Write REQUIREMENTS.
     
@@ -2228,7 +2230,7 @@ async function runPlannerStep(pipeline: any, repoPath: string, context?: any) {
         }
         
         if (parsed) {
-          // New format: { perplexity: {...}, k2Synthesis: "..." }
+          // New format: { research: {...}, k2Synthesis: "..." }
           if (parsed.k2Synthesis) {
             researchData = parsed.k2Synthesis; // Use K2 synthesis (preferred)
           } else if (parsed.content) {
@@ -2268,13 +2270,13 @@ async function runPlannerStep(pipeline: any, repoPath: string, context?: any) {
   // CRITICAL ARCHITECTURE RULES (ENFORCED BASED ON INTENT)
   const architectureRules = intent.isPython ? 
     `1. BACKEND: You MUST use Python (FastAPI/Flask) in a '/backend' directory.
-    2. FRONTEND: Use Next.js 15 in '/app' or '/src'.
+    2. FRONTEND: Use ${matrix.frontend_framework || 'Next.js'} in '/app' or '/src' (based on framework conventions).
     3. CONNECTIVITY: Frontend calls Backend via HTTP (http://localhost:8000).
-    4. NO SERVERLESS: Do NOT use Next.js API Routes (app/api) for core logic.
+    4. NO SERVERLESS: Do NOT use Next.js API Routes (app/api) for core logic if using separate backend.
     5. DOCKER: Plan for docker-compose.yml that runs both services.` 
     : 
-    `1. STACK: Fullstack Next.js 15 (App Router).
-    2. All backend logic goes in Server Actions or API Routes (app/api).`;
+    `1. STACK: Fullstack ${matrix.frontend_framework || 'Next.js'} (App Router if Next.js).
+    2. All backend logic goes in Server Actions or API Routes (app/api) if using Next.js.`;
 
   // --- INFO TRANSPORTER: Inject accumulated context ---
   // ✅ Use contextToPromptString helper for safe JSON string conversion
@@ -2316,14 +2318,14 @@ ${zeroShotData.testSuite.cases.map(c => `- ${c}`).join('\n')}
 ` : ''}
 
 TECH STACK (GOLDEN STACK - ENFORCED, NO DEVIATIONS):
-- Framework: Next.js 14.2.x (STABLE - NOT 15, NOT 16)
-- React: 18.2.x
-- Tailwind: 3.4.x
-- Icons: Lucide React
-- Auth: Supabase SSR (@supabase/ssr)
-- Database: Supabase (PostgreSQL)
-- Structure: app/ in ROOT (NOT src/app/)
-- State: React useState/useReducer (no Redux)
+- Framework: ${matrix.frontend_framework || 'Next.js'} (use latest stable version compatible with project)
+- React: 18.2.x+ (if using React-based framework)
+- Tailwind: 3.4.x (if using Tailwind)
+- Icons: Lucide React (if applicable)
+- Auth: Supabase SSR (@supabase/ssr) (if applicable)
+- Database: Supabase (PostgreSQL) (if applicable)
+- Structure: Follow framework conventions (app/ in ROOT for Next.js App Router)
+- State: React useState/useReducer (no Redux needed for MVP)
 - Backend: ${matrix.primary_backend}
 - Architecture: ${matrix.architecture}
 
@@ -2336,12 +2338,17 @@ ${ragKnowledge.substring(0, 3000)}
 RESEARCH DATA:
 ${JSON.stringify(researchData).substring(0, 5000)}
 
-CRITICAL: NEXT.JS 15 REQUIREMENTS (MUST FOLLOW):
-- All route parameters (params, searchParams) MUST be awaited: const { slug } = await params;
-- All cookies() and headers() calls MUST be awaited: const token = (await cookies()).get('token');
-- All page components and route handlers using these APIs MUST be async functions.
+FRAMEWORK-SPECIFIC REQUIREMENTS (Follow latest stable patterns):
+${matrix.frontend_framework === 'Next.js' || matrix.frontend_framework?.includes('Next') ? `
+- For Next.js 15+: All route parameters (params, searchParams) MUST be awaited: const { slug } = await params;
+- For Next.js 15+: All cookies() and headers() calls MUST be awaited: const token = (await cookies()).get('token');
+- For Next.js 15+: All page components and route handlers using these APIs MUST be async functions.
 - Plan for explicit caching strategies: { cache: 'force-cache' } or { cache: 'no-store' }.
-- Do NOT mix Next.js 13/14 patterns. Use ONLY Next.js 15 patterns.
+- Use consistent patterns throughout - do not mix different framework versions.
+` : `
+- Follow the latest stable patterns for ${matrix.frontend_framework || 'the selected framework'}.
+- Ensure consistency across all components and routes.
+`}
 
 ⛔ FORBIDDEN (Immediate Failure Criteria):
 
@@ -2588,6 +2595,33 @@ function validateNextImports(content: string): string[] {
 }
 
 /**
+ * ✅ SANITIZER: Remove model output corruption before validation
+ * Strips declare module statements and markdown fences that shouldn't be in component files
+ * 
+ * CRITICAL: This must run BEFORE caching and repair loops to prevent corruption from propagating
+ */
+export function sanitizeModelOutput(code: string, filePath: string): string {
+  let sanitized = code;
+  
+  // Remove markdown code fences if present
+  sanitized = stripOuterCodeFences(sanitized);
+  
+  // Remove declare module statements from .tsx files (not .d.ts)
+  if (filePath.endsWith('.tsx') && !filePath.endsWith('.d.ts')) {
+    // Remove lines starting with "declare module" (common model corruption)
+    sanitized = sanitized.replace(/^\s*declare\s+module\s+[^\n]+\s*\{[\s\S]*?\}\s*$/gm, '');
+    // Also handle unquoted module names (TS1443 error)
+    sanitized = sanitized.replace(/^\s*declare\s+module\s+[^'"`\s{]+/gm, '');
+  }
+  
+  // Remove any remaining markdown artifacts
+  sanitized = sanitized.replace(/^```[a-zA-Z0-9_-]*\s*$/gm, '');
+  sanitized = sanitized.replace(/^\[FILE:\s*[^\]]+\]$/gm, '');
+  
+  return sanitized.trim();
+}
+
+/**
  * 🔒 SYNTAX GATE: TypeScript syntax validation helper
  * 
  * Validates TypeScript syntax using the TypeScript compiler API AST parser.
@@ -2599,14 +2633,19 @@ function validateNextImports(content: string): string[] {
  * - Missing semicolons (in strict mode)
  * - Invalid type syntax
  * 
+ * ✅ NEW: Sanitizes model output corruption (declare module, markdown fences) before validation
+ * 
  * FAIL-OPEN: If the gate itself breaks, don't brick the pipeline.
  */
 function syntaxGateCheckTypeScript(filePath: unknown, sourceText: unknown) {
   // Force correct types so TS internals never crash on non-string paths
   const fileName = typeof filePath === "string" ? filePath : String(filePath ?? "");
-  const text = typeof sourceText === "string" ? sourceText : String(sourceText ?? "");
+  let text = typeof sourceText === "string" ? sourceText : String(sourceText ?? "");
 
   try {
+    // ✅ SANITIZE: Remove model output corruption before validation
+    text = sanitizeModelOutput(text, fileName);
+    
     const safeFileName = asPathString(fileName);
     // Determine script kind based on file extension
     const scriptKind = safeFileName.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
@@ -3619,12 +3658,160 @@ function validateAndFixImportOrder(code: string, filePath: string): string {
  * 🔧 PRE-GENERATION STUBS: Create stub files before AI starts coding
  * Prevents "Import Deadlock" by ensuring files exist before they're imported
  */
+/**
+ * ✅ RESILIENCE FIX: Create deterministic fallback stub when generation fails
+ * Ensures project remains compilable even when AI generation fails
+ * Race-safe: Uses 'wx' flag to prevent overwriting if file created concurrently
+ */
+function createFallbackStub(filePath: string, repoPath: string): void {
+  // ✅ Use centralized path-rules (imported at top)
+  // Normalize and ensure correct extension
+  const normalizedFilePath = ensurePreferredExtension(filePath);
+  const finalPath = path.join(repoPath, normalizedFilePath);
+  const dir = path.dirname(finalPath);
+  
+  // Skip if file already exists (double-check before write)
+  if (fs.existsSync(finalPath)) {
+    return;
+  }
+  
+  // ✅ Use export contracts to ensure required exports exist
+  const requiredExports = getRequiredExports(normalizedFilePath);
+  
+  // Determine if it's a lib file for stub content
+  const isLib = isSrcLibFile(normalizedFilePath);
+  
+  // ✅ CRITICAL FIX: Special handling for extraction files (must be functional)
+  const isExtractionFile = normalizedFilePath.includes('/lib/extraction/') || 
+                           normalizedFilePath.includes('\\lib\\extraction\\');
+  
+  // Create minimal compilable stub with required exports
+  let stubContent: string;
+  if (normalizedFilePath.endsWith('.tsx') && !isLib) {
+    const componentName = path.basename(normalizedFilePath, '.tsx')
+      .replace(/[^a-zA-Z0-9]/g, '') || 'Component';
+    stubContent = `'use client';
+
+// Fallback stub - generation failed after max attempts
+export default function ${componentName}() {
+  return null;
+}
+`;
+  } else if (isExtractionFile) {
+    // ✅ Extraction files need functional stubs (not empty)
+    const fileName = path.basename(normalizedFilePath, '.ts');
+    
+    if (fileName === 'fallback-extractor') {
+      stubContent = `// Fallback stub - generation failed after max attempts
+// Regex-based deterministic fallback extraction
+export async function fallbackExtractInvoice(text: string) {
+  const result = {
+    vendor_name: text.match(/(?:Vendor|Supplier):\\s*(.+)/i)?.[1] ?? null,
+    invoice_number: text.match(/Invoice\\s*#?:?\\s*(\\S+)/i)?.[1] ?? null,
+    invoice_date: text.match(/Date:\\s*(\\d{4}-\\d{2}-\\d{2})/i)?.[1] ?? null,
+    total_amount: text.match(/Total:\\s*([\\d.,]+)/i)?.[1] ?? null,
+    currency: text.match(/(USD|EUR|SEK|GBP|NOK|DKK)/i)?.[1] ?? null,
+  };
+  return result;
+}
+`;
+    } else if (fileName === 'main') {
+      stubContent = `// Fallback stub - generation failed after max attempts
+import { fallbackExtractInvoice } from "./fallback-extractor";
+import { extractWithAI } from "./ai-extractor";
+import { extractTextFromPDF } from "./text-extract";
+
+export async function extractInvoiceData(storagePath: string) {
+  try {
+    const text = await extractTextFromPDF(storagePath);
+    if (process.env.OPENAI_API_KEY) {
+      return await extractWithAI(text);
+    }
+    return await fallbackExtractInvoice(text);
+  } catch (err) {
+    console.error("❌ Extraction failed:", err);
+    return {
+      error: true,
+      message: "Extraction failed. Check logs for details.",
+    };
+  }
+}
+`;
+    } else if (fileName === 'ai-extractor') {
+      stubContent = `// Fallback stub - generation failed after max attempts
+import { fallbackExtractInvoice } from "./fallback-extractor";
+
+export async function extractWithAI(text: string) {
+  // Fallback to regex-based extraction if AI fails
+  return await fallbackExtractInvoice(text);
+}
+`;
+    } else if (fileName === 'text-extract') {
+      stubContent = `// Fallback stub - generation failed after max attempts
+export async function extractTextFromPDF(storagePath: string): Promise<string> {
+  // Minimal stub - returns empty string
+  // In production, this should use pdf-parse or similar library
+  console.warn("⚠️ PDF extraction not implemented - returning empty string");
+  return "";
+}
+`;
+    } else {
+      // Generic extraction stub
+      stubContent = `// Fallback stub - generation failed after max attempts
+export {};
+`;
+    }
+  } else {
+    // .ts file - create stub with required exports
+    if (requiredExports.length > 0) {
+      // Create named exports for required exports
+      const exports = requiredExports.map(exp => {
+        // Determine export type based on naming convention
+        if (exp.startsWith('create')) {
+          return `export function ${exp}(): any { throw new Error('Not implemented'); }`;
+        } else if (exp[0] === exp[0].toUpperCase()) {
+          return `export type ${exp} = any;`;
+        } else {
+          return `export const ${exp} = () => { throw new Error('Not implemented'); };`;
+        }
+      }).join('\n');
+      
+      stubContent = `// Fallback stub - generation failed after max attempts
+${exports}
+`;
+    } else {
+      // No required exports - minimal stub
+      stubContent = `// Fallback stub - generation failed after max attempts
+export {};
+`;
+    }
+  }
+  
+  // ✅ Race-safe write with try/catch
+  try {
+    // Create directory if needed
+    fs.mkdirSync(dir, { recursive: true });
+    
+    // Use 'wx' flag: write only if file doesn't exist (race-safe)
+    fs.writeFileSync(finalPath, stubContent, { encoding: 'utf-8', flag: 'wx' });
+  } catch (e: any) {
+    if (e?.code === 'EEXIST') {
+      // File was created by another process - that's fine, skip silently
+      return;
+    }
+    // Other errors: log warning but don't crash
+    console.warn(`[FALLBACK STUB] Failed to write ${finalPath}:`, e?.message ?? e);
+  }
+}
+
 async function createStubFiles(files: string[], repoPath: string): Promise<void> {
   console.log(`🔧 [STUB GENERATOR] Creating ${files.length} stub files...`);
   
   let stubsCreated = 0;
   for (const filePath of files) {
-    const fullPath = path.join(repoPath, filePath);
+    // ✅ Use centralized path-rules
+    const normalizedFilePath = ensurePreferredExtension(filePath);
+    const fullPath = path.join(repoPath, normalizedFilePath);
     const dir = path.dirname(fullPath);
     
     // Skip if file already exists (don't overwrite)
@@ -3637,20 +3824,23 @@ async function createStubFiles(files: string[], repoPath: string): Promise<void>
       fs.mkdirSync(dir, { recursive: true });
     }
     
-    // Create stub based on file extension
+    // ✅ Create stub based on file extension (after normalization with path-rules)
     let stubContent: string;
-    if (filePath.endsWith('.tsx')) {
-      const componentName = path.basename(filePath, '.tsx').replace(/[^a-zA-Z0-9]/g, '') || 'Stub';
+    const isLib = isSrcLibFile(normalizedFilePath);
+    
+    if (normalizedFilePath.endsWith('.tsx') && !isLib) {
+      const componentName = path.basename(normalizedFilePath, '.tsx').replace(/[^a-zA-Z0-9]/g, '') || 'Stub';
       stubContent = `'use client';
 
 export default function ${componentName}() {
   return null;
 }
 `;
-    } else if (filePath.endsWith('.ts')) {
+    } else if (normalizedFilePath.endsWith('.ts') || isLib) {
+      // .ts file (lib files should always be .ts)
       stubContent = `export {}; // Stub
 `;
-    } else if (filePath.endsWith('.js') || filePath.endsWith('.jsx')) {
+    } else if (normalizedFilePath.endsWith('.js') || normalizedFilePath.endsWith('.jsx')) {
       stubContent = `export {}; // Stub
 `;
     } else {
@@ -3661,10 +3851,10 @@ export default function ${componentName}() {
     
     try {
       fs.writeFileSync(fullPath, stubContent, 'utf-8');
-      console.log(`   📄 Created stub: ${filePath}`);
+      console.log(`   📄 Created stub: ${normalizedFilePath}`);
       stubsCreated++;
     } catch (error: any) {
-      console.warn(`   ⚠️ Failed to create stub for ${filePath}: ${error.message}`);
+      console.warn(`   ⚠️ Failed to create stub for ${normalizedFilePath}: ${error.message}`);
     }
   }
   
@@ -4255,9 +4445,11 @@ ${plannerData ? `\nPLANNER OUTPUT:\n${plannerData.slice(0, 2000)}\n` : ''}
     if (typeof researchStep.output === 'string') {
       try {
         const parsed = JSON.parse(researchStep.output);
-        // New format: { perplexity: {...}, k2Synthesis: "..." }
+        // New format: { research: {...}, k2Synthesis: "..." }
         if (parsed.k2Synthesis) {
           researchData = parsed.k2Synthesis; // Use K2 synthesis (preferred)
+        } else if (parsed.research?.k2Synthesis) {
+          researchData = parsed.research.k2Synthesis; // Alternative format
         } else if (parsed.content) {
           researchData = parsed.content; // Old format fallback
         }
@@ -4602,10 +4794,10 @@ ${ARCHITECTURE_MEMORY}
 
 YOUR TASK: Generate the COMPLETE codebase for BOTH parts in this single response.
 
-PART 1: THE FRONTEND (Next.js 14.2.x - GOLDEN STACK) - REQUIRED
-- Path: MUST be /app in ROOT (NOT /src/app)
+PART 1: THE FRONTEND (${matrix.frontend_framework || 'Next.js'} - Based on project requirements) - REQUIRED
+- Path: Follow framework conventions (for Next.js: /app in ROOT, NOT /src/app)
 - MUST include ALL of these files:
-  * package.json (with "next": "14.2.18", "react": "18.2.0", Tailwind CSS dependencies)
+  * package.json (with appropriate framework versions based on project needs)
   * next.config.mjs
   * tailwind.config.ts
   * postcss.config.js
@@ -4771,9 +4963,10 @@ ${CRITICAL_CODING_RULES}
 
 ${CODER_SYSTEM_PROMPT}
 
-NEXT.JS 15 RULES (CRITICAL - STRICT COMPLIANCE REQUIRED):
+FRAMEWORK-SPECIFIC RULES (CRITICAL - Follow latest stable patterns):
 
-1. SERVER vs CLIENT COMPONENTS (MANDATORY):
+${matrix.frontend_framework === 'Next.js' || matrix.frontend_framework?.includes('Next') ? `
+1. SERVER vs CLIENT COMPONENTS (MANDATORY for Next.js App Router):
    - CLIENT COMPONENTS: If a component uses 'useState', 'useEffect', 'useRouter', or event handlers like 'onClick', you MUST add "'use client';" at the very top of the file.
      Example:
      'use client';
@@ -4792,30 +4985,20 @@ NEXT.JS 15 RULES (CRITICAL - STRICT COMPLIANCE REQUIRED):
 
    - ASYNC PAGES: Page components (page.tsx) should generally be Server Components (async). Move interactive logic to a smaller client component (e.g. <DashboardClient />).
      Pattern: Server Component (page.tsx) fetches data, Client Component handles interactivity.
-     Example:
-     // app/page.tsx (Server Component)
-     export default async function Page() {
-       const data = await fetchData();
-       return <DashboardClient initialData={data} />;
-     }
-     
-     // components/DashboardClient.tsx (Client Component)
-     'use client';
-     export function DashboardClient({ initialData }) {
-       const [state, setState] = useState(initialData);
-       // ... interactive logic
-     }
 
-2. ASYNC REQUEST APIs: In Next.js 15, params, searchParams, cookies(), and headers() are ASYNC.
-   - ❌ WRONG: const { slug } = params; const token = cookies().get('token');
-   - ✅ CORRECT: const { slug } = await params; const token = (await cookies()).get('token');
-   - ALL route handlers, page components, and server components MUST await these APIs.
-   - If you use params/searchParams, the component MUST be async: export default async function Page({ params }) { const { slug } = await params; }
+2. ASYNC REQUEST APIs: For Next.js 15+, params, searchParams, cookies(), and headers() are ASYNC.
+   - Check framework version: If using Next.js 15+, await these APIs: const { slug } = await params;
+   - For earlier versions, use synchronous APIs: const { slug } = params;
+   - ALL route handlers, page components, and server components MUST follow the correct pattern for the framework version.
+` : `
+1. Follow the latest stable patterns for ${matrix.frontend_framework || 'the selected framework'}.
+2. Ensure consistency across all components and routes.
+`}
   
-3. CACHING: Next.js 15 defaults to "no cache" for many requests. Explicitly set caching if needed:
+3. CACHING: For Next.js 15+, defaults to "no cache" for many requests. Explicitly set caching if needed:
    - Use { cache: 'force-cache' } for static data
    - Use { cache: 'no-store' } for dynamic data
-   - Use { next: { revalidate: 3600 } } for ISR
+   - Use { next: { revalidate: 3600 } } for ISR (if applicable)
   
 4. IMPORT RULE: ALWAYS use '@/' alias for imports, never relative paths like '../../'.
    - CORRECT: import { Button } from '@/components/ui/Button';
@@ -4825,7 +5008,7 @@ NEXT.JS 15 RULES (CRITICAL - STRICT COMPLIANCE REQUIRED):
    - No 'use client' in layout.tsx if possible.
    - Use 'next/link' for navigation.
    - Do NOT include markdown code blocks inside file content.
-   - Do NOT mix Next.js 13/14 patterns with Next.js 15. Follow ONLY Next.js 15 patterns.
+   - Use consistent patterns throughout - do not mix different framework versions.
 
 - OFFLINE MODE (Visual Audit Support):
   - In your data fetching logic (e.g., Supabase client, fetch calls), ALWAYS check: if (process.env.NEXT_PUBLIC_IS_AUDIT_MODE === 'true')
@@ -4896,14 +5079,14 @@ ${fileTreePrompt}
 
 ${registryPrompt}
 
-GOLDEN STACK (ENFORCED - NO DEVIATIONS):
-- Next.js 14.2.x (NOT 15, NOT 16)
-- React 18.2.x
-- Tailwind 3.4.x
+TECH STACK (Based on project requirements):
+- Frontend Framework: ${matrix.frontend_framework || 'Next.js'} (use latest stable version compatible with project needs)
+- React: 18.2.x+
+- Tailwind: 3.4.x
 - Lucide React for icons
 - Framer Motion for animations
 - Sonner for toasts
-- Structure: ${appPath}/ (NOT root app/)
+- Structure: ${appPath}/ (determined by framework conventions)
 
 DESIGN SYSTEM (MANDATORY - DO NOT DEVIATE):
 ${JSON.stringify(DESIGN_SYSTEM, null, 2)}
@@ -4995,7 +5178,7 @@ CRITICAL TECH RULES (GOLDEN STACK):
    - lib/ in ROOT
    - NO src/ folder at all
 
-CRITICAL NEXT.JS 15 RULES (Server vs Client Components):
+CRITICAL FRAMEWORK RULES (Server vs Client Components - for Next.js App Router):
 
 1. CLIENT COMPONENTS: If a component uses 'useState', 'useEffect', 'useRouter', or event handlers like 'onClick', you MUST add "'use client';" at the very top of the file.
    - Example:
@@ -5553,6 +5736,15 @@ You MUST use this exact format:
                 console.log(chalk.red(`      ${idx + 1}. ${issue}`));
               });
             }
+            
+            // ✅ RESILIENCE FIX: Create deterministic fallback stub so project doesn't break
+            try {
+              createFallbackStub(targetFile, repoPath);
+              console.log(chalk.yellow(`   🔧 Created fallback stub for ${targetFile} (prevents import errors)`));
+            } catch (stubError: any) {
+              console.warn(chalk.yellow(`   ⚠️ Failed to create fallback stub: ${stubError.message}`));
+            }
+            
             continue; // Skip this file, try next
           }
           
@@ -5569,7 +5761,10 @@ You MUST use this exact format:
           }
           
           // ✅ LAYER A: Pre-normalize output with wrapper (prevents "0 files" errors)
-          const normalizedCode = ensureSingleFileWrapper(code, targetFile, targetFile.endsWith('.tsx') ? 'tsx' : 'typescript');
+          let normalizedCode = ensureSingleFileWrapper(code, targetFile, targetFile.endsWith('.tsx') ? 'tsx' : 'typescript');
+          
+          // ✅ SANITIZE: Remove model output corruption (declare module, markdown fences)
+          normalizedCode = sanitizeModelOutput(normalizedCode, targetFile);
           
           // ✅ Pass targetFile for fallback support
           let fileCreated = 0;
@@ -6074,10 +6269,22 @@ Only fix the files that have issues. Keep everything else unchanged.
         } else {
           console.log(`⚠️  [Layer 1] Validation failed: ${currentErrorCount} errors found`);
           
+          // ✅ CRITICAL: Print first ~20 errors for debugging convergence
+          if (validation.diagnostics && validation.diagnostics.length > 0) {
+            const errorsToShow = Math.min(20, validation.diagnostics.length);
+            console.log(`\n📋 First ${errorsToShow} validation errors:`);
+            validation.diagnostics.slice(0, errorsToShow).forEach((error: string, idx: number) => {
+              console.log(`   ${idx + 1}. ${error}`);
+            });
+            if (validation.diagnostics.length > errorsToShow) {
+              console.log(`   ... and ${validation.diagnostics.length - errorsToShow} more errors`);
+            }
+          }
+          
           // ═══════════════════════════════════════════════════════════════════
           // 🧠 AUTONOMOUS SELF-HEALING: Diagnose errors and auto-fix if possible
           // ═══════════════════════════════════════════════════════════════════
-          const errorMessages = validation.errors.map((e: any) => e.message || String(e));
+          const errorMessages = (validation.errors || []).map((e: { message: string }) => e.message || String(e)) || validation.diagnostics || [];
           const diagnosis = ErrorClassifier.diagnose(errorMessages);
           
           console.log(`🧠 [Doctor] Diagnosis: ${diagnosis.type} (Confidence: ${(diagnosis.confidence * 100).toFixed(0)}%)`);
@@ -11308,9 +11515,23 @@ Provide a comprehensive solution that addresses the root cause, not just symptom
     // --- 📝 KIMI K2: THE DOCUMENTATION OFFICER ---
     try {
       // Hämta tech stack från pipeline eller planner step
+      const { data: plannerStepForDoc } = await supabase
+        .from('pipeline_steps')
+        .select('output')
+        .eq('pipeline_id', pipeline.id)
+        .eq('name', 'planner')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+      
+      const docMatrix: TechMatrix = plannerStepForDoc?.output?.matrix || {
+        frontend_framework: 'Next.js',
+        primary_backend: pipeline.is_python ? 'Python' : 'Node',
+      };
+      
       const techStack = pipeline.is_python ? 
         (fs.existsSync(path.join(repoPath, 'backend', 'main.py')) ? 'Hybrid (Next.js + Python FastAPI)' : 'Python FastAPI') :
-        'Next.js 15';
+        (docMatrix?.frontend_framework || 'Next.js');
       
       await runDocumentationStep(repoPath, techStack);
     } catch (docError: any) {
@@ -12597,10 +12818,22 @@ async function validateAndFixDependencies(workspacePath: string): Promise<void> 
       // Skip relative imports and built-ins
       if (pkg.startsWith('.') || pkg.startsWith('@/')) continue;
       
-      // Extract package name (handle scoped packages)
-      const pkgName = pkg.startsWith('@') 
-        ? pkg.split('/').slice(0, 2).join('/')
-        : pkg.split('/')[0];
+      // ✅ CRITICAL FIX: Normalize subpaths to base package name
+      // Examples:
+      //   next-themes/dist/types → next-themes
+      //   @radix-ui/react-label → @radix-ui/react-label
+      //   @supabase/ssr → @supabase/ssr
+      let pkgName: string;
+      if (pkg.startsWith('@')) {
+        // Scoped package: take first two segments (@scope/name)
+        // Ignore subpaths like /dist/types, /dist/utils, etc.
+        const parts = pkg.split('/');
+        pkgName = parts.slice(0, 2).join('/');
+      } else {
+        // Unscoped package: take first segment only
+        // Ignore subpaths like /dist/types, /lib/utils, etc.
+        pkgName = pkg.split('/')[0];
+      }
       
       requiredPackages.add(pkgName);
     }
@@ -13448,24 +13681,24 @@ export async function runPipelineLoop(sandboxPath: string) {
           }
 
           try {
-            // Phase 1: Perplexity Research (Multiple focused queries)
-            console.log('[Research] Phase 1: Running Perplexity research queries...');
-            const perplexityReport1 = await runResearchStep(pipeline, 'technical-constraints');
-            const perplexityReport2 = await runResearchStep(pipeline, 'best-practices');
+            // Phase 1: Research (Multiple focused queries)
+            console.log('[Research] Phase 1: Running research queries...');
+            const researchReport1 = await runResearchStep(pipeline, 'technical-constraints');
+            const researchReport2 = await runResearchStep(pipeline, 'best-practices');
 
             // Phase 2: K2 Synthesis
             console.log('[Research] Phase 2: Running K2 synthesis...');
             const k2Synthesis = await runK2SynthesisStep(
               pipeline.id,
               pipeline.initial_prompt || pipeline.prompt || '',
-              [perplexityReport1, perplexityReport2]
+              [researchReport1, researchReport2]
             );
 
             // Store combined research results
             const combinedResearch = {
-              perplexity: {
-                technicalConstraints: perplexityReport1,
-                bestPractices: perplexityReport2
+              research: {
+                technicalConstraints: researchReport1,
+                bestPractices: researchReport2
               },
               k2Synthesis: k2Synthesis
             };

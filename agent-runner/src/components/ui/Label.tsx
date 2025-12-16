@@ -1,3 +1,3 @@
-// Label for form inputs
-// Type: component
+// Label component
+// Type: ui
 // TODO: Implement this file

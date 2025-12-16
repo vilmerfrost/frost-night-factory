@@ -1,3 +1,3 @@
-// Main upload page with drag-and-drop and results table
+// Upload PDF and extract invoice data
 // Type: page
 // TODO: Implement this file

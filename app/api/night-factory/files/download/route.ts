@@ -26,7 +26,10 @@ export async function POST(req: Request) {
     const arrayBuffer = await data.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    return new NextResponse(buffer, {
+    // ✅ Fix: Convert Buffer to Uint8Array for BodyInit compatibility
+    const bytes = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+
+    return new NextResponse(bytes, {
       headers: {
         "Content-Type": "application/octet-stream",
         "Content-Disposition": `attachment; filename="${filename}"`,

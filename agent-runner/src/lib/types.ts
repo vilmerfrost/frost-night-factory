@@ -1,3 +1,3 @@
-// Centralized TypeScript type definitions
+// Central TypeScript type definitions
 // Type: types
 // TODO: Implement this file

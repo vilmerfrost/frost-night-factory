@@ -1,6 +1,7 @@
 // agent-runner/lib/nightFactory/missingImportScaffolder.ts
 import * as fs from 'fs';
 import * as path from 'path';
+import { isLibFile } from '../jsx-detector';
 
 export interface ScaffolderOptions {
   workspaceRoot: string;
@@ -140,12 +141,30 @@ async function resolveMissingModules(
   for (const imp of imports) {
     const rel = imp.specifier.replace(/^@\//, ''); // e.g. 'components/InvoiceList'
     const noExtPath = path.join(srcRoot, rel);
-    const candidates = [
-      `${noExtPath}.tsx`,
-      `${noExtPath}.ts`,
-      path.join(noExtPath, 'index.tsx'),
-      path.join(noExtPath, 'index.ts'),
-    ];
+    
+    const kind: MissingModule['kind'] = rel.startsWith('components')
+      ? 'component'
+      : rel.startsWith('lib')
+      ? 'lib'
+      : 'unknown';
+    
+    // ✅ CRITICAL: Never create .tsx files for lib/ directories (prevents ghost stubs)
+    const isLib = kind === 'lib' || isLibFile(noExtPath);
+    
+    // Prioritize .ts for lib files, .tsx for components
+    const candidates = isLib
+      ? [
+          `${noExtPath}.ts`,
+          path.join(noExtPath, 'index.ts'),
+          `${noExtPath}.tsx`, // Fallback only
+          path.join(noExtPath, 'index.tsx'), // Fallback only
+        ]
+      : [
+          `${noExtPath}.tsx`,
+          `${noExtPath}.ts`,
+          path.join(noExtPath, 'index.tsx'),
+          path.join(noExtPath, 'index.ts'),
+        ];
 
     const exists = candidates.some((c) => fs.existsSync(c));
     if (exists) continue;
@@ -154,15 +173,9 @@ async function resolveMissingModules(
     if (seen.has(key)) continue;
     seen.add(key);
 
-    const kind: MissingModule['kind'] = rel.startsWith('components')
-      ? 'component'
-      : rel.startsWith('lib')
-      ? 'lib'
-      : 'unknown';
-
     missing.push({
       ...imp,
-      targetFile: candidates[0],
+      targetFile: candidates[0], // Will be .ts for lib files, .tsx for components
       kind,
     });
   }

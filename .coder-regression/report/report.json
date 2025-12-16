@@ -1,0 +1,3115 @@
+{
+  "generatedAt": "2025-12-16T15:51:29.528Z",
+  "outDir": "C:\\Users\\vilme\\frost-night-factory\\.coder-regression",
+  "corpusDir": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus",
+  "totals": {
+    "cases": 153,
+    "ok": 153,
+    "failed": 0,
+    "skipped": 0
+  },
+  "corpusHealth": {
+    "emptyRawFiles": 0,
+    "emptyRawCases": []
+  },
+  "heatmap": [],
+  "results": [
+    {
+      "caseId": "cc5d1e2b-2dd9-444a-8cd7-176d7584ceb2__763f74e5__2025-12-15T00-54-00-624399+00-00",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 18,
+        "writtenFiles": 18,
+        "renamedCount": 5,
+        "importRewrites": 0,
+        "bytesWritten": 31152
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "src/actions/invoiceActions.ts",
+            "to": "src/actions/invoiceActions.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          },
+          {
+            "from": "src/lib/types.ts",
+            "to": "src/lib/types.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          },
+          {
+            "from": "src/lib/schemas.ts",
+            "to": "src/lib/schemas.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          },
+          {
+            "from": "src/lib/claude.ts",
+            "to": "src/lib/claude.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          },
+          {
+            "from": "src/lib/utils.ts",
+            "to": "src/lib/utils.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\cc5d1e2b-2dd9-444a-8cd7-176d7584ceb2__763f74e5__2025-12-15T00-54-00-624399+00-00\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "cc5d1e2b-2dd9-444a-8cd7-176d7584ceb2__a84960a6__2025-12-15T01-32-05-20405+00-00",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 18,
+        "writtenFiles": 18,
+        "renamedCount": 4,
+        "importRewrites": 0,
+        "bytesWritten": 30330
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "src/lib/types.ts",
+            "to": "src/lib/types.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          },
+          {
+            "from": "src/lib/schemas.ts",
+            "to": "src/lib/schemas.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          },
+          {
+            "from": "src/lib/claude.ts",
+            "to": "src/lib/claude.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          },
+          {
+            "from": "src/lib/utils.ts",
+            "to": "src/lib/utils.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\cc5d1e2b-2dd9-444a-8cd7-176d7584ceb2__a84960a6__2025-12-15T01-32-05-20405+00-00\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "cc5d1e2b-2dd9-444a-8cd7-176d7584ceb2__e02ea170__2025-12-15T00-54-00-465923+00-00",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 18,
+        "writtenFiles": 18,
+        "renamedCount": 5,
+        "importRewrites": 0,
+        "bytesWritten": 30397
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "src/lib/types.ts",
+            "to": "src/lib/types.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          },
+          {
+            "from": "src/lib/schemas.ts",
+            "to": "src/lib/schemas.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          },
+          {
+            "from": "src/lib/claude.ts",
+            "to": "src/lib/claude.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          },
+          {
+            "from": "src/lib/utils.ts",
+            "to": "src/lib/utils.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          },
+          {
+            "from": "src/lib/constants.ts",
+            "to": "src/lib/constants.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\cc5d1e2b-2dd9-444a-8cd7-176d7584ceb2__e02ea170__2025-12-15T00-54-00-465923+00-00\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest1__case_forbidden_env",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "forbidden path \".env\"",
+        "got": "validate: forbidden path \".env\" (env files are protected)"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest1__case_forbidden_env\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest1__case_good_json_array",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 2,
+        "writtenFiles": 2,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 150
+      },
+      "autofixes": {
+        "renamed": [],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest1__case_good_json_array\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest1__case_jsx_in_ts_app_autorename",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 1,
+        "writtenFiles": 1,
+        "renamedCount": 1,
+        "importRewrites": 0,
+        "bytesWritten": 55
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "app/page.ts",
+            "to": "app/page.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest1__case_jsx_in_ts_app_autorename\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest1__case_jsx_in_ts_lib_should_fail",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "JSX detected in .ts after renamePolicy",
+        "got": "validate: JSX detected in .ts after renamePolicy: lib<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest1__case_jsx_in_ts_lib_should_fail\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest1__case_path_traversal",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "Path traversal blocked",
+        "got": "Path traversal blocked: ..<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest1__case_path_traversal\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest10__case_forbidden_env",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "forbidden path \".env\"",
+        "got": "validate: forbidden path \".env\" (env files are protected)"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest10__case_forbidden_env\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest10__case_good_json_array",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 2,
+        "writtenFiles": 2,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 150
+      },
+      "autofixes": {
+        "renamed": [],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest10__case_good_json_array\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest10__case_jsx_in_ts_app_autorename",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 1,
+        "writtenFiles": 1,
+        "renamedCount": 1,
+        "importRewrites": 0,
+        "bytesWritten": 55
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "app/page.ts",
+            "to": "app/page.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest10__case_jsx_in_ts_app_autorename\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest10__case_jsx_in_ts_lib_should_fail",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "JSX detected in .ts after renamePolicy",
+        "got": "validate: JSX detected in .ts after renamePolicy: lib<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest10__case_jsx_in_ts_lib_should_fail\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest10__case_path_traversal",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "Path traversal blocked",
+        "got": "Path traversal blocked: ..<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest10__case_path_traversal\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest11__case_forbidden_env",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "forbidden path \".env\"",
+        "got": "validate: forbidden path \".env\" (env files are protected)"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest11__case_forbidden_env\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest11__case_good_json_array",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 2,
+        "writtenFiles": 2,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 150
+      },
+      "autofixes": {
+        "renamed": [],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest11__case_good_json_array\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest11__case_jsx_in_ts_app_autorename",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 1,
+        "writtenFiles": 1,
+        "renamedCount": 1,
+        "importRewrites": 0,
+        "bytesWritten": 55
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "app/page.ts",
+            "to": "app/page.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest11__case_jsx_in_ts_app_autorename\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest11__case_jsx_in_ts_lib_should_fail",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "JSX detected in .ts after renamePolicy",
+        "got": "validate: JSX detected in .ts after renamePolicy: lib<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest11__case_jsx_in_ts_lib_should_fail\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest11__case_path_traversal",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "Path traversal blocked",
+        "got": "Path traversal blocked: ..<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest11__case_path_traversal\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest12__case_forbidden_env",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "forbidden path \".env\"",
+        "got": "validate: forbidden path \".env\" (env files are protected)"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest12__case_forbidden_env\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest12__case_good_json_array",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 2,
+        "writtenFiles": 2,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 150
+      },
+      "autofixes": {
+        "renamed": [],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest12__case_good_json_array\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest12__case_jsx_in_ts_app_autorename",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 1,
+        "writtenFiles": 1,
+        "renamedCount": 1,
+        "importRewrites": 0,
+        "bytesWritten": 55
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "app/page.ts",
+            "to": "app/page.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest12__case_jsx_in_ts_app_autorename\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest12__case_jsx_in_ts_lib_should_fail",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "JSX detected in .ts after renamePolicy",
+        "got": "validate: JSX detected in .ts after renamePolicy: lib<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest12__case_jsx_in_ts_lib_should_fail\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest12__case_path_traversal",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "Path traversal blocked",
+        "got": "Path traversal blocked: ..<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest12__case_path_traversal\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest13__case_forbidden_env",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "forbidden path \".env\"",
+        "got": "validate: forbidden path \".env\" (env files are protected)"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest13__case_forbidden_env\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest13__case_good_json_array",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 2,
+        "writtenFiles": 2,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 150
+      },
+      "autofixes": {
+        "renamed": [],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest13__case_good_json_array\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest13__case_jsx_in_ts_app_autorename",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 1,
+        "writtenFiles": 1,
+        "renamedCount": 1,
+        "importRewrites": 0,
+        "bytesWritten": 55
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "app/page.ts",
+            "to": "app/page.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest13__case_jsx_in_ts_app_autorename\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest13__case_jsx_in_ts_lib_should_fail",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "JSX detected in .ts after renamePolicy",
+        "got": "validate: JSX detected in .ts after renamePolicy: lib<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest13__case_jsx_in_ts_lib_should_fail\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest13__case_path_traversal",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "Path traversal blocked",
+        "got": "Path traversal blocked: ..<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest13__case_path_traversal\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest14__case_forbidden_env",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "forbidden path \".env\"",
+        "got": "validate: forbidden path \".env\" (env files are protected)"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest14__case_forbidden_env\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest14__case_good_json_array",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 2,
+        "writtenFiles": 2,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 150
+      },
+      "autofixes": {
+        "renamed": [],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest14__case_good_json_array\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest14__case_jsx_in_ts_app_autorename",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 1,
+        "writtenFiles": 1,
+        "renamedCount": 1,
+        "importRewrites": 0,
+        "bytesWritten": 55
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "app/page.ts",
+            "to": "app/page.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest14__case_jsx_in_ts_app_autorename\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest14__case_jsx_in_ts_lib_should_fail",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "JSX detected in .ts after renamePolicy",
+        "got": "validate: JSX detected in .ts after renamePolicy: lib<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest14__case_jsx_in_ts_lib_should_fail\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest14__case_path_traversal",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "Path traversal blocked",
+        "got": "Path traversal blocked: ..<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest14__case_path_traversal\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest15__case_forbidden_env",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "forbidden path \".env\"",
+        "got": "validate: forbidden path \".env\" (env files are protected)"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest15__case_forbidden_env\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest15__case_good_json_array",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 2,
+        "writtenFiles": 2,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 150
+      },
+      "autofixes": {
+        "renamed": [],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest15__case_good_json_array\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest15__case_jsx_in_ts_app_autorename",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 1,
+        "writtenFiles": 1,
+        "renamedCount": 1,
+        "importRewrites": 0,
+        "bytesWritten": 55
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "app/page.ts",
+            "to": "app/page.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest15__case_jsx_in_ts_app_autorename\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest15__case_jsx_in_ts_lib_should_fail",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "JSX detected in .ts after renamePolicy",
+        "got": "validate: JSX detected in .ts after renamePolicy: lib<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest15__case_jsx_in_ts_lib_should_fail\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest15__case_path_traversal",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "Path traversal blocked",
+        "got": "Path traversal blocked: ..<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest15__case_path_traversal\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest16__case_forbidden_env",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "forbidden path \".env\"",
+        "got": "validate: forbidden path \".env\" (env files are protected)"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest16__case_forbidden_env\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest16__case_good_json_array",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 2,
+        "writtenFiles": 2,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 150
+      },
+      "autofixes": {
+        "renamed": [],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest16__case_good_json_array\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest16__case_jsx_in_ts_app_autorename",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 1,
+        "writtenFiles": 1,
+        "renamedCount": 1,
+        "importRewrites": 0,
+        "bytesWritten": 55
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "app/page.ts",
+            "to": "app/page.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest16__case_jsx_in_ts_app_autorename\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest16__case_jsx_in_ts_lib_should_fail",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "JSX detected in .ts after renamePolicy",
+        "got": "validate: JSX detected in .ts after renamePolicy: lib<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest16__case_jsx_in_ts_lib_should_fail\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest16__case_path_traversal",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "Path traversal blocked",
+        "got": "Path traversal blocked: ..<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest16__case_path_traversal\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest17__case_forbidden_env",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "forbidden path \".env\"",
+        "got": "validate: forbidden path \".env\" (env files are protected)"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest17__case_forbidden_env\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest17__case_good_json_array",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 2,
+        "writtenFiles": 2,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 150
+      },
+      "autofixes": {
+        "renamed": [],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest17__case_good_json_array\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest17__case_jsx_in_ts_app_autorename",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 1,
+        "writtenFiles": 1,
+        "renamedCount": 1,
+        "importRewrites": 0,
+        "bytesWritten": 55
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "app/page.ts",
+            "to": "app/page.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest17__case_jsx_in_ts_app_autorename\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest17__case_jsx_in_ts_lib_should_fail",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "JSX detected in .ts after renamePolicy",
+        "got": "validate: JSX detected in .ts after renamePolicy: lib<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest17__case_jsx_in_ts_lib_should_fail\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest17__case_path_traversal",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "Path traversal blocked",
+        "got": "Path traversal blocked: ..<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest17__case_path_traversal\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest18__case_forbidden_env",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "forbidden path \".env\"",
+        "got": "validate: forbidden path \".env\" (env files are protected)"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest18__case_forbidden_env\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest18__case_good_json_array",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 2,
+        "writtenFiles": 2,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 150
+      },
+      "autofixes": {
+        "renamed": [],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest18__case_good_json_array\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest18__case_jsx_in_ts_app_autorename",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 1,
+        "writtenFiles": 1,
+        "renamedCount": 1,
+        "importRewrites": 0,
+        "bytesWritten": 55
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "app/page.ts",
+            "to": "app/page.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest18__case_jsx_in_ts_app_autorename\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest18__case_jsx_in_ts_lib_should_fail",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "JSX detected in .ts after renamePolicy",
+        "got": "validate: JSX detected in .ts after renamePolicy: lib<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest18__case_jsx_in_ts_lib_should_fail\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest18__case_path_traversal",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "Path traversal blocked",
+        "got": "Path traversal blocked: ..<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest18__case_path_traversal\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest19__case_forbidden_env",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "forbidden path \".env\"",
+        "got": "validate: forbidden path \".env\" (env files are protected)"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest19__case_forbidden_env\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest19__case_good_json_array",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 2,
+        "writtenFiles": 2,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 150
+      },
+      "autofixes": {
+        "renamed": [],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest19__case_good_json_array\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest19__case_jsx_in_ts_app_autorename",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 1,
+        "writtenFiles": 1,
+        "renamedCount": 1,
+        "importRewrites": 0,
+        "bytesWritten": 55
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "app/page.ts",
+            "to": "app/page.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest19__case_jsx_in_ts_app_autorename\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest19__case_jsx_in_ts_lib_should_fail",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "JSX detected in .ts after renamePolicy",
+        "got": "validate: JSX detected in .ts after renamePolicy: lib<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest19__case_jsx_in_ts_lib_should_fail\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest19__case_path_traversal",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "Path traversal blocked",
+        "got": "Path traversal blocked: ..<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest19__case_path_traversal\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest2__case_forbidden_env",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "forbidden path \".env\"",
+        "got": "validate: forbidden path \".env\" (env files are protected)"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest2__case_forbidden_env\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest2__case_good_json_array",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 2,
+        "writtenFiles": 2,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 150
+      },
+      "autofixes": {
+        "renamed": [],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest2__case_good_json_array\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest2__case_jsx_in_ts_app_autorename",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 1,
+        "writtenFiles": 1,
+        "renamedCount": 1,
+        "importRewrites": 0,
+        "bytesWritten": 55
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "app/page.ts",
+            "to": "app/page.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest2__case_jsx_in_ts_app_autorename\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest2__case_jsx_in_ts_lib_should_fail",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "JSX detected in .ts after renamePolicy",
+        "got": "validate: JSX detected in .ts after renamePolicy: lib<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest2__case_jsx_in_ts_lib_should_fail\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest2__case_path_traversal",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "Path traversal blocked",
+        "got": "Path traversal blocked: ..<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest2__case_path_traversal\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest20__case_forbidden_env",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "forbidden path \".env\"",
+        "got": "validate: forbidden path \".env\" (env files are protected)"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest20__case_forbidden_env\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest20__case_good_json_array",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 2,
+        "writtenFiles": 2,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 150
+      },
+      "autofixes": {
+        "renamed": [],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest20__case_good_json_array\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest20__case_jsx_in_ts_app_autorename",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 1,
+        "writtenFiles": 1,
+        "renamedCount": 1,
+        "importRewrites": 0,
+        "bytesWritten": 55
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "app/page.ts",
+            "to": "app/page.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest20__case_jsx_in_ts_app_autorename\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest20__case_jsx_in_ts_lib_should_fail",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "JSX detected in .ts after renamePolicy",
+        "got": "validate: JSX detected in .ts after renamePolicy: lib<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest20__case_jsx_in_ts_lib_should_fail\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest20__case_path_traversal",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "Path traversal blocked",
+        "got": "Path traversal blocked: ..<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest20__case_path_traversal\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest21__case_forbidden_env",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "forbidden path \".env\"",
+        "got": "validate: forbidden path \".env\" (env files are protected)"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest21__case_forbidden_env\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest21__case_good_json_array",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 2,
+        "writtenFiles": 2,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 150
+      },
+      "autofixes": {
+        "renamed": [],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest21__case_good_json_array\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest21__case_jsx_in_ts_app_autorename",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 1,
+        "writtenFiles": 1,
+        "renamedCount": 1,
+        "importRewrites": 0,
+        "bytesWritten": 55
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "app/page.ts",
+            "to": "app/page.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest21__case_jsx_in_ts_app_autorename\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest21__case_jsx_in_ts_lib_should_fail",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "JSX detected in .ts after renamePolicy",
+        "got": "validate: JSX detected in .ts after renamePolicy: lib<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest21__case_jsx_in_ts_lib_should_fail\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest21__case_path_traversal",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "Path traversal blocked",
+        "got": "Path traversal blocked: ..<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest21__case_path_traversal\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest22__case_forbidden_env",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "forbidden path \".env\"",
+        "got": "validate: forbidden path \".env\" (env files are protected)"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest22__case_forbidden_env\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest22__case_good_json_array",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 2,
+        "writtenFiles": 2,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 150
+      },
+      "autofixes": {
+        "renamed": [],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest22__case_good_json_array\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest22__case_jsx_in_ts_app_autorename",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 1,
+        "writtenFiles": 1,
+        "renamedCount": 1,
+        "importRewrites": 0,
+        "bytesWritten": 55
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "app/page.ts",
+            "to": "app/page.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest22__case_jsx_in_ts_app_autorename\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest22__case_jsx_in_ts_lib_should_fail",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "JSX detected in .ts after renamePolicy",
+        "got": "validate: JSX detected in .ts after renamePolicy: lib<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest22__case_jsx_in_ts_lib_should_fail\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest22__case_path_traversal",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "Path traversal blocked",
+        "got": "Path traversal blocked: ..<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest22__case_path_traversal\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest23__case_forbidden_env",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "forbidden path \".env\"",
+        "got": "validate: forbidden path \".env\" (env files are protected)"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest23__case_forbidden_env\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest23__case_good_json_array",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 2,
+        "writtenFiles": 2,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 150
+      },
+      "autofixes": {
+        "renamed": [],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest23__case_good_json_array\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest23__case_jsx_in_ts_app_autorename",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 1,
+        "writtenFiles": 1,
+        "renamedCount": 1,
+        "importRewrites": 0,
+        "bytesWritten": 55
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "app/page.ts",
+            "to": "app/page.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest23__case_jsx_in_ts_app_autorename\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest23__case_jsx_in_ts_lib_should_fail",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "JSX detected in .ts after renamePolicy",
+        "got": "validate: JSX detected in .ts after renamePolicy: lib<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest23__case_jsx_in_ts_lib_should_fail\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest23__case_path_traversal",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "Path traversal blocked",
+        "got": "Path traversal blocked: ..<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest23__case_path_traversal\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest24__case_forbidden_env",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "forbidden path \".env\"",
+        "got": "validate: forbidden path \".env\" (env files are protected)"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest24__case_forbidden_env\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest24__case_good_json_array",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 2,
+        "writtenFiles": 2,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 150
+      },
+      "autofixes": {
+        "renamed": [],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest24__case_good_json_array\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest24__case_jsx_in_ts_app_autorename",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 1,
+        "writtenFiles": 1,
+        "renamedCount": 1,
+        "importRewrites": 0,
+        "bytesWritten": 55
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "app/page.ts",
+            "to": "app/page.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest24__case_jsx_in_ts_app_autorename\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest24__case_jsx_in_ts_lib_should_fail",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "JSX detected in .ts after renamePolicy",
+        "got": "validate: JSX detected in .ts after renamePolicy: lib<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest24__case_jsx_in_ts_lib_should_fail\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest24__case_path_traversal",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "Path traversal blocked",
+        "got": "Path traversal blocked: ..<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest24__case_path_traversal\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest25__case_forbidden_env",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "forbidden path \".env\"",
+        "got": "validate: forbidden path \".env\" (env files are protected)"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest25__case_forbidden_env\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest25__case_good_json_array",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 2,
+        "writtenFiles": 2,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 150
+      },
+      "autofixes": {
+        "renamed": [],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest25__case_good_json_array\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest25__case_jsx_in_ts_app_autorename",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 1,
+        "writtenFiles": 1,
+        "renamedCount": 1,
+        "importRewrites": 0,
+        "bytesWritten": 55
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "app/page.ts",
+            "to": "app/page.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest25__case_jsx_in_ts_app_autorename\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest25__case_jsx_in_ts_lib_should_fail",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "JSX detected in .ts after renamePolicy",
+        "got": "validate: JSX detected in .ts after renamePolicy: lib<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest25__case_jsx_in_ts_lib_should_fail\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest25__case_path_traversal",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "Path traversal blocked",
+        "got": "Path traversal blocked: ..<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest25__case_path_traversal\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest26__case_forbidden_env",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "forbidden path \".env\"",
+        "got": "validate: forbidden path \".env\" (env files are protected)"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest26__case_forbidden_env\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest26__case_good_json_array",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 2,
+        "writtenFiles": 2,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 150
+      },
+      "autofixes": {
+        "renamed": [],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest26__case_good_json_array\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest26__case_jsx_in_ts_app_autorename",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 1,
+        "writtenFiles": 1,
+        "renamedCount": 1,
+        "importRewrites": 0,
+        "bytesWritten": 55
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "app/page.ts",
+            "to": "app/page.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest26__case_jsx_in_ts_app_autorename\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest26__case_jsx_in_ts_lib_should_fail",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "JSX detected in .ts after renamePolicy",
+        "got": "validate: JSX detected in .ts after renamePolicy: lib<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest26__case_jsx_in_ts_lib_should_fail\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest26__case_path_traversal",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "Path traversal blocked",
+        "got": "Path traversal blocked: ..<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest26__case_path_traversal\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest27__case_forbidden_env",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "forbidden path \".env\"",
+        "got": "validate: forbidden path \".env\" (env files are protected)"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest27__case_forbidden_env\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest27__case_good_json_array",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 2,
+        "writtenFiles": 2,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 150
+      },
+      "autofixes": {
+        "renamed": [],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest27__case_good_json_array\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest27__case_jsx_in_ts_app_autorename",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 1,
+        "writtenFiles": 1,
+        "renamedCount": 1,
+        "importRewrites": 0,
+        "bytesWritten": 55
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "app/page.ts",
+            "to": "app/page.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest27__case_jsx_in_ts_app_autorename\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest27__case_jsx_in_ts_lib_should_fail",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "JSX detected in .ts after renamePolicy",
+        "got": "validate: JSX detected in .ts after renamePolicy: lib<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest27__case_jsx_in_ts_lib_should_fail\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest27__case_path_traversal",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "Path traversal blocked",
+        "got": "Path traversal blocked: ..<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest27__case_path_traversal\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest28__case_forbidden_env",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "forbidden path \".env\"",
+        "got": "validate: forbidden path \".env\" (env files are protected)"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest28__case_forbidden_env\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest28__case_good_json_array",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 2,
+        "writtenFiles": 2,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 150
+      },
+      "autofixes": {
+        "renamed": [],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest28__case_good_json_array\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest28__case_jsx_in_ts_app_autorename",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 1,
+        "writtenFiles": 1,
+        "renamedCount": 1,
+        "importRewrites": 0,
+        "bytesWritten": 55
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "app/page.ts",
+            "to": "app/page.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest28__case_jsx_in_ts_app_autorename\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest28__case_jsx_in_ts_lib_should_fail",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "JSX detected in .ts after renamePolicy",
+        "got": "validate: JSX detected in .ts after renamePolicy: lib<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest28__case_jsx_in_ts_lib_should_fail\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest28__case_path_traversal",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "Path traversal blocked",
+        "got": "Path traversal blocked: ..<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest28__case_path_traversal\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest29__case_forbidden_env",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "forbidden path \".env\"",
+        "got": "validate: forbidden path \".env\" (env files are protected)"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest29__case_forbidden_env\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest29__case_good_json_array",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 2,
+        "writtenFiles": 2,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 150
+      },
+      "autofixes": {
+        "renamed": [],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest29__case_good_json_array\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest29__case_jsx_in_ts_app_autorename",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 1,
+        "writtenFiles": 1,
+        "renamedCount": 1,
+        "importRewrites": 0,
+        "bytesWritten": 55
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "app/page.ts",
+            "to": "app/page.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest29__case_jsx_in_ts_app_autorename\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest29__case_jsx_in_ts_lib_should_fail",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "JSX detected in .ts after renamePolicy",
+        "got": "validate: JSX detected in .ts after renamePolicy: lib<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest29__case_jsx_in_ts_lib_should_fail\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest29__case_path_traversal",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "Path traversal blocked",
+        "got": "Path traversal blocked: ..<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest29__case_path_traversal\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest3__case_forbidden_env",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "forbidden path \".env\"",
+        "got": "validate: forbidden path \".env\" (env files are protected)"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest3__case_forbidden_env\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest3__case_good_json_array",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 2,
+        "writtenFiles": 2,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 150
+      },
+      "autofixes": {
+        "renamed": [],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest3__case_good_json_array\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest3__case_jsx_in_ts_app_autorename",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 1,
+        "writtenFiles": 1,
+        "renamedCount": 1,
+        "importRewrites": 0,
+        "bytesWritten": 55
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "app/page.ts",
+            "to": "app/page.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest3__case_jsx_in_ts_app_autorename\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest3__case_jsx_in_ts_lib_should_fail",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "JSX detected in .ts after renamePolicy",
+        "got": "validate: JSX detected in .ts after renamePolicy: lib<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest3__case_jsx_in_ts_lib_should_fail\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest3__case_path_traversal",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "Path traversal blocked",
+        "got": "Path traversal blocked: ..<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest3__case_path_traversal\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest30__case_forbidden_env",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "forbidden path \".env\"",
+        "got": "validate: forbidden path \".env\" (env files are protected)"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest30__case_forbidden_env\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest30__case_good_json_array",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 2,
+        "writtenFiles": 2,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 150
+      },
+      "autofixes": {
+        "renamed": [],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest30__case_good_json_array\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest30__case_jsx_in_ts_app_autorename",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 1,
+        "writtenFiles": 1,
+        "renamedCount": 1,
+        "importRewrites": 0,
+        "bytesWritten": 55
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "app/page.ts",
+            "to": "app/page.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest30__case_jsx_in_ts_app_autorename\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest30__case_jsx_in_ts_lib_should_fail",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "JSX detected in .ts after renamePolicy",
+        "got": "validate: JSX detected in .ts after renamePolicy: lib<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest30__case_jsx_in_ts_lib_should_fail\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest30__case_path_traversal",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "Path traversal blocked",
+        "got": "Path traversal blocked: ..<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest30__case_path_traversal\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest4__case_forbidden_env",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "forbidden path \".env\"",
+        "got": "validate: forbidden path \".env\" (env files are protected)"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest4__case_forbidden_env\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest4__case_good_json_array",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 2,
+        "writtenFiles": 2,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 150
+      },
+      "autofixes": {
+        "renamed": [],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest4__case_good_json_array\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest4__case_jsx_in_ts_app_autorename",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 1,
+        "writtenFiles": 1,
+        "renamedCount": 1,
+        "importRewrites": 0,
+        "bytesWritten": 55
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "app/page.ts",
+            "to": "app/page.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest4__case_jsx_in_ts_app_autorename\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest4__case_jsx_in_ts_lib_should_fail",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "JSX detected in .ts after renamePolicy",
+        "got": "validate: JSX detected in .ts after renamePolicy: lib<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest4__case_jsx_in_ts_lib_should_fail\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest4__case_path_traversal",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "Path traversal blocked",
+        "got": "Path traversal blocked: ..<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest4__case_path_traversal\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest5__case_forbidden_env",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "forbidden path \".env\"",
+        "got": "validate: forbidden path \".env\" (env files are protected)"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest5__case_forbidden_env\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest5__case_good_json_array",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 2,
+        "writtenFiles": 2,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 150
+      },
+      "autofixes": {
+        "renamed": [],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest5__case_good_json_array\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest5__case_jsx_in_ts_app_autorename",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 1,
+        "writtenFiles": 1,
+        "renamedCount": 1,
+        "importRewrites": 0,
+        "bytesWritten": 55
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "app/page.ts",
+            "to": "app/page.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest5__case_jsx_in_ts_app_autorename\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest5__case_jsx_in_ts_lib_should_fail",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "JSX detected in .ts after renamePolicy",
+        "got": "validate: JSX detected in .ts after renamePolicy: lib<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest5__case_jsx_in_ts_lib_should_fail\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest5__case_path_traversal",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "Path traversal blocked",
+        "got": "Path traversal blocked: ..<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest5__case_path_traversal\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest6__case_forbidden_env",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "forbidden path \".env\"",
+        "got": "validate: forbidden path \".env\" (env files are protected)"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest6__case_forbidden_env\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest6__case_good_json_array",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 2,
+        "writtenFiles": 2,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 150
+      },
+      "autofixes": {
+        "renamed": [],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest6__case_good_json_array\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest6__case_jsx_in_ts_app_autorename",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 1,
+        "writtenFiles": 1,
+        "renamedCount": 1,
+        "importRewrites": 0,
+        "bytesWritten": 55
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "app/page.ts",
+            "to": "app/page.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest6__case_jsx_in_ts_app_autorename\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest6__case_jsx_in_ts_lib_should_fail",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "JSX detected in .ts after renamePolicy",
+        "got": "validate: JSX detected in .ts after renamePolicy: lib<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest6__case_jsx_in_ts_lib_should_fail\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest6__case_path_traversal",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "Path traversal blocked",
+        "got": "Path traversal blocked: ..<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest6__case_path_traversal\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest7__case_forbidden_env",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "forbidden path \".env\"",
+        "got": "validate: forbidden path \".env\" (env files are protected)"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest7__case_forbidden_env\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest7__case_good_json_array",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 2,
+        "writtenFiles": 2,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 150
+      },
+      "autofixes": {
+        "renamed": [],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest7__case_good_json_array\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest7__case_jsx_in_ts_app_autorename",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 1,
+        "writtenFiles": 1,
+        "renamedCount": 1,
+        "importRewrites": 0,
+        "bytesWritten": 55
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "app/page.ts",
+            "to": "app/page.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest7__case_jsx_in_ts_app_autorename\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest7__case_jsx_in_ts_lib_should_fail",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "JSX detected in .ts after renamePolicy",
+        "got": "validate: JSX detected in .ts after renamePolicy: lib<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest7__case_jsx_in_ts_lib_should_fail\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest7__case_path_traversal",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "Path traversal blocked",
+        "got": "Path traversal blocked: ..<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest7__case_path_traversal\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest8__case_forbidden_env",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "forbidden path \".env\"",
+        "got": "validate: forbidden path \".env\" (env files are protected)"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest8__case_forbidden_env\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest8__case_good_json_array",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 2,
+        "writtenFiles": 2,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 150
+      },
+      "autofixes": {
+        "renamed": [],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest8__case_good_json_array\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest8__case_jsx_in_ts_app_autorename",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 1,
+        "writtenFiles": 1,
+        "renamedCount": 1,
+        "importRewrites": 0,
+        "bytesWritten": 55
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "app/page.ts",
+            "to": "app/page.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest8__case_jsx_in_ts_app_autorename\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest8__case_jsx_in_ts_lib_should_fail",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "JSX detected in .ts after renamePolicy",
+        "got": "validate: JSX detected in .ts after renamePolicy: lib<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest8__case_jsx_in_ts_lib_should_fail\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest8__case_path_traversal",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "Path traversal blocked",
+        "got": "Path traversal blocked: ..<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest8__case_path_traversal\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest9__case_forbidden_env",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "forbidden path \".env\"",
+        "got": "validate: forbidden path \".env\" (env files are protected)"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest9__case_forbidden_env\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest9__case_good_json_array",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 2,
+        "writtenFiles": 2,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 150
+      },
+      "autofixes": {
+        "renamed": [],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest9__case_good_json_array\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest9__case_jsx_in_ts_app_autorename",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 1,
+        "writtenFiles": 1,
+        "renamedCount": 1,
+        "importRewrites": 0,
+        "bytesWritten": 55
+      },
+      "autofixes": {
+        "renamed": [
+          {
+            "from": "app/page.ts",
+            "to": "app/page.tsx",
+            "reason": "JSX in .ts inside React area -> .tsx"
+          }
+        ],
+        "importRewrites": []
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest9__case_jsx_in_ts_app_autorename\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest9__case_jsx_in_ts_lib_should_fail",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "JSX detected in .ts after renamePolicy",
+        "got": "validate: JSX detected in .ts after renamePolicy: lib<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest9__case_jsx_in_ts_lib_should_fail\\coder_raw.txt"
+      }
+    },
+    {
+      "caseId": "selftest9__case_path_traversal",
+      "ok": true,
+      "stats": {
+        "parsedFiles": 0,
+        "writtenFiles": 0,
+        "renamedCount": 0,
+        "importRewrites": 0,
+        "bytesWritten": 0
+      },
+      "expected": {
+        "kind": "matched",
+        "expect": "Path traversal blocked",
+        "got": "Path traversal blocked: ..<path>"
+      },
+      "debug": {
+        "rawSource": "C:\\Users\\vilme\\frost-night-factory\\agent-runner\\test-corpus\\corpus\\selftest9__case_path_traversal\\coder_raw.txt"
+      }
+    }
+  ]
+}

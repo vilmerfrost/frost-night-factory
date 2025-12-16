@@ -1,3 +1,3 @@
-// Reusable button with variants
-// Type: component
+// Shadcn-style button component
+// Type: ui
 // TODO: Implement this file

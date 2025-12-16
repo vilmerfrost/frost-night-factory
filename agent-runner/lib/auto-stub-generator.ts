@@ -6,6 +6,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { isSrcLibFile, stripTsExtension, preferredExtensionForStub, normalizePath } from './path-rules';
 
 /**
  * Extract import path from error message
@@ -72,13 +73,15 @@ export type ${typeName} = Record<string, unknown>;
   } else {
     // Component or module file
     const hasExtension = normalizedPath.endsWith('.ts') || normalizedPath.endsWith('.tsx');
+    
+    // ✅ FIX: Use centralized stripTsExtension (handles .ts, .tsx, .d.ts correctly)
     const basePath = hasExtension 
-      ? normalizedPath.slice(0, -4) 
+      ? stripTsExtension(normalizedPath)
       : normalizedPath;
     
-    const ext = normalizedPath.endsWith('.tsx') || (!hasExtension && normalizedPath.includes('/components/'))
-      ? '.tsx'
-      : '.ts';
+    // ✅ Use centralized path-rules to determine extension
+    const isLib = isSrcLibFile(basePath);
+    const ext = preferredExtensionForStub(basePath);
     
     filePath = path.join(projectRoot, `${basePath}${ext}`);
     

@@ -41,7 +41,8 @@ export async function validateImports(
           });
         }
         // Also check type imports
-        if (clause?.typeOnly) {
+        // ✅ Fix: Use isTypeOnly instead of typeOnly property
+        if (clause && ts.isImportClause(clause) && clause.isTypeOnly) {
           if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
             clause.namedBindings.elements.forEach(el => {
               importedTypes.add(el.name.text);

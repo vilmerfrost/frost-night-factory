@@ -42,6 +42,22 @@
   ],
   "exclude": [
     "node_modules",
-    ".next/**/*"
+    ".next/**/*",
+    "agent-runner/templates/**",
+    "agent-runner/data/**",
+    "agent-runner/workspace/**",
+    "templates/**",
+    "data/**",
+    "workspace/**",
+    ".coder-regression/**",
+    ".coder-ultimate-debug/**",
+    ".coder-ultimate-debug2/**",
+    ".coder-ultimate-debug3/**",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.spec.ts",
+    "**/*.spec.tsx",
+    "test/**",
+    "agent-runner/test-corpus/**"
   ]
 }

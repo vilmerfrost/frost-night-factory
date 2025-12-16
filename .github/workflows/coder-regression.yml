@@ -1,0 +1,36 @@
+name: Coder Regression (Ultimate)
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+jobs:
+  coder-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install
+        run: npm ci
+
+      - name: Run ultimate coder regression (strict + health-strict)
+        run: npm run coder:ultimate:strict
+
+      - name: Upload report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coder-regression-report
+          path: ./.coder-regression/report
+      - name: Job summary
+        if: always()
+        run: |
+          echo "## Ultimate Coder Debug Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          cat ./.coder-regression/report/report.md >> $GITHUB_STEP_SUMMARY

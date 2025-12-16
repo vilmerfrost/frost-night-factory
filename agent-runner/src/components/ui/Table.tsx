@@ -1,3 +1,3 @@
-// Table component for data display
-// Type: component
+// Table components
+// Type: ui
 // TODO: Implement this file

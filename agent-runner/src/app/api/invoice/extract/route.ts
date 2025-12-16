@@ -1,3 +1,3 @@
-// API route for PDF extraction with Claude Vision
+// POST endpoint for extracting invoice data from PDF
 // Type: api
 // TODO: Implement this file

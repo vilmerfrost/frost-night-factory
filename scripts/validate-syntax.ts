@@ -5,6 +5,7 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { lineAt } from '@/lib/utils/text';
 
 interface ValidationResult {
   valid: boolean;
@@ -99,7 +100,8 @@ async function checkAdditionalIssues(content: string, file: string): Promise<str
   
   // Check for common AI mistakes
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+    const line = lineAt(lines, i);
+    if (!line) continue;
     const lineNum = i + 1;
     
     // interface X = ... (should be type X = ...)

@@ -6,6 +6,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { glob } from 'glob';
+import { lineAt } from '@/lib/utils/text';
 
 interface SyntaxIssue {
   file: string;
@@ -29,7 +30,8 @@ function analyzeFile(filePath: string): SyntaxIssue[] {
   let bracketStack: number[] = [];
   
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+    const line = lineAt(lines, i);
+    if (!line) continue;
     const lineNum = i + 1;
     
     for (let j = 0; j < line.length; j++) {
@@ -140,7 +142,7 @@ function analyzeFile(filePath: string): SyntaxIssue[] {
     issues.push({
       file: filePath,
       line: lines.length,
-      column: lines[lines.length - 1].length,
+      column: lineAt(lines, lines.length - 1)?.length ?? 0,
       type: 'unclosed_string',
       message: `Unclosed string (started with ${stringChar})`,
     });
@@ -150,7 +152,7 @@ function analyzeFile(filePath: string): SyntaxIssue[] {
     issues.push({
       file: filePath,
       line: lines.length,
-      column: lines[lines.length - 1].length,
+      column: lineAt(lines, lines.length - 1)?.length ?? 0,
       type: 'unclosed_template',
       message: 'Unclosed template literal',
     });

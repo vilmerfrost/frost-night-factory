@@ -55,11 +55,18 @@ export class MetamorphicValidator {
     const errors: string[] = [];
     
     for (let i = 0; i < variations.length; i++) {
+      const variation = variations[i];
+      if (!variation) {
+        errors.push(`Variation ${i + 1} is undefined`);
+        outputs.push('');
+        continue;
+      }
+      
       try {
         const code = await Promise.race([
-          generateFn(variations[i]),
+          generateFn(variation),
           new Promise<string>((_, reject) => 
-            setTimeout(() => reject(new Error('Timeout')), this.config.timeout)
+            setTimeout(() => reject(new Error('Timeout')), this.config.timeout ?? 30000)
           ),
         ]);
         outputs.push(code);
@@ -178,16 +185,23 @@ export class MetamorphicValidator {
     // Extract exports from each output
     const exportSets = validOutputs.map(o => new Set(this.extractExports(o)));
     
-    if (exportSets.length === 0 || exportSets[0].size === 0) return 0.5; // Unknown
+    if (exportSets.length === 0) return 0.5; // Unknown
+    
+    const baselineSet = exportSets[0];
+    if (!baselineSet || baselineSet.size === 0) return 0.5; // Unknown
     
     // Compare exports across variations
-    const baseline = exportSets[0];
+    const baseline = baselineSet;
     let matchCount = 0;
     
     for (let i = 1; i < exportSets.length; i++) {
       const current = exportSets[i];
-      const intersection = new Set(Array.from(baseline).filter(x => current.has(x)));
-      const union = new Set([...Array.from(baseline), ...Array.from(current)]);
+      if (!current) continue;
+      
+      const baselineArray = Array.from(baseline);
+      const currentArray = Array.from(current);
+      const intersection = new Set(baselineArray.filter(x => current.has(x)));
+      const union = new Set([...baselineArray, ...currentArray]);
       const jaccard = intersection.size / union.size;
       matchCount += jaccard;
     }
@@ -201,7 +215,9 @@ export class MetamorphicValidator {
     let match;
     
     while ((match = exportRegex.exec(code)) !== null) {
-      exports.push(match[1]);
+      if (match[1]) {
+        exports.push(match[1]);
+      }
     }
     
     return exports;

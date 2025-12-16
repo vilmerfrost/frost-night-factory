@@ -7,6 +7,7 @@
 import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { assertDefined, assertNonEmptyArray } from '@/lib/utils/assert';
 
 export interface CompilerError {
   file: string;
@@ -30,7 +31,7 @@ const AUTO_FIXABLE_ERRORS: Record<string, (error: CompilerError, content: string
   // TS2307: Cannot find module
   'TS2307': (error, content, projectPath) => {
     const moduleMatch = error.message.match(/Cannot find module '([^']+)'/);
-    if (!moduleMatch) return null;
+    if (!moduleMatch || !moduleMatch[1]) return null;
     
     const modulePath = moduleMatch[1];
     
@@ -69,7 +70,10 @@ const AUTO_FIXABLE_ERRORS: Record<string, (error: CompilerError, content: string
     if (!memberMatch || !moduleMatch) return null;
     
     const memberName = memberMatch[1];
+    if (!memberName) return null;
+    
     const modulePath = moduleMatch[1];
+    if (!modulePath) return null;
     
     // Try to read the source module
     let sourcePath = modulePath;
@@ -136,7 +140,7 @@ const AUTO_FIXABLE_ERRORS: Record<string, (error: CompilerError, content: string
     );
     
     const match = content.match(importRegex);
-    if (match) {
+    if (match && match[1]) {
       const importName = match[1];
       // Change to named import
       return content.replace(match[0], `import { ${importName} } from '${modulePath}'`);
@@ -409,6 +413,7 @@ These ${errors.length} errors require your intelligence to fix.
     
     return context.map((line, idx) => {
       const num = lineNumbers[idx];
+      if (num === undefined) return `     | ${line}`;
       const marker = num === lineNum ? '>>> ' : '    ';
       return `${marker}${num.toString().padStart(4, ' ')} | ${line}`;
     }).join('\n');
@@ -423,10 +428,12 @@ These ${errors.length} errors require your intelligence to fix.
       content = fs.readFileSync(filePath, 'utf-8');
       // Get context around first error
       const firstError = fileErrors[0];
-      if (firstError.line) {
+      if (firstError && firstError.line) {
         contextAroundFirstError = getCodeContext(content, firstError.line, 10);
       }
     }
+    
+    const firstErrorLine = fileErrors[0]?.line;
     
     prompt += `
 ### FILE: ${file}
@@ -434,7 +441,7 @@ These ${errors.length} errors require your intelligence to fix.
 ERRORS:
 ${fileErrors.map(e => `  Line ${e.line}: [${e.code}] ${e.message}`).join('\n')}
 
-${contextAroundFirstError ? `CODE CONTEXT (around first error line ${fileErrors[0].line}):
+${contextAroundFirstError && firstErrorLine ? `CODE CONTEXT (around first error line ${firstErrorLine}):
 \`\`\`tsx
 ${contextAroundFirstError}
 \`\`\`

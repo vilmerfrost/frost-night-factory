@@ -3,6 +3,7 @@
 // =============================================================================
 
 import { supabase } from '../supabase-client';
+import { getRecordOrDefault } from '@/lib/utils/maps';
 
 export interface ThresholdConfig {
   phase: 'initial' | 'stabilizing' | 'mature';
@@ -60,7 +61,7 @@ export async function getCurrentThresholdPhase(): Promise<ThresholdConfig> {
 
     if (error || !pipelines || pipelines.length === 0) {
       // No history - use initial phase
-      return THRESHOLD_CONFIGS.initial;
+      return getRecordOrDefault(THRESHOLD_CONFIGS, 'initial', THRESHOLD_CONFIGS['initial'] ?? THRESHOLD_CONFIGS.initial);
     }
 
     const totalPipelines = pipelines.length;
@@ -84,18 +85,26 @@ export async function getCurrentThresholdPhase(): Promise<ThresholdConfig> {
     // Determine phase based on success rate and average UX score
     if (successRate >= 0.85 && avgUXScore >= 7.5) {
       // High success rate + high UX scores = mature phase
-      return THRESHOLD_CONFIGS.mature;
+      const initialConfig = THRESHOLD_CONFIGS['initial'];
+      if (!initialConfig) throw new Error('THRESHOLD_CONFIGS.initial is missing');
+      return getRecordOrDefault(THRESHOLD_CONFIGS, 'mature', initialConfig);
     } else if (successRate >= 0.70 && avgUXScore >= 6.5) {
       // Moderate success rate + moderate UX scores = stabilizing phase
-      return THRESHOLD_CONFIGS.stabilizing;
+      const initialConfig = THRESHOLD_CONFIGS['initial'];
+      if (!initialConfig) throw new Error('THRESHOLD_CONFIGS.initial is missing');
+      return getRecordOrDefault(THRESHOLD_CONFIGS, 'stabilizing', initialConfig);
     } else {
       // Low success rate or low UX scores = initial phase
-      return THRESHOLD_CONFIGS.initial;
+      const initialConfig = THRESHOLD_CONFIGS['initial'];
+      if (!initialConfig) throw new Error('THRESHOLD_CONFIGS.initial is missing');
+      return getRecordOrDefault(THRESHOLD_CONFIGS, 'initial', initialConfig);
     }
   } catch (error: any) {
     console.warn(`⚠️ Failed to determine threshold phase: ${error.message}`);
     // Default to initial phase on error
-    return THRESHOLD_CONFIGS.initial;
+    const initialConfig = THRESHOLD_CONFIGS['initial'];
+    if (!initialConfig) throw new Error('THRESHOLD_CONFIGS.initial is missing');
+    return getRecordOrDefault(THRESHOLD_CONFIGS, 'initial', initialConfig);
   }
 }
 

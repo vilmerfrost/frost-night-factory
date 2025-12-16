@@ -47,6 +47,13 @@ type QuarantineID = string;
  * CORE PRINCIPLE: AI output is TOXIC until proven safe
  * This is the single most important class in your V8.5 architecture
  */
+import { 
+  incQuarantineReceived, 
+  incQuarantineValidated, 
+  incQuarantineRejected, 
+  recordValidationDuration 
+} from '@/lib/monitoring/metrics';
+
 export class QuarantineZone {
   private buffer = new Map<QuarantineID, UnvalidatedArtifact>();
   

@@ -89,7 +89,8 @@ export async function checkSuccessRateDrop(): Promise<Alert[]> {
     // Group by day
     const byDay: Record<string, { total: number; success: number }> = {};
     pipelines.forEach((pipeline) => {
-      const day = new Date(pipeline.created_at).toISOString().split('T')[0];
+      const dayRaw = new Date(pipeline.created_at).toISOString().split('T')[0];
+      const day = dayRaw ?? 'unknown';
       if (!byDay[day]) {
         byDay[day] = { total: 0, success: 0 };
       }
@@ -112,8 +113,12 @@ export async function checkSuccessRateDrop(): Promise<Alert[]> {
     successRates.sort((a, b) => b.date.localeCompare(a.date));
 
     if (successRates.length >= 2) {
-      const todayRate = successRates[0].rate;
-      const yesterdayRate = successRates[1].rate;
+      const today = successRates[0];
+      const yesterday = successRates[1];
+      if (!today || !yesterday) return;
+      
+      const todayRate = today.rate;
+      const yesterdayRate = yesterday.rate;
 
       // Alert if success rate dropped by more than 20%
       if (yesterdayRate > 0 && todayRate < yesterdayRate * 0.8) {

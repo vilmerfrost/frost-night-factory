@@ -3,6 +3,7 @@
 
 import path from "node:path";
 import { MODELS, type ModelId } from "./lib/models";
+import { getRecordOrDefault } from "@/lib/utils/maps";
 
 export interface ModelConfig {
   provider: 'anthropic' | 'openai' | 'deepseek' | 'groq'
@@ -73,16 +74,22 @@ export function selectOptimalModel(
         errorType.includes('unused') ||
         errorType.includes('syntax') ||
         errorType.includes('TS2304')) {
-      return MODEL_CONFIGS['groq-fast']  // 95% cheaper than Claude
+      const deepseekCheap = MODEL_CONFIGS['deepseek-cheap'];
+      if (!deepseekCheap) throw new Error('MODEL_CONFIGS.deepseek-cheap is missing');
+      return getRecordOrDefault(MODEL_CONFIGS, 'groq-fast', deepseekCheap);  // 95% cheaper than Claude
     }
     
     // Simple fixes → DeepSeek cheap
-    return MODEL_CONFIGS['deepseek-cheap']  // 95% cheaper than Claude
+    const deepseekCheap = MODEL_CONFIGS['deepseek-cheap'];
+    if (!deepseekCheap) throw new Error('MODEL_CONFIGS.deepseek-cheap is missing');
+    return getRecordOrDefault(MODEL_CONFIGS, 'deepseek-cheap', deepseekCheap);  // 95% cheaper than Claude
   }
   
   // Medium tasks → DeepSeek V3
   if (complexity === 'medium') {
-    return MODEL_CONFIGS['deepseek-cheap']  // 95% cheaper than Claude
+    const deepseekCheap = MODEL_CONFIGS['deepseek-cheap'];
+    if (!deepseekCheap) throw new Error('MODEL_CONFIGS.deepseek-cheap is missing');
+    return getRecordOrDefault(MODEL_CONFIGS, 'deepseek-cheap', deepseekCheap);  // 95% cheaper than Claude
   }
   
   // Hard tasks or retries → Escalate
@@ -91,14 +98,20 @@ export function selectOptimalModel(
     if (errorType.includes('architecture') ||
         errorType.includes('refactor') ||
         attemptNumber > 5) {
-      return MODEL_CONFIGS['claude-premium']  // Best quality
+      const deepseekSmart = MODEL_CONFIGS['deepseek-smart'];
+      if (!deepseekSmart) throw new Error('MODEL_CONFIGS.deepseek-smart is missing');
+      return getRecordOrDefault(MODEL_CONFIGS, 'claude-premium', deepseekSmart);  // Best quality
     }
     
-    return MODEL_CONFIGS['deepseek-smart']  // Good reasoning
+    const deepseekSmart = MODEL_CONFIGS['deepseek-smart'];
+    if (!deepseekSmart) throw new Error('MODEL_CONFIGS.deepseek-smart is missing');
+    return getRecordOrDefault(MODEL_CONFIGS, 'deepseek-smart', deepseekSmart);  // Good reasoning
   }
   
   // Default: DeepSeek cheap (safe choice)
-  return MODEL_CONFIGS['deepseek-cheap']
+  const deepseekCheap = MODEL_CONFIGS['deepseek-cheap'];
+  if (!deepseekCheap) throw new Error('MODEL_CONFIGS.deepseek-cheap is missing');
+  return getRecordOrDefault(MODEL_CONFIGS, 'deepseek-cheap', deepseekCheap);
 }
 
 /**

@@ -4,6 +4,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from "node:url";
 import { glob } from 'glob';
+import { argAt, nextArgOrDefault } from '@/lib/utils/argv';
 
 interface FileExports {
   filePath: string;
@@ -167,7 +168,8 @@ export class ImportChiropractor {
       if (correctSource && correctSource !== source) {
         // We found a fix!
         // Replace ONLY the source part of the line
-        const fixedLine = fullLine.replace(source, correctSource);
+        const sourceEscaped = source.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const fixedLine = fullLine.replace(new RegExp(sourceEscaped, 'g'), correctSource);
         newContent = newContent.replace(fullLine, fixedLine);
         
         this.fixes.push({
@@ -247,8 +249,8 @@ const __filename = fileURLToPath((import.meta as any).url);
 const isMain =
   typeof process !== "undefined" &&
   Array.isArray(process.argv) &&
-  typeof process.argv[1] === "string" &&
-  path.resolve(process.argv[1]) === path.resolve(__filename);
+  typeof argAt(process.argv, 1) === "string" &&
+  path.resolve(argAt(process.argv, 1)) === path.resolve(__filename);
 
 if (isMain) {
   main();

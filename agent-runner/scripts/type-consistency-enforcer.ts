@@ -4,6 +4,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { lineAt } from '@/lib/utils/text';
 
 export interface TypeDefinition {
   name: string;
@@ -58,7 +59,8 @@ export class TypeConsistencyEnforcer {
           
           while (braceCount > 0 && currentLine < lines.length) {
             currentLine++;
-            const nextLine = lines[currentLine - 1];
+            const nextLine = lineAt(lines, currentLine - 1);
+            if (!nextLine) break;
             interfaceContent += '\n' + nextLine;
             braceCount += (nextLine.match(/\{/g) || []).length - (nextLine.match(/\}/g) || []).length;
           }
@@ -85,11 +87,13 @@ export class TypeConsistencyEnforcer {
           let typeContent = line;
           let currentLine = lineNum;
           
-          while (currentLine < lines.length && !lines[currentLine - 1].includes(';') && !lines[currentLine - 1].match(/^export\s/)) {
-            currentLine++;
-            if (currentLine <= lines.length) {
-              typeContent += '\n' + lines[currentLine - 1];
+          while (currentLine < lines.length) {
+            const currentLineContent = lineAt(lines, currentLine - 1);
+            if (!currentLineContent || currentLineContent.includes(';') || currentLineContent.match(/^export\s/)) {
+              break;
             }
+            currentLine++;
+            typeContent += '\n' + currentLineContent;
           }
           
           types.push({

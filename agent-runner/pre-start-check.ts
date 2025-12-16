@@ -23,7 +23,8 @@ function addCheck(name: string, passed: boolean, message: string, critical = fal
 
 // Check 1: Node.js version
 const nodeVersion = process.version;
-const majorVersion = parseInt(nodeVersion.slice(1).split('.')[0]);
+const versionParts = nodeVersion.slice(1).split('.');
+const majorVersion = parseInt(versionParts[0] ?? '0');
 if (majorVersion >= 20) {
   addCheck('Node.js version', true, `Node.js ${nodeVersion} (>= 20 required)`);
 } else {
@@ -45,7 +46,7 @@ const requiredEnvVars = [
 ];
 
 for (const envVar of requiredEnvVars) {
-  const value = process.env[envVar.key] || process.env[envVar.alt];
+  const value = process.env[envVar.key] || (envVar.alt ? process.env[envVar.alt] : undefined);
   if (value && value !== 'placeholder-key' && !value.includes('placeholder')) {
     addCheck(envVar.name, true, `${envVar.name} is set`);
   } else {
@@ -63,7 +64,7 @@ const optionalApiKeys = [
 ];
 
 for (const apiKey of optionalApiKeys) {
-  const value = process.env[apiKey.key] || process.env[apiKey.alt || ''];
+  const value = process.env[apiKey.key] || (apiKey.alt ? process.env[apiKey.alt] : undefined);
   if (value && value.startsWith('sk-')) {
     addCheck(apiKey.name, true, `${apiKey.name} is set`);
   } else {

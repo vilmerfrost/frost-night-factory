@@ -200,7 +200,7 @@ export function getMetricsSummary(): Record<string, number> {
   // This is a simplified summary - in production, query Prometheus
   return {
     enabled: 1,
-    note: 'Use Prometheus to query full metrics',
+    // Note: 'note' removed as it's a string, not a number
   };
 }
 

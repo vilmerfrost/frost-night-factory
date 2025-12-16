@@ -239,6 +239,9 @@ export class CostTracker {
   /**
    * Get cost summary for a given number of days
    */
+  /**
+   * Get cost summary for the last N days
+   */
   getCostSummary(days: number): {
     totalCost: number;
     byModel: Record<string, number>;
@@ -272,5 +275,21 @@ export class CostTracker {
       averageDailyCost: totalCost / days,
     };
   }
+}
+
+// Singleton instance for convenience
+const costTracker = new CostTracker();
+
+/**
+ * Get cost summary for the last N days
+ * Standalone function for easier imports
+ */
+export async function getCostSummary(days: number): Promise<{
+  totalCost: number;
+  byModel: Record<string, number>;
+  byStep: Record<string, number>;
+  averageDailyCost: number;
+}> {
+  return costTracker.getCostSummary(days);
 }
 

@@ -11,7 +11,7 @@ export function toUtf8(input: unknown): string {
   if (typeof input === "string") return input;
   if (input instanceof Uint8Array) {
     // Convert Uint8Array to Buffer safely
-    const buffer = Buffer.from(input.buffer, input.byteOffset, input.byteLength);
+    const buffer = Buffer.from(input);
     return buffer.toString("utf8");
   }
   if (Buffer.isBuffer(input)) return input.toString("utf8");

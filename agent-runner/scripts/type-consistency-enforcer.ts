@@ -83,8 +83,10 @@ export class TypeConsistencyEnforcer {
         let typeMatch;
         while ((typeMatch = typePattern.exec(line)) !== null) {
           const typeName = typeMatch[1];
+          if (!typeName) continue; // Skip if no capture group
+          
           // Extract full type definition (until semicolon or new export)
-          let typeContent = line;
+          let typeContent: string = line;
           let currentLine = lineNum;
           
           while (currentLine < lines.length) {
@@ -98,7 +100,7 @@ export class TypeConsistencyEnforcer {
           
           types.push({
             name: typeName,
-            content: typeContent ? typeContent.trim() : '',
+            content: typeContent.trim(),
             file: filePath,
             line: lineNum,
           });

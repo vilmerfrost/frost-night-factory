@@ -25,13 +25,9 @@ export function toUtf8(input: unknown): string {
 /**
  * Convert Uint8Array to ArrayBuffer for NextResponse BodyInit
  */
-export function uint8ArrayToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  if (bytes.byteLength === 0) {
-    return new ArrayBuffer(0);
-  }
-  // Create a new ArrayBuffer with the correct size
-  const buffer = new ArrayBuffer(bytes.byteLength);
-  const view = new Uint8Array(buffer);
-  view.set(bytes);
-  return buffer;
+export function uint8ArrayToArrayBuffer(u8: Uint8Array): ArrayBuffer {
+  // Copy till exakt ArrayBuffer (funkar oavsett ArrayBufferLike)
+  const copy = new Uint8Array(u8.byteLength);
+  copy.set(u8);
+  return copy.buffer;
 }

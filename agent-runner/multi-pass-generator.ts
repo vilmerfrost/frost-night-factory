@@ -36,6 +36,7 @@ async function preScaffoldImports(prompt: string, projectRoot: string): Promise<
   
   while ((match = importPattern.exec(prompt)) !== null) {
     const importPath = match[1];
+    if (!importPath) continue;
     // Convert @/components/Sidebar -> src/components/Sidebar.tsx
     const filePath = importPath.startsWith('src/') 
       ? importPath 

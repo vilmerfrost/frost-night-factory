@@ -22,9 +22,14 @@ export default function MonitorPage() {
 
         if (error) throw error;
 
-        const activeBuilds = pipelines?.filter(p => p.status === 'running').length || 0;
+        type PipelineRow = {
+          id?: string;
+          status?: string;
+          created_at?: string;
+        };
+        const activeBuilds = pipelines?.filter((p: PipelineRow) => p.status === 'running').length || 0;
         const totalBuilds = pipelines?.length || 0;
-        const completed = pipelines?.filter(p => p.status === 'completed').length || 0;
+        const completed = pipelines?.filter((p: PipelineRow) => p.status === 'completed').length || 0;
         const successRate = totalBuilds > 0 ? Math.round((completed / totalBuilds) * 100) : 0;
 
         setMetrics({

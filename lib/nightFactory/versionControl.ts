@@ -213,7 +213,7 @@ export function restoreFromSnapshot(projectPath: string, snapshotId: string): bo
  */
 export function getLatestSnapshot(projectPath: string): Snapshot | null {
   const snapshots = listSnapshots(projectPath);
-  return snapshots.length > 0 ? snapshots[0] : null;
+  return snapshots.length > 0 ? (snapshots[0] ?? null) : null;
 }
 
 /**

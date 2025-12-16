@@ -197,6 +197,10 @@ export class SnapshotManager {
     }
     
     const lastId = this.history[this.history.length - 1];
+    if (!lastId) {
+      console.error('❌ No snapshot ID available');
+      return false;
+    }
     return this.rollback(lastId);
   }
   

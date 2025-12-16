@@ -117,7 +117,7 @@ export class SnapshotManager {
         .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
       
       if (localSnapshots.length > 0) {
-        snapshot = localSnapshots[0];
+        snapshot = localSnapshots[0] ?? null;
       }
     }
     
@@ -152,8 +152,9 @@ export class SnapshotManager {
       .filter(s => s.pipeline_id === pipelineId)
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     
-    if (localSnapshots.length > 0) {
-      localSnapshots[0].status = 'broken';
+    const firstSnapshot = localSnapshots[0];
+    if (firstSnapshot) {
+      firstSnapshot.status = 'broken';
     }
     
     // Update Supabase

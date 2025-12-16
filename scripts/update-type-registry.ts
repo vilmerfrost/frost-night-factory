@@ -126,7 +126,8 @@ export function getTypeRegistryPrompt(): string {
 }
 
 function hasExportModifier(node: ts.Node): boolean {
-  return node.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
+  const modifiers = ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
+  return modifiers?.some((m: ts.Modifier) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
 }
 
 function getRelativePath(baseDir: string, filePath: string): string {

@@ -166,7 +166,9 @@ export async function GET(
         // Parse KEY=VALUE
         const match = trimmed.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/);
         if (match) {
-          const [, key, value] = match;
+          const key = match[1];
+          const value = match[2];
+          if (!key || value == null) continue;
           // Remove quotes if present
           const unquoted = value.replace(/^["']|["']$/g, '');
           envValues[key] = unquoted;

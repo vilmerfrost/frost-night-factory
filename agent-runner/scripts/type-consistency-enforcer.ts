@@ -51,9 +51,11 @@ export class TypeConsistencyEnforcer {
         let interfaceMatch;
         while ((interfaceMatch = interfacePattern.exec(line)) !== null) {
           const interfaceName = interfaceMatch[1];
+          if (!interfaceName) continue; // Skip if no capture group
+          
           // Extract full interface definition
           const interfaceStart = lineNum;
-          let interfaceContent = line;
+          let interfaceContent: string = line;
           let braceCount = (line.match(/\{/g) || []).length - (line.match(/\}/g) || []).length;
           let currentLine = lineNum;
           
@@ -67,7 +69,7 @@ export class TypeConsistencyEnforcer {
           
           types.push({
             name: interfaceName,
-            content: interfaceContent ? interfaceContent.trim() : '',
+            content: interfaceContent.trim(),
             file: filePath,
             line: interfaceStart,
           });

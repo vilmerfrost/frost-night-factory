@@ -55,6 +55,7 @@ import { verifyDataFlow, logContextState } from '../lib/nightFactory/flowChecker
 import { generateScaffold, generateComponentRegistry, formatComponentRegistry } from '../lib/nightFactory/scaffoldAgent';
 import { validateCode, autoFixFileExtension } from './code-validator';
 import type { ValidationResult as CodeValidationResult } from './code-validator';
+import { assertDefined } from '../lib/utils/assert';
 import { callAI, selectModel } from './ai-client';
 import { classifyError, recordErrorPattern } from './error-classifier';
 import type { ErrorAnalysis } from './error-classifier';
@@ -1102,8 +1103,9 @@ function sanitizeAndParseJson(content: string): string | null {
     // 2. Rensa bort eventuell text före/efter (vanligt med DeepSeek)
     // Försök hitta JSON-objektet i texten
     const jsonMatch = clean.match(/(\{[\s\S]*\})/);
-    if (jsonMatch) {
-      clean = jsonMatch[1];
+    const jsonContent = jsonMatch?.[1];
+    if (jsonContent) {
+      clean = jsonContent;
     }
     
     // 3. Ta bort kommentarer (// comment) om de finns
@@ -2924,7 +2926,10 @@ async function injectMissingDomainTypes(workspacePath: string, errorLog: string)
   let match;
   
   while ((match = typeRegex.exec(errorLog)) !== null) {
-    missingTypes.push(match[1]);
+    const typeName = match[1];
+    if (typeName) {
+      missingTypes.push(typeName);
+    }
   }
   
   if (missingTypes.length === 0) return;
@@ -3168,7 +3173,8 @@ const VALID_STATE_TRANSITIONS: Record<string, string[]> = {
  */
 function validateEnvironment() {
   const nodeVersion = process.version;
-  const major = parseInt(nodeVersion.split('.')[0].substring(1));
+  const versionParts = nodeVersion.split('.');
+  const major = parseInt(versionParts[0]?.substring(1) || '0');
   
   console.log(`🔍 Node.js version: ${nodeVersion}`);
   
@@ -3214,7 +3220,7 @@ async function removeUnusedImports(filePath: string): Promise<void> {
   for (const line of lines) {
     const match = line.match(unusedPattern);
     
-    if (match) {
+    if (match && match[1]) {
       const symbols = match[1].split(',').map(s => s.trim()).filter(s => s);
       const from = match[2];
       
@@ -3586,8 +3592,11 @@ function validateAndFixImportOrder(code: string, filePath: string): string {
   let firstExportIndex = -1;
   let useClientIndex = -1;
   
+  // ✅ Fix: Use iteration with index tracking
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
+    const rawLine = lines[i];
+    if (!rawLine) continue; // Guard: Skip undefined lines
+    const line = rawLine.trim();
     
     if (line === "'use client';" || line === '"use client";') {
       useClientIndex = i;
@@ -3616,6 +3625,9 @@ function validateAndFixImportOrder(code: string, filePath: string): string {
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       
+      // ✅ Guard: Skip if line is undefined
+      if (!line) continue;
+      
       if (i === useClientIndex) {
         continue; // Handle separately
       } else if (line.trim().startsWith('import ')) {
@@ -3631,8 +3643,11 @@ function validateAndFixImportOrder(code: string, filePath: string): string {
     const fixed: string[] = [];
     
     if (useClientIndex !== -1) {
-      fixed.push(lines[useClientIndex]);
-      fixed.push('');
+      const useClientLine = lines[useClientIndex];
+      if (useClientLine) {
+        fixed.push(useClientLine);
+        fixed.push('');
+      }
     }
     
     // 1. Imports first
@@ -3766,16 +3781,23 @@ export {};
     // .ts file - create stub with required exports
     if (requiredExports.length > 0) {
       // Create named exports for required exports
-      const exports = requiredExports.map(exp => {
-        // Determine export type based on naming convention
-        if (exp.startsWith('create')) {
-          return `export function ${exp}(): any { throw new Error('Not implemented'); }`;
-        } else if (exp[0] === exp[0].toUpperCase()) {
-          return `export type ${exp} = any;`;
-        } else {
-          return `export const ${exp} = () => { throw new Error('Not implemented'); };`;
-        }
-      }).join('\n');
+      const exports = requiredExports
+        .filter(exp => exp && exp.length > 0) // ✅ Guard: Filter out empty exports
+        .map(exp => {
+          // ✅ Guard: Skip if exp is undefined (shouldn't happen after filter, but TypeScript requires it)
+          if (!exp) return '';
+          
+          // Determine export type based on naming convention
+          if (exp.startsWith('create')) {
+            return `export function ${exp}(): any { throw new Error('Not implemented'); }`;
+          } else if (exp[0] && exp[0] === exp[0].toUpperCase()) {
+            return `export type ${exp} = any;`;
+          } else {
+            return `export const ${exp} = () => { throw new Error('Not implemented'); };`;
+          }
+        })
+        .filter(Boolean) // Remove empty strings
+        .join('\n');
       
       stubContent = `// Fallback stub - generation failed after max attempts
 ${exports}
@@ -3973,6 +3995,9 @@ async function parseAndWriteFiles(
   // Try each pattern until we find files
   for (let i = 0; i < patterns.length; i++) {
     const pattern = patterns[i];
+    // ✅ Guard: Skip if pattern is undefined
+    if (!pattern) continue;
+    
     let match;
     const tempFiles: string[] = [];
 
@@ -3980,8 +4005,14 @@ async function parseAndWriteFiles(
     pattern.lastIndex = 0;
 
     while ((match = pattern.exec(cleanedBlock)) !== null) {
-      let rawPath = match[1].trim();
-      let content = match[2].trim();
+      const rawPathMatch = match[1];
+      const contentMatch = match[2];
+      
+      // ✅ Guard: Skip if capture groups are undefined
+      if (!rawPathMatch || !contentMatch) continue;
+      
+      let rawPath = rawPathMatch.trim();
+      let content = contentMatch.trim();
 
       // Skip empty files
       if (!rawPath || !content) continue;
@@ -4042,6 +4073,12 @@ async function parseAndWriteFiles(
       if (rawPath.endsWith('tsconfig.json')) {
         console.log('🛡️ [JSON FORTRESS] Validating tsconfig.json...');
         try {
+          // ✅ Guard: Skip if content is undefined
+          if (!content) {
+            console.warn('⚠️ [JSON FORTRESS] Content is undefined. Using Golden Template.');
+            content = JSON.stringify(GOLDEN_TSCONFIG, null, 2);
+            continue;
+          }
           // Remove comments before parsing
           const cleanedContent = content.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
           JSON.parse(cleanedContent);
@@ -4056,11 +4093,15 @@ async function parseAndWriteFiles(
         // ✅ D: Overwrite with deterministic builder (never accept LLM-writes of package.json)
         const missingPackagesSet = new Set<string>(); // Extract from content if needed
         // Scan content for common dependencies
-        const depMatches = content.match(/"([^"]+)":\s*"[^"]+"/g) || [];
-        for (const match of depMatches) {
-          const pkgMatch = match.match(/"([^"]+)":/);
-          if (pkgMatch && !['name', 'version', 'private', 'scripts'].includes(pkgMatch[1])) {
-            missingPackagesSet.add(pkgMatch[1]);
+        // ✅ Guard: Skip if content is undefined
+        if (content) {
+          const depMatches = content.match(/"([^"]+)":\s*"[^"]+"/g) || [];
+          for (const match of depMatches) {
+            const pkgMatch = match.match(/"([^"]+)":/);
+            const pkgName = pkgMatch?.[1];
+            if (pkgName && !['name', 'version', 'private', 'scripts'].includes(pkgName)) {
+              missingPackagesSet.add(pkgName);
+            }
           }
         }
         await writeDeterministicPackageJson(localPath, {
@@ -6039,19 +6080,22 @@ Only fix the files that have issues. Keep everything else unchanged.
                 ? rawText.slice(0, 1_500_000) + "\n/* TRUNCATED */\n" 
                 : rawText;
               
-              await supabase
-                .from('pipeline_steps')
-                .update({
-                  raw_output_text: truncatedText,
-                  raw_output_json: safeJson({
-                    provider: 'deepseek',
-                    model: 'deepseek-chat',
-                    finished_at: new Date().toISOString(),
-                    is_fix: true,
-                    extracted_text: rawOutput.substring(0, 1000), // Sample of extracted text
-                  }),
-                })
-                .eq('id', coderStepId);
+              // ✅ Guard: Skip if coderStepId is undefined
+              if (coderStepId) {
+                await supabase
+                  .from('pipeline_steps')
+                  .update({
+                    raw_output_text: truncatedText,
+                    raw_output_json: safeJson({
+                      provider: 'deepseek',
+                      model: 'deepseek-chat',
+                      finished_at: new Date().toISOString(),
+                      is_fix: true,
+                      extracted_text: rawOutput.substring(0, 1000), // Sample of extracted text
+                    }),
+                  })
+                  .eq('id', coderStepId);
+              }
             } catch (saveError: any) {
               console.warn(`⚠️ Failed to save raw_output_text for fix (non-fatal): ${saveError?.message}`);
             }
@@ -6066,13 +6110,20 @@ Only fix the files that have issues. Keep everything else unchanged.
             let fixMatch;
             
             while ((fixMatch = fixProtocolRegex.exec(rawOutput)) !== null) {
-              const filePath = fixMatch[1].trim();
-              let content = fixMatch[2].trim();
+              const filePathMatch = fixMatch[1];
+              const contentMatch = fixMatch[2];
+              
+              // ✅ Guard: Skip if capture groups are undefined
+              if (!filePathMatch || !contentMatch) continue;
+              
+              const filePath = filePathMatch.trim();
+              let content = contentMatch.trim();
               
               // ✅ STRICT PARSING: Extract only code blocks
               const codeBlockMatch = content.match(/```(?:typescript|tsx|ts|js|jsx|json|css|html)?\n([\s\S]*?)```/);
-              if (codeBlockMatch) {
-                content = codeBlockMatch[1].trim();
+              const codeContent = codeBlockMatch?.[1];
+              if (codeContent) {
+                content = codeContent.trim();
               } else {
                 // Fallback: Remove [GOAL] and markdown
                 content = content.split(/\[GOAL\]/)[0].trim();
@@ -6105,13 +6156,20 @@ Only fix the files that have issues. Keep everything else unchanged.
               const fixStandardRegex = /### FILE: (.*?)\n([\s\S]*?)### END_FILE/g;
               let fixMatch;
               while ((fixMatch = fixStandardRegex.exec(rawOutput)) !== null) {
-                const filePath = fixMatch[1].trim();
-                let content = fixMatch[2].trim();
+                const filePathMatch = fixMatch[1];
+                const contentMatch = fixMatch[2];
+                
+                // ✅ Guard: Skip if capture groups are undefined
+                if (!filePathMatch || !contentMatch) continue;
+                
+                const filePath = filePathMatch.trim();
+                let content = contentMatch.trim();
                 
                 // ✅ STRICT PARSING: Extract only code blocks
                 const codeBlockMatch = content.match(/```(?:typescript|tsx|ts|js|jsx|json|css|html)?\n([\s\S]*?)```/);
-                if (codeBlockMatch) {
-                  content = codeBlockMatch[1].trim();
+                const codeContent = codeBlockMatch?.[1];
+                if (codeContent) {
+                  content = codeContent.trim();
                 } else {
                   // Fallback: THE SANITIZER: Ta bort alla Markdown-artefakter
                   content = content.split(/### END_FILE/)[0].trim();
@@ -6651,6 +6709,9 @@ async function buildSQLJSONFromRepo(repoPath: string, sqlContent: string): Promi
   while ((match = createTableRegex.exec(sqlContent)) !== null) {
     const tableName = match[1];
     const columnsSQL = match[2];
+    
+    // ✅ Guard: Skip if columnsSQL is undefined
+    if (!columnsSQL) continue;
     
     // Count columns (rough estimate)
     const columnCount = (columnsSQL.match(/^\s*\w+\s+\w+/gm) || []).length;
@@ -7211,6 +7272,12 @@ async function runAuditLoop(pipeline: any, repoPath: string): Promise<boolean> {
     // 2. Fråga Kimi (Revisorn)
     const auditResult = await runKimiQA(codeContext);
 
+    // ✅ Guard: Skip if auditResult is undefined
+    if (!auditResult) {
+      console.log("⚠️ Audit result is undefined. Skipping audit.");
+      return true;
+    }
+
     if (auditResult.includes("PASS")) {
       console.log("✅ Kimi k2 Audit Passed! Clean code confirmed.");
       passed = true;
@@ -7241,8 +7308,10 @@ async function runAuditLoop(pipeline: any, repoPath: string): Promise<boolean> {
 
       console.log("🧠 Claude is fixing audit issues...");
       // ✅ NEW: Unified AI client with error signature for caching
+      // ✅ Guard: Ensure pipeline.id exists
+      const pipelineId = pipeline?.id || 'unknown';
       const fixedCode = await callAI({
-        pipelineId: pipeline.id,
+        pipelineId,
         step: 'tester',
         role: 'FIXER',
         model: selectModel('FIXER', 'medium'),
@@ -7259,8 +7328,14 @@ async function runAuditLoop(pipeline: any, repoPath: string): Promise<boolean> {
       let filesFixedCount = 0; // Håll koll på om vi faktiskt gjorde något
 
       while ((match = fileRegex.exec(fixedCode)) !== null) {
-          const fileName = match[1].trim();
-          let content = match[2].trim();
+          const fileNameMatch = match[1];
+          const contentMatch = match[2];
+          
+          // ✅ Guard: Skip if capture groups are undefined
+          if (!fileNameMatch || !contentMatch) continue;
+          
+          const fileName = fileNameMatch.trim();
+          let content = contentMatch.trim();
           // Sanitizer
           content = content.replace(/^```[a-z]*\n/i, "").replace(/```$/, "");
           
@@ -7403,6 +7478,9 @@ function scanForLaziness(projectPath: string): { found: boolean; issues: string[
     console.log(`   🐍 Running Python syntax validation on ${pythonFiles.length} files...`);
     
     for (const file of pythonFiles) {
+      // ✅ Guard: Skip if file is undefined
+      if (!file) continue;
+      
       const fullPath = path.join(projectPath, file);
       
       try {
@@ -7453,9 +7531,11 @@ function scanForLaziness(projectPath: string): { found: boolean; issues: string[
       }
       
       // Check lazy patterns
-      for (const { pattern, name } of lazyPatternsTS) {
-        if (pattern.test(content)) {
-          issues.push(`Found '${name}' in ${file}`);
+      for (const item of lazyPatternsTS) {
+        // ✅ Guard: Skip if pattern or name is undefined
+        if (!item.pattern || !item.name) continue;
+        if (item.pattern.test(content)) {
+          issues.push(`Found '${item.name}' in ${file}`);
         }
       }
       
@@ -7838,7 +7918,10 @@ async function runIntelligentBatchFixer(
           if (isJsxInLibError && filesToFix.length > 0) {
             console.log("🔧 REMOVE_JSX strategy: Removing JSX from lib file...");
             
+            // ✅ Guard: Ensure first file exists
             const targetFile = filesToFix[0];
+            if (!targetFile) continue;
+            
             const filePath = path.join(repoPath, targetFile);
             
             if (fs.existsSync(filePath)) {
@@ -7937,8 +8020,8 @@ Output format: [FILE: ${targetFile}]
               
               // Fallback: Try to extract file path from error message
               const fileMatch = currentError.match(/([a-zA-Z0-9_\/\\.-]+\.(tsx|ts|jsx|js))(?:\s*\((\d+),(\d+)\))?/);
-              if (fileMatch) {
-                const extractedFile = fileMatch[1];
+              if (fileMatch && fileMatch[1]) {
+                const extractedFile = assertDefined(fileMatch[1], "Expected file path capture group");
                 const extractedPath = path.join(repoPath, extractedFile);
                 
                 // Try alternative paths
@@ -8133,8 +8216,10 @@ OUTPUT FORMAT:
           if (status.totalAttempts > 5) smartLevel = 'GENIUS';
           
           try {
+            // ✅ Guard: Ensure pipeline.id exists
+            const pipelineId = pipeline?.id || 'unknown';
             const fixOutput = await callAI({
-              pipelineId: pipeline.id,
+              pipelineId,
               step: 'tester',
               role: 'FIXER',
               model: selectModel('FIXER', smartLevel === 'GENIUS' ? 'complex' : 'medium'),
@@ -11062,8 +11147,10 @@ CRITICAL EXPORT RULES (MANDATORY):
         'GENIUS': 'complex'
       };
 
+      // ✅ Guard: Ensure pipeline.id exists
+      const pipelineId = pipeline?.id || 'unknown';
       const fixOutput = await callAI({
-        pipelineId: pipeline.id,
+        pipelineId,
         step: 'tester',
         role: 'FIXER',
         model: selectModel('FIXER', complexityMap[smartLevel]),
@@ -11102,7 +11189,7 @@ CRITICAL EXPORT RULES (MANDATORY):
           });
         } else if (smartLevel === 'SMART') {
           finalFixOutput = await callAI({
-            pipelineId: pipeline.id,
+            pipelineId,
             step: 'tester',
             role: 'FIXER',
             model: selectModel('FIXER', 'complex'),
@@ -11124,9 +11211,11 @@ CRITICAL EXPORT RULES (MANDATORY):
       // 🏰 v9.0 FORTRESS-PROTECTED FILE WRITING
       // =============================================================================
       // Wrap file writes with transaction rollback and fortress guard
+      // ✅ Guard: Ensure pipeline.id exists
+      const pipelineId = pipeline?.id || 'unknown';
       const repairResult = await withTransaction(
         snapshotManager,
-        pipeline.id,
+        pipelineId,
         repoPath,
         `Tester repair attempt ${attempt}`,
         () => countTypeScriptErrors(repoPath),
@@ -11138,8 +11227,14 @@ CRITICAL EXPORT RULES (MANDATORY):
           let fixedCount = 0;
           
           while ((fileMatch = fileRegex.exec(finalFixOutput)) !== null) {
-            const fileName = fileMatch[1].trim();
-            let content = fileMatch[2].trim();
+            const fileNameMatch = fileMatch[1];
+            const contentMatch = fileMatch[2];
+            
+            // ✅ Guard: Skip if capture groups are undefined
+            if (!fileNameMatch || !contentMatch) continue;
+            
+            const fileName = fileNameMatch.trim();
+            let content = contentMatch.trim();
             
             // ✅ STRICT PARSING: Extract only code blocks
             const codeBlockMatch = content.match(/```(?:typescript|tsx|ts|js|jsx|json|css|html)?\n([\s\S]*?)```/);
@@ -12020,7 +12115,12 @@ function checkImportOrderIssue(content: string): boolean {
   let firstExportIndex = -1;
   
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
+    const rawLine = lines[i];
+    
+    // ✅ Guard: Skip if line is undefined
+    if (!rawLine) continue;
+    
+    const line = rawLine.trim();
     
     if (line.startsWith('import ') && firstImportIndex === -1) {
       firstImportIndex = i;
@@ -12105,7 +12205,9 @@ Return ONLY the fixed file content in format:
     
     return false;
   } catch (aiError: any) {
-    console.warn(`   ⚠️ AI page fixer failed: ${aiError.message}`);
+    // ✅ Guard: Handle possibly undefined error message
+    const errorMsg = aiError?.message || String(aiError);
+    console.warn(`   ⚠️ AI page fixer failed: ${errorMsg}`);
     return false;
   }
 }
@@ -12120,7 +12222,7 @@ function extractMissingDependencies(error: string): string[] {
   const pattern1 = /Cannot find module ['"]([^'"]+)['"]/g;
   let match;
   while ((match = pattern1.exec(error)) !== null) {
-    const pkg = match[1];
+    const pkg = assertDefined(match[1], "Expected package name capture group");
     // Skip relative imports and built-in modules
     if (!pkg.startsWith('.') && !pkg.startsWith('/') && !pkg.startsWith('@/')) {
       // Skip Node.js built-ins
@@ -12133,7 +12235,7 @@ function extractMissingDependencies(error: string): string[] {
   // Pattern 2: Module not found: Can't resolve 'package-name'
   const pattern2 = /Can't resolve ['"]([^'"]+)['"]/g;
   while ((match = pattern2.exec(error)) !== null) {
-    const pkg = match[1];
+    const pkg = assertDefined(match[1], "Expected package name capture group");
     if (!pkg.startsWith('.') && !pkg.startsWith('/') && !pkg.startsWith('@/')) {
       if (!matches.includes(pkg)) {
         matches.push(pkg);
@@ -12258,8 +12360,11 @@ function generateDocs(repoPath: string, pipeline: any) {
 
   // 2. Skapa README.md (Om den är tom eller tråkig)
   const readmePath = path.join(repoPath, 'README.md');
+  // ✅ Guard: Use safe defaults for possibly undefined pipeline properties
+  const projectName = pipeline?.name || pipeline?.title || 'Frost Project';
+  const repoUrl = pipeline?.repo_url || '<repo-url>';
   const readmeContent = `
-# ❄️ ${pipeline.name || pipeline.title || 'Frost Project'}
+# ❄️ ${projectName}
 
 Generated by **Frost Night Factory** (AI Autonomous Pipeline).
 
@@ -12268,7 +12373,7 @@ Generated by **Frost Night Factory** (AI Autonomous Pipeline).
 1. **Clone the repo**
 
    \`\`\`bash
-   git clone ${pipeline.repo_url || '<repo-url>'}
+   git clone ${repoUrl}
    cd project-name
    \`\`\`
 
@@ -12521,9 +12626,10 @@ async function analyzeBuildOutput(buildOutput: string): Promise<BuildAnalysis> {
   // Parse Next.js build output
   const routeMatches = buildOutput.match(/Route \(pages\)\n([\s\S]*?)\n\n/);
   
-  if (routeMatches) {
+  if (routeMatches && routeMatches[1]) {
     const routes = routeMatches[1];
     
+    // ✅ Guard: routes is string here (from routeMatches[1])
     // Check if root page was generated
     if (!routes.includes('○ /') && !routes.includes('λ /') && !routes.includes('ƒ /')) {
       console.log('⚠️ Root page (/) was not generated');
@@ -12536,6 +12642,11 @@ async function analyzeBuildOutput(buildOutput: string): Promise<BuildAnalysis> {
         routes: routes.split('\n').filter(Boolean)
       };
     }
+    
+    return {
+      success: true,
+      routes: routes.split('\n').filter(Boolean)
+    };
     
     // Extract all routes for logging
     const routeList = routes.split('\n').filter(Boolean);
@@ -12739,6 +12850,9 @@ async function findBrokenLinks(workspacePath: string): Promise<Array<{file: stri
       const href = match[1];
       const text = match[2];
       
+      // ✅ Guard: Skip if href is undefined
+      if (!href) continue;
+      
       // Skip external links and anchors
       if (href.startsWith('http') || href.startsWith('#')) continue;
       
@@ -12750,7 +12864,7 @@ async function findBrokenLinks(workspacePath: string): Promise<Array<{file: stri
       );
       
       if (!fs.existsSync(pagePath)) {
-        brokenLinks.push({ file, text, href });
+        brokenLinks.push({ file, text: text || '', href });
       }
     }
   }
@@ -12815,6 +12929,9 @@ async function validateAndFixDependencies(workspacePath: string): Promise<void> 
     
     while ((match = importRegex.exec(content)) !== null) {
       const pkg = match[1];
+      
+      // ✅ Guard: Skip if pkg is undefined
+      if (!pkg) continue;
       
       // Skip relative imports and built-ins
       if (pkg.startsWith('.') || pkg.startsWith('@/')) continue;

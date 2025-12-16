@@ -26,3 +26,18 @@ export function assertNotUndefined<T>(
   }
   return value;
 }
+
+/**
+ * Type guard: Check if value is defined (not null or undefined)
+ */
+export function isDefined<T>(v: T | null | undefined): v is T {
+  return v !== null && v !== undefined;
+}
+
+/**
+ * Assert that a value is a non-empty string
+ */
+export function assertNonEmptyString(v: string | undefined | null, msg: string): string {
+  if (!v || v.trim().length === 0) throw new Error(msg);
+  return v;
+}

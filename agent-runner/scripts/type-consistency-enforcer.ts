@@ -67,7 +67,7 @@ export class TypeConsistencyEnforcer {
           
           types.push({
             name: interfaceName,
-            content: interfaceContent.trim(),
+            content: interfaceContent ? interfaceContent.trim() : '',
             file: filePath,
             line: interfaceStart,
           });
@@ -98,7 +98,7 @@ export class TypeConsistencyEnforcer {
           
           types.push({
             name: typeName,
-            content: typeContent.trim(),
+            content: typeContent ? typeContent.trim() : '',
             file: filePath,
             line: lineNum,
           });

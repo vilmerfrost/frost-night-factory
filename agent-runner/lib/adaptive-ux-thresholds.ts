@@ -61,7 +61,9 @@ export async function getCurrentThresholdPhase(): Promise<ThresholdConfig> {
 
     if (error || !pipelines || pipelines.length === 0) {
       // No history - use initial phase
-      return getRecordOrDefault(THRESHOLD_CONFIGS, 'initial', THRESHOLD_CONFIGS['initial'] ?? THRESHOLD_CONFIGS.initial);
+      const initialConfig = THRESHOLD_CONFIGS['initial'];
+      if (!initialConfig) throw new Error('THRESHOLD_CONFIGS.initial is missing');
+      return getRecordOrDefault(THRESHOLD_CONFIGS, 'initial', initialConfig);
     }
 
     const totalPipelines = pipelines.length;

@@ -115,7 +115,7 @@ export async function checkSuccessRateDrop(): Promise<Alert[]> {
     if (successRates.length >= 2) {
       const today = successRates[0];
       const yesterday = successRates[1];
-      if (!today || !yesterday) return;
+      if (!today || !yesterday) return alerts;
       
       const todayRate = today.rate;
       const yesterdayRate = yesterday.rate;

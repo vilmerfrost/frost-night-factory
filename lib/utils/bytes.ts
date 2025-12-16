@@ -9,9 +9,16 @@
  */
 export function toUtf8(input: unknown): string {
   if (typeof input === "string") return input;
-  if (input instanceof Uint8Array) return Buffer.from(input).toString("utf8");
+  if (input instanceof Uint8Array) {
+    // Convert Uint8Array to Buffer safely
+    const buffer = Buffer.from(input.buffer, input.byteOffset, input.byteLength);
+    return buffer.toString("utf8");
+  }
   if (Buffer.isBuffer(input)) return input.toString("utf8");
-  if (input instanceof ArrayBuffer) return Buffer.from(input).toString("utf8");
+  if (input instanceof ArrayBuffer) {
+    const buffer = Buffer.from(input);
+    return buffer.toString("utf8");
+  }
   return String(input ?? "");
 }
 
@@ -19,5 +26,12 @@ export function toUtf8(input: unknown): string {
  * Convert Uint8Array to ArrayBuffer for NextResponse BodyInit
  */
 export function uint8ArrayToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  if (bytes.byteLength === 0) {
+    return new ArrayBuffer(0);
+  }
+  // Create a new ArrayBuffer with the correct size
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  const view = new Uint8Array(buffer);
+  view.set(bytes);
+  return buffer;
 }

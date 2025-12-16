@@ -102,7 +102,11 @@ export class ImportChiropractor {
 
     // Regex for named exports
     const namedMatches = content.matchAll(/export\s+(?:const|let|var|function|class|interface|type|enum)\s+(\w+)/g);
-    for (const match of namedMatches) namedExports.push(match[1]);
+    for (const match of namedMatches) {
+      if (match[1]) {
+        namedExports.push(match[1]);
+      }
+    }
 
     return {
       filePath,
@@ -153,6 +157,8 @@ export class ImportChiropractor {
 
     while ((match = importRegex.exec(content)) !== null) {
       const [fullLine, imports, source] = match;
+      if (!source) continue; // Skip if source is undefined
+      
       this.stats.importsFound++;
 
       // Skip relative imports that are just "." or ".."

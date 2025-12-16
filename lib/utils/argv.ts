@@ -11,7 +11,9 @@ import { assertDefined } from "./assert";
  */
 export function nextArg(argv: string[], i: number, name: string): string {
   const v = argv[i + 1];
-  assertDefined(v, `Missing value after ${name}`);
+  if (v === undefined) {
+    throw new Error(`Missing value after ${name}`);
+  }
   return v;
 }
 

@@ -4,10 +4,12 @@
 // Enhanced planner with Zod-validated blueprint output
 
 import { 
-  ProjectBlueprint, 
   ProjectBlueprintSchema, 
-  FileTypeConstraints,
   DEFAULT_FILE_TYPE_CONSTRAINTS 
+} from './v85-types';
+import type { 
+  ProjectBlueprint, 
+  FileTypeConstraints
 } from './v85-types';
 
 /**

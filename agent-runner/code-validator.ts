@@ -141,6 +141,9 @@ export function validateImports(
   while ((match = importPattern.exec(code)) !== null) {
     const importPath = match[1]
     
+    // ✅ Guard: Skip if importPath is undefined (shouldn't happen but TypeScript requires it)
+    if (!importPath) continue
+    
     // Skip node_modules imports
     if (!importPath.startsWith('.') && !importPath.startsWith('@/')) {
       continue

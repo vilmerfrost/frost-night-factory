@@ -3,7 +3,8 @@
 // =============================================================================
 // Perplexity's hierarchy with 15+ categories and strategy-aware prompts
 
-import { ErrorCategory, FixStrategy, ValidationError } from './v85-types';
+import { ErrorCategory, FixStrategy } from './v85-types';
+import type { ValidationError } from './v85-types';
 
 interface BuildError {
   file: string;

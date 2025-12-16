@@ -4,7 +4,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { hashError, ClassifiedError, ErrorCategory } from './errorClassifier';
+import { hashError, ErrorCategory } from './errorClassifier';
+import type { ClassifiedError } from './errorClassifier';
 
 /**
  * Fix attempt tracking

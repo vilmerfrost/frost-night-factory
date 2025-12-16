@@ -4,14 +4,17 @@
 // Enhanced tester with validation-repair loop integration
 
 import { 
+  DEFAULT_V85_FLAGS
+} from './v85-types';
+import type { 
   ProjectBlueprint, 
   TesterPhaseOutput, 
   CostLog,
-  DEFAULT_V85_FLAGS,
   V85FeatureFlags 
 } from './v85-types';
 import { validateAndRepairLoop, quickValidate, getCostSummary } from './v85-validation-loop';
-import { runFrameworkGuardrails, Violation } from './v85-ast-validators';
+import { runFrameworkGuardrails } from './v85-ast-validators';
+import type { Violation } from './v85-ast-validators';
 
 interface CoderOutput {
   generatedFiles: Map<string, string> | Record<string, string>;

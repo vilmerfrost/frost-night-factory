@@ -5,7 +5,8 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { ErrorCategory, FixStrategy, ValidationError, CostLog } from './v85-types';
+import { ErrorCategory, FixStrategy } from './v85-types';
+import type { ValidationError, CostLog } from './v85-types';
 import { classifyError } from './v85-error-classifier';
 import { 
   mapErrorClassToErrorCategory, 

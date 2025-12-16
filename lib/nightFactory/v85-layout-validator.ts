@@ -8,12 +8,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { 
   LAYOUT_CONTRACTS, 
-  LayoutComponent, 
   getLayoutContract,
   isLayoutComponent,
   generateComponentFromContract 
 } from './layout-contract';
-import { Violation } from './v85-ast-validators';
+import type { LayoutComponent } from './layout-contract';
+import type { Violation } from './v85-ast-validators';
 
 /**
  * Layout validation result

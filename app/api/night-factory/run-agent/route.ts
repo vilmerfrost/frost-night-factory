@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AgentRole } from "@/lib/nightFactory/pipelineTypes";
+import type { AgentRole } from "@/lib/nightFactory/pipelineTypes";
 import {
   canRunAgent,
   createAgentRunLog,

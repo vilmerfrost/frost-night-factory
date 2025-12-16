@@ -3,7 +3,8 @@
 // =============================================================================
 // Enhanced coder with constraint-aware system prompts
 
-import { FileTypeConstraints, ProjectBlueprint, DEFAULT_FILE_TYPE_CONSTRAINTS } from './v85-types';
+import { DEFAULT_FILE_TYPE_CONSTRAINTS } from './v85-types';
+import type { FileTypeConstraints, ProjectBlueprint } from './v85-types';
 import { getFileConstraints } from './v85-planner';
 
 /**

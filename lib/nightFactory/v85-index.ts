@@ -87,7 +87,8 @@ export {
 // CONVENIENCE FUNCTIONS
 // =============================================================================
 
-import { ProjectBlueprint, DEFAULT_V85_FLAGS, V85FeatureFlags } from './v85-types';
+import { DEFAULT_V85_FLAGS } from './v85-types';
+import type { ProjectBlueprint, V85FeatureFlags } from './v85-types';
 import { runFrameworkGuardrails } from './v85-ast-validators';
 import { validateAndRepairLoop } from './v85-validation-loop';
 import { validateBlueprint, createDefaultBlueprint } from './v85-planner';

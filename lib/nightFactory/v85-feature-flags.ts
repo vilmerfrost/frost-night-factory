@@ -3,7 +3,8 @@
 // =============================================================================
 // Control v8.5 features with environment variables or runtime config
 
-import { V85FeatureFlags, DEFAULT_V85_FLAGS } from './v85-types';
+import { DEFAULT_V85_FLAGS } from './v85-types';
+import type { V85FeatureFlags } from './v85-types';
 
 /**
  * Load feature flags from environment variables

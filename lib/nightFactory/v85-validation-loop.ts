@@ -5,8 +5,10 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { ValidationError, FixStrategy, CostLog, DEFAULT_V85_FLAGS } from './v85-types';
-import { runFrameworkGuardrails, Violation, checkFileSyntax } from './v85-ast-validators';
+import { FixStrategy, DEFAULT_V85_FLAGS } from './v85-types';
+import type { ValidationError, CostLog } from './v85-types';
+import { runFrameworkGuardrails, checkFileSyntax } from './v85-ast-validators';
+import type { Violation } from './v85-ast-validators';
 import { classifyError, classifyViolations } from './v85-error-classifier';
 
 // Dynamic import for AI client (may not exist in all environments)

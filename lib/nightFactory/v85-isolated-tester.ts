@@ -7,10 +7,12 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { execSync, exec } from 'child_process';
 import { promisify } from 'util';
-import { runFrameworkGuardrails, Violation } from './v85-ast-validators';
+import { runFrameworkGuardrails } from './v85-ast-validators';
+import type { Violation } from './v85-ast-validators';
 import { validateLayoutComponents, autoFixLayoutComponents } from './v85-layout-validator';
 import { LAYOUT_CONTRACTS, generateComponentFromContract, getLayoutContract, isLayoutComponent } from './layout-contract';
-import { DEFAULT_V85_FLAGS, V85FeatureFlags, CostLog } from './v85-types';
+import { DEFAULT_V85_FLAGS } from './v85-types';
+import type { V85FeatureFlags, CostLog } from './v85-types';
 
 const execAsync = promisify(exec);
 

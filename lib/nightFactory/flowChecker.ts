@@ -3,7 +3,8 @@
 // =============================================================================
 
 import { callAI } from './modelClient';
-import { PipelineContext, validateContextForStage } from './contextTypes';
+import { validateContextForStage } from './contextTypes';
+import type { PipelineContext } from './contextTypes';
 
 /**
  * Verify data flow integrity before a pipeline stage

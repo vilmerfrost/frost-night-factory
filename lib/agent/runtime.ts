@@ -1,5 +1,5 @@
 // lib/agent/runtime.ts
-import { AgentAction } from "./types";
+import type { AgentAction } from "./types";
 import { writeFile, readFile, listFiles, deleteFile, logToSystem } from "./tools";
 import { nextPipelineStage } from "./pipeline";
 import { summarizeText } from "@/lib/nightFactory/modelClient";

@@ -2,7 +2,7 @@
 // PIPELINE CONTEXT TYPES - The Golden Baton 🥇
 // =============================================================================
 
-import { TechMatrix, ProjectIntent } from './intentParser';
+import type { TechMatrix, ProjectIntent } from './intentParser';
 
 /**
  * Blueprint from Planner - defines what SHOULD exist

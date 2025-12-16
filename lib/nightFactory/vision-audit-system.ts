@@ -98,7 +98,8 @@ export async function auditUI(
     // Read screenshot if it's a path
     let imageData: Buffer;
     if (typeof screenshotPath === 'string') {
-      imageData = fs.readFileSync(screenshotPath) as unknown as Buffer;
+      // ✅ Fix: readFileSync returns Buffer, but we need it for image processing
+      imageData = fs.readFileSync(screenshotPath) as Buffer;
     } else {
       imageData = screenshotPath;
     }

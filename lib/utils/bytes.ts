@@ -37,7 +37,11 @@ export function toUtf8(input: ByteLike): string {
     }
   }
 
-  return Buffer.from(view.buffer).toString("utf-8");
+  // Convert view.buffer (which is ArrayBufferLike) to ArrayBuffer
+  const arrayBuffer = new ArrayBuffer(view.byteLength);
+  const targetView = new Uint8Array(arrayBuffer);
+  targetView.set(view);
+  return Buffer.from(arrayBuffer).toString("utf-8");
 }
 
 /**

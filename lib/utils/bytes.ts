@@ -10,8 +10,10 @@
 export function toUtf8(input: unknown): string {
   if (typeof input === "string") return input;
   if (input instanceof Uint8Array) {
-    // Convert Uint8Array to Buffer safely
-    const buffer = Buffer.from(input);
+    // Convert Uint8Array to Buffer safely - copy to avoid ArrayBufferLike issues
+    const copy = new Uint8Array(input.byteLength);
+    copy.set(input);
+    const buffer = Buffer.from(copy);
     return buffer.toString("utf8");
   }
   if (Buffer.isBuffer(input)) return input.toString("utf8");

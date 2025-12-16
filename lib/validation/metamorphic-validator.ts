@@ -229,7 +229,8 @@ export class MetamorphicValidator {
     
     for (const char of code) {
       if (char in pairs) {
-        stack.push(pairs[char]);
+        const closing = pairs[char];
+        if (closing) stack.push(closing);
       } else if (Object.values(pairs).includes(char)) {
         if (stack.pop() !== char) return false;
       }

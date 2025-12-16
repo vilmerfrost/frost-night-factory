@@ -130,7 +130,7 @@ const AUTO_FIXABLE_ERRORS: Record<string, (error: CompilerError, content: string
   'TS1192': (error, content) => {
     // Change default import to named import
     const moduleMatch = error.message.match(/Module '"([^"]+)"' has no default export/);
-    if (!moduleMatch) return null;
+    if (!moduleMatch || !moduleMatch[1]) return null;
     
     const modulePath = moduleMatch[1];
     

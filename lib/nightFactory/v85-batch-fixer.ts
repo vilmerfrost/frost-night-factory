@@ -171,6 +171,10 @@ export async function runIntelligentBatchFixer(
     
     // Regular AI-based fix
     const primaryError = fileErrors[0];
+    if (!primaryError) {
+      failedFiles.push(filePath);
+      continue;
+    }
     
     if (!isRetryableError(primaryError.category)) {
       console.log(`      ⏭️ Skipping (non-retryable error: ${primaryError.category})`);
@@ -185,7 +189,8 @@ export async function runIntelligentBatchFixer(
     );
     
     console.log(`      Category: ${classified.category}`);
-    console.log(`      Strategy: ${classified.suggestedFixes[0]?.strategy || 'NONE'}`);
+    const firstFix = classified.suggestedFixes[0];
+    console.log(`      Strategy: ${firstFix?.strategy || 'NONE'}`);
     console.log(`      Recommended fixer: ${classified.recommendedFixer}`);
     
     // For now, mark as needing AI fix (actual AI call would go here)

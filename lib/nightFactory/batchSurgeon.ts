@@ -63,14 +63,17 @@ export function parseErrors(errorLog: string): ParsedError[] {
     // Extract file location
     const locMatch = line.match(tsErrorPattern);
     if (locMatch) {
-      currentFile = locMatch[1];
-      currentLine = parseInt(locMatch[2]);
-      currentCol = parseInt(locMatch[3]);
+      const file = locMatch[1];
+      const lineStr = locMatch[2];
+      const colStr = locMatch[3];
+      if (file) currentFile = file;
+      if (lineStr) currentLine = parseInt(lineStr);
+      if (colStr) currentCol = parseInt(colStr);
     }
     
     // Extract error code
     const codeMatch = line.match(errorCodePattern);
-    const errorCode = codeMatch ? `TS${codeMatch[1]}` : 'UNKNOWN';
+    const errorCode = codeMatch && codeMatch[1] ? `TS${codeMatch[1]}` : 'UNKNOWN';
     
     // Categorize the error
     let category: ErrorCategory = 'other';

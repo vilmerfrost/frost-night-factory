@@ -196,6 +196,7 @@ async function gatherRelatedFiles(
   
   for (const match of importMatches) {
     const importPath = match[1];
+    if (!importPath) continue;
     
     // Skip node_modules
     if (!importPath.startsWith('.') && !importPath.startsWith('@/')) {

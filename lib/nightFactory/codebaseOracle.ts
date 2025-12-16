@@ -226,14 +226,18 @@ RULES:
     const namedRegex = /export\s+(?:const|let|var|function|class|interface|type)\s+([a-zA-Z0-9_]+)/g;
     let match;
     while ((match = namedRegex.exec(content)) !== null) {
-      exports.push(match[1]);
+      const name = match[1];
+      if (name) exports.push(name);
     }
     
     // Re-exports: export { X, Y } from '...'
     const reExportRegex = /export\s*\{\s*([^}]+)\s*\}/g;
     while ((match = reExportRegex.exec(content)) !== null) {
-      const names = match[1].split(',').map(n => n.trim().split(' as ')[0].trim());
-      exports.push(...names.filter(n => n && n !== '*'));
+      const namesStr = match[1];
+      if (namesStr) {
+        const names = namesStr.split(',').map(n => n.trim().split(' as ')[0].trim());
+        exports.push(...names.filter(n => n && n !== '*'));
+      }
     }
     
     // Default export
@@ -254,13 +258,15 @@ RULES:
     const importRegex = /import\s+(?:[\w\s{},*]+)\s+from\s+['"]([^'"]+)['"]/g;
     let match;
     while ((match = importRegex.exec(content)) !== null) {
-      imports.push(match[1]);
+      const importPath = match[1];
+      if (importPath) imports.push(importPath);
     }
     
     // require('...')
     const requireRegex = /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
     while ((match = requireRegex.exec(content)) !== null) {
-      imports.push(match[1]);
+      const requirePath = match[1];
+      if (requirePath) imports.push(requirePath);
     }
     
     return [...new Set(imports)]; // Remove duplicates

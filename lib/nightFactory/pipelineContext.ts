@@ -248,7 +248,8 @@ export function scanProjectStructure(
         const exports: string[] = [];
         const exportMatches = content.matchAll(/export\s+(const|function|class|type|interface|enum)\s+(\w+)/g);
         for (const match of exportMatches) {
-          exports.push(match[2]);
+          const exportName = match[2];
+          if (exportName) exports.push(exportName);
         }
         if (content.includes('export default')) {
           exports.push('default');
@@ -258,7 +259,8 @@ export function scanProjectStructure(
         const imports: string[] = [];
         const importMatches = content.matchAll(/import\s+.*?from\s+['"]([^'"]+)['"]/g);
         for (const match of importMatches) {
-          imports.push(match[1]);
+          const importPath = match[1];
+          if (importPath) imports.push(importPath);
         }
         
         // Determine file type

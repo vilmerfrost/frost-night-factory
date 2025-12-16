@@ -102,8 +102,9 @@ ${FILE_PROTOCOL}
         let seedFileCreated = false;
         
         while ((match = fileRegex.exec(seedCode)) !== null) {
-            const fileName = match[1].trim();
-            let content = match[2].trim();
+            const fileName = match[1]?.trim();
+            let content = match[2]?.trim();
+            if (!fileName || !content) continue;
             
             // Clean markdown code blocks if present
             if (content.startsWith("```")) {

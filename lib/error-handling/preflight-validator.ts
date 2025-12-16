@@ -139,13 +139,14 @@ export async function runEnhancedPreFlight(
             const suggestedImport = getImportForType(typeName);
             
             if (suggestedImport) {
-            errors.push(
-              `Missing import in ${err.file}:${err.line} - ${suggestedImport}`
-            );
-          } else {
-            errors.push(
-              `Undefined type '${typeName}' in ${err.file}:${err.line} (not in type registry)`
-            );
+              errors.push(
+                `Missing import in ${err.file}:${err.line} - ${suggestedImport}`
+              );
+            } else {
+              errors.push(
+                `Undefined type '${typeName}' in ${err.file}:${err.line} (not in type registry)`
+              );
+            }
           }
         } else {
           errors.push(`${err.file}:${err.line} - ${err.message}`);

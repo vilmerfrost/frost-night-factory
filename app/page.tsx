@@ -92,7 +92,7 @@ export default function Dashboard() {
           schema: "public",
           table: "pipelines",
         },
-        (payload) => {
+        (payload: { eventType: "INSERT" | "UPDATE" | "DELETE"; new: unknown; old: unknown }) => {
           if (payload.new) {
             const newPipeline = payload.new as Pipeline;
             setPipelines((prev) => {

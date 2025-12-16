@@ -221,11 +221,11 @@ export async function runIntelligentBatchFixer(
 function extractErrorCode(message: string): string {
   // TypeScript error codes
   const tsMatch = message.match(/TS(\d+)/);
-  if (tsMatch) return `TS${tsMatch[1]}`;
+  if (tsMatch && tsMatch[1]) return `TS${tsMatch[1]}`;
   
   // Our custom error codes
   const customMatch = message.match(/^([A-Z_]+):/);
-  if (customMatch) return customMatch[1];
+  if (customMatch && customMatch[1]) return customMatch[1];
   
   // Infer from message content
   if (message.includes('IntrinsicAttributes')) return 'INTRINSIC_ATTRIBUTES';

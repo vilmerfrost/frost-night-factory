@@ -70,7 +70,9 @@ async function testCostOptimization() {
       .limit(1)
     
     if (aiCalls && aiCalls.length > 0) {
-      const hasCacheColumn = 'cache_read_tokens' in aiCalls[0]
+      const firstCall = aiCalls[0];
+      if (!firstCall) throw new Error("Expected at least one result");
+      const hasCacheColumn = 'cache_read_tokens' in firstCall
       if (hasCacheColumn) {
         console.log('✅ Cache metrics column exists')
       } else {

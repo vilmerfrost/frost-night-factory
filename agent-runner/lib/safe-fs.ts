@@ -24,7 +24,9 @@ function normalizeRelativePath(relativePath: string): string {
       // Last part: lowercase filename but preserve extension case
       const extMatch = p.match(/^(.+?)(\.[^.]+)?$/);
       if (extMatch) {
-        const [, name, ext] = extMatch;
+        const name = extMatch[1];
+        const ext = extMatch[2];
+        if (!name) return p.toLowerCase();
         return name.toLowerCase() + (ext || "");
       }
       return p.toLowerCase();

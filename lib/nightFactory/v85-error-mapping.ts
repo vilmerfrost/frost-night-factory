@@ -132,7 +132,7 @@ export function isIntrinsicAttributesError(errorMessage: string): boolean {
 export function extractComponentFromIntrinsicError(errorMessage: string): string | null {
   // Pattern: Type '{ ... }' is not assignable to type 'IntrinsicAttributes & ComponentProps'.
   const match = errorMessage.match(/IntrinsicAttributes & (\w+)Props/);
-  if (match) return match[1];
+  if (match && match[1]) return match[1];
   
   // Pattern: Property 'X' does not exist on type 'IntrinsicAttributes'.
   // In this case, we need to look at the file path for context

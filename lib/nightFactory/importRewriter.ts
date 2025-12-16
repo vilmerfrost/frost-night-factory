@@ -43,8 +43,10 @@ export function extractImports(content: string): { importPath: string; line: num
       pattern.lastIndex = 0; // Reset regex
       let match;
       while ((match = pattern.exec(line)) !== null) {
+        const importPath = match[1];
+        if (!importPath) continue;
         imports.push({
-          importPath: match[1],
+          importPath,
           line: index + 1,
           fullMatch: match[0],
         });

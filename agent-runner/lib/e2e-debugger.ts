@@ -246,7 +246,7 @@ function parseDebuggerResponse(
   
   // Try to extract code block as patch
   const codeBlockMatch = response.match(/```(?:typescript|tsx|ts|jsx|js)?\n([\s\S]*?)```/);
-  const patch = codeBlockMatch ? codeBlockMatch[1].trim() : '';
+  const patch = codeBlockMatch && codeBlockMatch[1] ? codeBlockMatch[1].trim() : '';
   
   return {
     explanation,

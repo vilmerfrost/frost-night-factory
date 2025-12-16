@@ -41,7 +41,9 @@ async function testErrorLogging() {
     console.log('✅ Created test pipeline:', newPipeline.id);
     var testPipelineId = newPipeline.id;
   } else {
-    testPipelineId = pipelines[0].id;
+    const firstPipeline = pipelines[0];
+    if (!firstPipeline) throw new Error("Expected at least one pipeline");
+    testPipelineId = firstPipeline.id;
     console.log('✅ Using existing pipeline:', testPipelineId);
   }
   

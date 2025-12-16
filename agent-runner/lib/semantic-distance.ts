@@ -62,9 +62,12 @@ export function detectNoOpLoop(filePath: string): boolean {
   const hashes = recent.map(s => s.hash);
   
   // If all hashes are identical, agent is lying
-  if (hashes[0] === hashes[1] && hashes[1] === hashes[2] && hashes[0] !== '') {
+  const hash0 = hashes[0];
+  const hash1 = hashes[1];
+  const hash2 = hashes[2];
+  if (hash0 && hash1 && hash2 && hash0 === hash1 && hash1 === hash2 && hash0 !== '') {
     console.log(`🚨 NO-OP LOOP DETECTED in ${filePath}`);
-    console.log(`   Last 3 "fixes" resulted in identical file hash: ${hashes[0].substring(0, 12)}...`);
+    console.log(`   Last 3 "fixes" resulted in identical file hash: ${hash0.substring(0, 12)}...`);
     return true;
   }
   

@@ -179,7 +179,12 @@ export function recordError(
   
   if (existingIndex >= 0) {
     // Increment fix attempts
-    ctx.errorHistory[existingIndex].fixAttempts++;
+    const existingError = ctx.errorHistory[existingIndex];
+    if (existingError) {
+      existingError.fixAttempts++;
+    } else {
+      ctx.errorHistory.push({ ...error, fixAttempts: 1 });
+    }
   } else {
     // Add new error
     ctx.errorHistory.push({ ...error, fixAttempts: 1 });

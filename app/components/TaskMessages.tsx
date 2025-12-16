@@ -45,17 +45,18 @@ export default function TaskMessages({ taskId }: TaskMessagesProps) {
           table: "night_task_messages",
           filter: `task_id=eq.${taskId}`,
         },
-        (payload) => {
+        (payload: { eventType: "INSERT" | "UPDATE" | "DELETE"; new: unknown; old: unknown }) => {
           if (payload.new) {
             setMessages((prev) => {
+              const newMessage = payload.new as Message;
               // Check if message already exists
-              const exists = prev.find((m) => m.id === (payload.new as any).id);
+              const exists = prev.find((m) => m.id === newMessage.id);
               if (exists) {
                 return prev.map((m) =>
-                  m.id === (payload.new as any).id ? (payload.new as Message) : m
+                  m.id === newMessage.id ? newMessage : m
                 );
               }
-              return [...prev, payload.new as Message];
+              return [...prev, newMessage];
             });
           }
         }

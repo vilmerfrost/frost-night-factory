@@ -135,6 +135,7 @@ export async function runEnhancedPreFlight(
         const match = err.message.match(/Cannot find name ['"]([\w]+)['"]/);
         if (match) {
           const typeName = match[1];
+          if (!typeName) continue;
           const suggestedImport = getImportForType(typeName);
           
           if (suggestedImport) {

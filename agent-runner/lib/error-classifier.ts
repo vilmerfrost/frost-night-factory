@@ -75,6 +75,7 @@ export class ErrorClassifier {
           } else if (type === 'name') {
             // Common missing names that indicate dependencies
             const name = match[1];
+            if (!name) break;
             if (['React', 'useState', 'useEffect', 'Component'].includes(name)) {
               missingModulesList.push('react');
             }

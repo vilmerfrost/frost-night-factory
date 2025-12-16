@@ -35,11 +35,14 @@ export async function generateSeedData(projectPath: string, context: string): Pr
                     .reverse(); // Senaste först
                 
                 if (migrations.length > 0) {
-                    const latestMigration = fs.readFileSync(
-                        path.join(migrationsDir, migrations[0]),
-                        'utf-8'
-                    );
-                    schemaContext = latestMigration.substring(0, 3000); // Begränsa längd
+                    const firstMigration = migrations[0];
+                    if (firstMigration) {
+                        const latestMigration = fs.readFileSync(
+                            path.join(migrationsDir, firstMigration),
+                            'utf-8'
+                        );
+                        schemaContext = latestMigration.substring(0, 3000); // Begränsa längd
+                    }
                 }
             }
         } else if (hasPythonBackend) {

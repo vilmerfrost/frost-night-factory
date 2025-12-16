@@ -266,7 +266,9 @@ export class SnapshotManager {
    */
   getLastSnapshot(): ProjectSnapshot | undefined {
     if (this.history.length === 0) return undefined;
-    return this.snapshots.get(this.history[this.history.length - 1]);
+    const lastId = this.history[this.history.length - 1];
+    if (!lastId) return undefined;
+    return this.snapshots.get(lastId);
   }
   
   /**

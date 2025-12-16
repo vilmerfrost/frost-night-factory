@@ -25,10 +25,12 @@ export function broadcastPipelineUpdate(update: any) {
   })
 
   // Store recent update
-  recentUpdates.set(update.id, update)
+  const updateId = update.id;
+  if (!updateId) return;
+  recentUpdates.set(updateId, update)
   if (recentUpdates.size > MAX_RECENT_UPDATES) {
     const firstKey = recentUpdates.keys().next().value
-    recentUpdates.delete(firstKey)
+    if (firstKey) recentUpdates.delete(firstKey)
   }
 
   // Broadcast to all connected SSE clients

@@ -9,6 +9,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import puppeteer from 'puppeteer';
 import { callAI } from './modelClient';
+import { toBuffer } from '@/lib/utils/bytes';
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || '',
@@ -71,7 +72,7 @@ async function takeScreenshot(url: string): Promise<Buffer | null> {
     browser = null;
     
     console.log(`   ✅ Screenshot captured (${screenshot.length} bytes)`);
-    return screenshot as Buffer;
+    return toBuffer(screenshot);
   } catch (error: any) {
     console.error(`   ❌ Failed to take screenshot: ${error.message}`);
     if (browser) {
@@ -98,10 +99,10 @@ export async function auditUI(
     // Read screenshot if it's a path
     let imageData: Buffer;
     if (typeof screenshotPath === 'string') {
-      // ✅ Fix: readFileSync returns Buffer, but we need it for image processing
-      imageData = fs.readFileSync(screenshotPath) as Buffer;
+      // ✅ Fix: readFileSync returns Buffer, convert explicitly
+      imageData = Buffer.from(fs.readFileSync(screenshotPath));
     } else {
-      imageData = screenshotPath;
+      imageData = toBuffer(screenshotPath);
     }
     
     // Convert to base64

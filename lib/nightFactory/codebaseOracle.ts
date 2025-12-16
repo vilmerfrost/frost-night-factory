@@ -235,8 +235,12 @@ RULES:
     while ((match = reExportRegex.exec(content)) !== null) {
       const namesStr = match[1];
       if (namesStr) {
-        const names = namesStr.split(',').map(n => n.trim().split(' as ')[0].trim());
-        exports.push(...names.filter(n => n && n !== '*'));
+        const names = namesStr.split(',').map(n => {
+          const trimmed = n.trim();
+          const parts = trimmed.split(' as ');
+          return parts[0]?.trim() ?? '';
+        }).filter(n => n && n !== '*');
+        exports.push(...names);
       }
     }
     

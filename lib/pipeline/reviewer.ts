@@ -4,6 +4,7 @@ import { generateContent } from "@/lib/nightFactory/modelClient";
 import { execSync } from "child_process";
 import fs from "fs/promises";
 import path from "path";
+import { toUtf8 } from "@/lib/utils/bytes";
 
 export interface ReviewerOutput {
   summary: string[];
@@ -107,7 +108,7 @@ async function getGitDiff(repoPath: string, branchName: string): Promise<string>
       `git diff main...${branchName}`,
       { cwd: repoPath, encoding: "utf-8" }
     );
-    return diff || "No changes detected";
+    return toUtf8(diff) || "No changes detected";
   } catch (e: any) {
     console.error("Error getting git diff:", e.message);
     return `Error: ${e.message}`;
@@ -120,7 +121,7 @@ async function getChangedFiles(repoPath: string, branchName: string): Promise<st
       `git diff --name-only main...${branchName}`,
       { cwd: repoPath, encoding: "utf-8" }
     );
-    return output.trim().split("\n").filter(Boolean);
+    return toUtf8(output).trim().split("\n").filter(Boolean);
   } catch (e: any) {
     console.error("Error getting changed files:", e.message);
     return [];

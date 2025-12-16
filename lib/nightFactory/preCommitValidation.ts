@@ -7,6 +7,7 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 import { GOLDEN_VERSIONS, validateAndFixDependencies } from './goldenVersions';
 import { GOLDEN_TEMPLATES, getGoldenTemplate } from './goldenTemplates';
+import { assertDefined } from '@/lib/utils/assert';
 
 /**
  * Validation result
@@ -368,6 +369,7 @@ async function validateImports(projectDir: string): Promise<ValidationResult> {
     
     while ((match = importRegex.exec(content)) !== null) {
       const importPath = match[1];
+      if (!importPath) continue; // Skip if no capture group
       
       // Skip node_modules imports
       if (!importPath.startsWith('.') && !importPath.startsWith('@/')) {
@@ -502,6 +504,7 @@ function checkComponentCasing(fileContent: string): string[] {
   let match;
   while ((match = jsxTagRegex.exec(fileContent)) !== null) {
     const tag = match[1];
+    if (!tag) continue; // Skip if no capture group
     if (!commonHtmlTags.has(tag)) {
       foundTags.add(tag);
     }
@@ -510,6 +513,7 @@ function checkComponentCasing(fileContent: string): string[] {
   // Find closing tags
   while ((match = closingTagRegex.exec(fileContent)) !== null) {
     const tag = match[1];
+    if (!tag) continue; // Skip if no capture group
     if (!commonHtmlTags.has(tag)) {
       foundTags.add(tag);
     }
@@ -622,6 +626,7 @@ async function validateComponentCasing(
         
         while ((tagMatch = lowercaseTagRegex.exec(content)) !== null) {
           const tag = tagMatch[1];
+          if (!tag) continue; // Skip if no capture group
           const capitalized = tag.charAt(0).toUpperCase() + tag.slice(1);
           
           // Skip if it's a common HTML tag

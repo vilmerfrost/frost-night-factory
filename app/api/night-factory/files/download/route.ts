@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase-server";
+import { uint8ArrayToArrayBuffer } from "@/lib/utils/bytes";
 
 export async function POST(req: Request) {
   try {
@@ -26,10 +27,11 @@ export async function POST(req: Request) {
     const arrayBuffer = await data.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    // ✅ Fix: Convert Buffer to Uint8Array for BodyInit compatibility
+    // ✅ Fix: Convert Buffer to Uint8Array then to ArrayBuffer for BodyInit compatibility
     const bytes = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+    const arrayBuffer = uint8ArrayToArrayBuffer(bytes);
 
-    return new NextResponse(bytes, {
+    return new NextResponse(arrayBuffer, {
       headers: {
         "Content-Type": "application/octet-stream",
         "Content-Disposition": `attachment; filename="${filename}"`,

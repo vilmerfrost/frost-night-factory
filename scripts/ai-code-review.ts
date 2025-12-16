@@ -7,6 +7,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { blockText, hasText } from '@/lib/utils/contentBlocks';
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY,
@@ -99,9 +100,10 @@ Return JSON only:
     
     const content = response.content[0];
     
-    if (content.type === 'text') {
+    if (content && hasText(content)) {
       // Extract JSON from response
-      const jsonMatch = content.text.match(/\{[\s\S]*\}/);
+      const text = blockText(content);
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
       
       if (jsonMatch) {
         const result: ReviewResult = JSON.parse(jsonMatch[0]);
@@ -110,7 +112,7 @@ Return JSON only:
     }
     
     // Fallback: parse as text
-    const text = content.type === 'text' ? content.text : '';
+    const text = content ? blockText(content) : '';
     const hasIssues = text.toLowerCase().includes('unsafe') || 
                       text.toLowerCase().includes('error') ||
                       text.toLowerCase().includes('dangerous');

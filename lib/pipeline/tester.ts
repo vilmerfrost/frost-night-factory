@@ -5,6 +5,7 @@
 import { execSync } from "child_process";
 import { callAI } from "@/lib/nightFactory/modelClient";
 import { convertTesterToJSON, buildPipelineContext } from "./json-converter";
+import { toUtf8 } from "@/lib/utils/bytes";
 import type { TesterOutput } from "./phases";
 import type { 
   ResearchPhaseJSON, 
@@ -31,7 +32,7 @@ export async function runTesterPhase(repoPath: string): Promise<TesterOutput> {
       stdio: "pipe",
       env: { ...process.env, CI: "true" },
     });
-    testResults = output;
+    testResults = toUtf8(output);
     passed = true;
     console.log("✅ Tests Passed!");
   } catch (error: unknown) {
@@ -145,7 +146,7 @@ export async function runTesterPhaseJSON(
       testResults.push({
         name: "TypeScript Check",
         passed: true,
-        output: output || "No errors",
+        output: toUtf8(output) || "No errors",
         duration_ms: Date.now() - startTime
       });
       rawTestOutput += `\n=== TYPESCRIPT CHECK ===\nPASSED\n`;
@@ -168,7 +169,7 @@ export async function runTesterPhaseJSON(
           if (fixResult.success) {
             console.log("   ✅ Windows Casing: Auto-fixed, retrying TypeScript check...");
             // Retry TypeScript check after fix
-            const retryOutput = execSync("npx tsc --noEmit", {
+            const retryOutputRaw = execSync("npx tsc --noEmit", {
               cwd: repoPath,
               encoding: "utf-8",
               stdio: "pipe",
@@ -232,7 +233,7 @@ export async function runTesterPhaseJSON(
       testResults.push({
         name: "ESLint Check",
         passed: true,
-        output: output || "No warnings",
+        output: toUtf8(output) || "No warnings",
         duration_ms: Date.now() - startTime
       });
       rawTestOutput += `\n=== ESLINT CHECK ===\nPASSED\n`;
@@ -268,13 +269,14 @@ export async function runTesterPhaseJSON(
         env: { ...process.env, CI: "true" },
         timeout: 120000
       });
+      const outputStr = toUtf8(output);
       testResults.push({
         name: "NPM Tests",
         passed: true,
-        output: output,
+        output: outputStr,
         duration_ms: Date.now() - startTime
       });
-      rawTestOutput += `\n=== NPM TESTS ===\nPASSED\n${output}\n`;
+      rawTestOutput += `\n=== NPM TESTS ===\nPASSED\n${outputStr}\n`;
       console.log("   ✅ Tests: Passed");
     } catch (error: unknown) {
       const err = error as { stdout?: string; stderr?: string; message?: string };
@@ -311,7 +313,7 @@ export async function runTesterPhaseJSON(
       testResults.push({
         name: "Security Audit",
         passed: true,
-        output: output || "No vulnerabilities",
+        output: toUtf8(output) || "No vulnerabilities",
         duration_ms: Date.now() - startTime
       });
       rawTestOutput += `\n=== SECURITY AUDIT ===\nPASSED\n`;

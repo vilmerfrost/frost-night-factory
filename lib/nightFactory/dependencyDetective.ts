@@ -9,6 +9,7 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 import { parsePackageJson, parseJsonWithComments } from '../../agent-runner/lib/dependency-detective';
 import { writeJsonSafely } from '../../agent-runner/lib/file-writer';
+import { assertDefined } from '@/lib/utils/assert';
 
 interface DependencyScanResult {
   found: Set<string>;
@@ -41,6 +42,7 @@ function extractPackageImports(filePath: string): Set<string> {
     let match;
     while ((match = pattern.exec(content)) !== null) {
       const importPath = match[1];
+      if (!importPath) continue; // Skip if no capture group
       
       // Skip relative imports and aliases
       if (importPath.startsWith('.') || importPath.startsWith('/') || importPath.startsWith('@/')) {
@@ -49,13 +51,14 @@ function extractPackageImports(filePath: string): Set<string> {
       
       // Skip scoped packages' internal paths (@scope/package/subpath)
       const scopedMatch = importPath.match(/^(@[^/]+\/[^/]+)/);
-      if (scopedMatch) {
+      if (scopedMatch && scopedMatch[1]) {
         packages.add(scopedMatch[1]);
         continue;
       }
       
       // Extract base package name (before first /)
       const basePackage = importPath.split('/')[0];
+      if (!basePackage) continue; // Skip if empty
       
       // Skip Node.js built-ins
       const nodeBuiltins = [

@@ -6,6 +6,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
+import { toUtf8 } from '@/lib/utils/bytes';
 
 const BACKUP_DIR = process.env.BACKUP_DIR || path.join(process.cwd(), '.backups');
 const MAX_BACKUPS = parseInt(process.env.MAX_BACKUPS || '20', 10);
@@ -48,8 +49,9 @@ async function createBackup(): Promise<string> {
         console.log('   📝 Saving uncommitted changes...');
         try {
           const diff = execSync('git diff', { cwd: process.cwd(), encoding: 'utf-8' });
-          if (diff.trim()) {
-            fs.writeFileSync(path.join(backupPath, 'uncommitted.patch'), diff, 'utf-8');
+          const diffStr = toUtf8(diff);
+          if (diffStr.trim()) {
+            fs.writeFileSync(path.join(backupPath, 'uncommitted.patch'), diffStr, 'utf-8');
           }
         } catch {
           // No uncommitted changes or git error
@@ -79,8 +81,8 @@ async function createBackup(): Promise<string> {
     const metadata = {
       timestamp: new Date().toISOString(),
       backupName,
-      gitCommit: isGitRepo ? execSync('git rev-parse HEAD', { encoding: 'utf-8', cwd: process.cwd() }).trim() : null,
-      gitBranch: isGitRepo ? execSync('git branch --show-current', { encoding: 'utf-8', cwd: process.cwd() }).trim() : null,
+      gitCommit: isGitRepo ? toUtf8(execSync('git rev-parse HEAD', { encoding: 'utf-8', cwd: process.cwd() })).trim() : null,
+      gitBranch: isGitRepo ? toUtf8(execSync('git branch --show-current', { encoding: 'utf-8', cwd: process.cwd() })).trim() : null,
     };
     
     fs.writeFileSync(

@@ -6,6 +6,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { chromium } from 'playwright';
 import fs from 'fs';
 import path from 'path';
+import { blockText, hasText } from '@/lib/utils/contentBlocks';
 
 export interface VisionRefinementResult {
   score: number;
@@ -126,13 +127,14 @@ RESPOND IN THIS EXACT JSON FORMAT:
       });
 
       const content = response.content[0];
-      if (content.type !== 'text') {
+      if (!content || !hasText(content)) {
         console.warn('   ⚠️ Claude did not return text response');
         break;
       }
 
       // Parse Claude's response
-      const jsonMatch = content.text.match(/\{[\s\S]*\}/);
+      const text = blockText(content);
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
         console.warn('   ⚠️ Claude did not return valid JSON');
         break;

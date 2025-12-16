@@ -5,6 +5,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import path from 'path';
 import fs from 'fs';
+import { blockText } from '@/lib/utils/contentBlocks';
 
 export interface ABVariant {
   name: string;
@@ -45,7 +46,7 @@ Generate ONLY the page.tsx file with this aesthetic. Use the [FILE: src/app/page
     messages: [{ role: 'user', content: variantAPrompt }],
   });
 
-  const variantACode = extractCode(variantAResponse.content[0].type === 'text' ? variantAResponse.content[0].text : '');
+  const variantACode = extractCode(variantAResponse.content[0] ? blockText(variantAResponse.content[0]) : '');
   
   // Save Variant A
   const variantAPath = path.join(workspacePath, 'variant-a');
@@ -85,7 +86,7 @@ Generate ONLY the page.tsx file with this aesthetic. Use the [FILE: src/app/page
     messages: [{ role: 'user', content: variantBPrompt }],
   });
 
-  const variantBCode = extractCode(variantBResponse.content[0].type === 'text' ? variantBResponse.content[0].text : '');
+  const variantBCode = extractCode(variantBResponse.content[0] ? blockText(variantBResponse.content[0]) : '');
   
   // Save Variant B
   const variantBPath = path.join(workspacePath, 'variant-b');
@@ -114,14 +115,14 @@ function extractCode(text: string): string {
   // Try to extract code from markdown code blocks
   const codeBlockRegex = /```(?:tsx?|typescript|javascript)?\n([\s\S]*?)```/;
   const match = text.match(codeBlockRegex);
-  if (match) {
+  if (match && match[1]) {
     return match[1].trim();
   }
   
   // Try [FILE: ...] format
   const fileRegex = /\[FILE:\s*[^\]]+\]\s*([\s\S]*?)(?:\[END_FILE\]|$)/;
   const fileMatch = text.match(fileRegex);
-  if (fileMatch) {
+  if (fileMatch && fileMatch[1]) {
     return fileMatch[1].trim();
   }
   

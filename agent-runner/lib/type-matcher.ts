@@ -8,6 +8,7 @@ import type {
   CoderPhaseJSON, 
   SqlEditorPhaseJSON 
 } from '../../lib/pipeline/pipeline-json-types';
+import { assertDefined } from '@/lib/utils/assert';
 
 export interface TypeMismatch {
   type: 'missing_interface' | 'missing_field' | 'type_mismatch';
@@ -152,6 +153,7 @@ function parseColumnsFromSQL(sql: string): Array<{ name: string; type: string }>
   if (!createTableMatch) return columns;
 
   const columnDefinitions = createTableMatch[1];
+  if (!columnDefinitions) return columns;
   const lines = columnDefinitions.split(',');
 
   for (const line of lines) {
@@ -163,8 +165,11 @@ function parseColumnsFromSQL(sql: string): Array<{ name: string; type: string }>
     // Match: column_name TYPE constraints
     const columnMatch = trimmed.match(/^(\w+)\s+(\w+(?:\([^)]+\))?)/);
     if (columnMatch) {
-      const [, name, type] = columnMatch;
-      columns.push({ name, type });
+      const name = columnMatch[1];
+      const type = columnMatch[2];
+      if (name && type) {
+        columns.push({ name, type });
+      }
     }
   }
 
@@ -263,9 +268,21 @@ Return the complete type definitions file:`;
     // Extract code from response
     let fixedCode = fixed.trim();
     if (fixedCode.includes('```typescript')) {
-      fixedCode = fixedCode.split('```typescript')[1].split('```')[0].trim();
+      const parts = fixedCode.split('```typescript');
+      if (parts[1]) {
+        const codeParts = parts[1].split('```');
+        if (codeParts[0]) {
+          fixedCode = codeParts[0].trim();
+        }
+      }
     } else if (fixedCode.includes('```')) {
-      fixedCode = fixedCode.split('```')[1].split('```')[0].trim();
+      const parts = fixedCode.split('```');
+      if (parts[1]) {
+        const codeParts = parts[1].split('```');
+        if (codeParts[0]) {
+          fixedCode = codeParts[0].trim();
+        }
+      }
     }
 
     console.log('✅ [Type Matcher] Generated fixed type definitions');

@@ -6,6 +6,7 @@ import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { callAI, selectModel } from '../ai-client';
+import { assertDefined } from '@/lib/utils/assert';
 
 export interface BuildError {
   category: 'SYNTAXERROR' | 'IMPORTERROR' | 'EXPORTERROR' | 'TYPEERROR' | 'RUNTIMEERROR' | 'ESLINTERROR';
@@ -170,6 +171,7 @@ async function validateAllImports(repoPath: string): Promise<{ errors: BuildErro
 
     while ((match = importPattern.exec(content)) !== null) {
       const importPath = match[1];
+      if (!importPath) continue;
       if (importPath.startsWith('.') || importPath.startsWith('/')) {
         const resolvedPath = path.resolve(path.dirname(file), importPath);
         const possibleExtensions = ['.ts', '.tsx', '.js', '.jsx', '/index.ts', '/index.tsx'];
@@ -183,7 +185,7 @@ async function validateAllImports(repoPath: string): Promise<{ errors: BuildErro
         }
 
         if (!exists) {
-          const lineNum = content.substring(0, match.index).split('\n').length;
+          const lineNum = content.substring(0, match.index ?? 0).split('\n').length;
           errors.push({
             category: 'IMPORTERROR',
             file: path.relative(repoPath, file),
@@ -223,7 +225,9 @@ async function validateAllExports(repoPath: string): Promise<{ errors: BuildErro
     // Check import order (imports before exports)
     let foundExport = false;
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
+      const rawLine = lines[i];
+      if (!rawLine) continue;
+      const line = rawLine.trim();
       if (line.startsWith('export ') && !line.includes('export default')) {
         foundExport = true;
       }
@@ -350,9 +354,21 @@ Return the complete fixed file:`;
       // Extract code from response
       let fixedCode = fixed.trim();
       if (fixedCode.includes('```typescript')) {
-        fixedCode = fixedCode.split('```typescript')[1].split('```')[0].trim();
+        const parts = fixedCode.split('```typescript');
+        if (parts[1]) {
+          const codeParts = parts[1].split('```');
+          if (codeParts[0]) {
+            fixedCode = codeParts[0].trim();
+          }
+        }
       } else if (fixedCode.includes('```')) {
-        fixedCode = fixedCode.split('```')[1].split('```')[0].trim();
+        const parts = fixedCode.split('```');
+        if (parts[1]) {
+          const codeParts = parts[1].split('```');
+          if (codeParts[0]) {
+            fixedCode = codeParts[0].trim();
+          }
+        }
       }
 
       // Write fixed code

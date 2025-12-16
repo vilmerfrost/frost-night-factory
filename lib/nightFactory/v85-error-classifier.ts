@@ -440,13 +440,16 @@ export function classifyError(
 function selectBestFix(strategies: FixStrategy[], retryCount: number): FixStrategy {
   if (retryCount > 2) {
     // After 2 retries, prefer structural fixes
-    return strategies.find(s =>
+    const structural = strategies.find(s =>
       s === FixStrategy.REMOVE_JSX ||
       s === FixStrategy.RENAME_FILE ||
       s === FixStrategy.IMPLEMENT_FUNCTION_BODY
-    ) || strategies[0];
+    );
+    if (structural) return structural;
   }
-  return strategies[0];
+  const first = strategies[0];
+  if (!first) throw new Error("No strategies available");
+  return first;
 }
 
 function calculateProbability(strategy: FixStrategy): number {

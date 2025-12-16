@@ -273,6 +273,7 @@ function extractPropsFromFunction(
   
   if (node.parameters.length > 0) {
     const firstParam = node.parameters[0];
+    if (!firstParam) return props;
     
     // Check for destructured props
     if (ts.isObjectBindingPattern(firstParam.name)) {

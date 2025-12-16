@@ -113,7 +113,7 @@ export async function generateAndValidateCode(
     let cleanedCode = code;
     if (cleanedCode.includes('```')) {
       const match = cleanedCode.match(/```(?:typescript|tsx|ts|jsx|js)?\n([\s\S]*?)```/);
-      if (match) {
+      if (match && match[1]) {
         cleanedCode = match[1].trim();
       } else {
         // Remove all fences

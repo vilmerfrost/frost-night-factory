@@ -299,7 +299,8 @@ export class QuarantineZone {
     let match;
     
     while ((match = importRegex.exec(code)) !== null) {
-      imports.push(match[1]);
+      const importPath = match[1];
+      if (importPath) imports.push(importPath);
     }
     
     return imports;
@@ -311,7 +312,8 @@ export class QuarantineZone {
     let match;
     
     while ((match = exportRegex.exec(code)) !== null) {
-      exports.push(match[1]);
+      const exportName = match[1];
+      if (exportName) exports.push(exportName);
     }
     
     return exports;

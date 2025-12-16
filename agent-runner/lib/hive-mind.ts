@@ -78,7 +78,9 @@ async function generateEmbedding(text: string): Promise<number[] | null> {
       input: text.substring(0, 8000), // Limit length
     });
     
-    return response.data[0].embedding;
+    const firstData = response.data[0];
+    if (!firstData) return null;
+    return firstData.embedding;
   } catch (error: any) {
     console.warn(`⚠️ [Hive Mind] Failed to generate embedding: ${error.message}`);
     return null;

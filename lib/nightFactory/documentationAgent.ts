@@ -15,8 +15,9 @@ async function generateDocsInBackground(prompt: string, projectPath: string) {
     let filesCreated = 0;
     
     while ((match = fileRegex.exec(output)) !== null) {
-      const fileName = match[1].trim();
-      let content = match[2].trim();
+      const fileName = match[1]?.trim();
+      let content = match[2]?.trim();
+      if (!fileName || !content) continue;
       
       // Sanitize markdown artifacts
       content = content.replace(/^```[a-z]*\n/i, "").replace(/```$/, "");

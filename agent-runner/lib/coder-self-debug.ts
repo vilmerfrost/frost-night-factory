@@ -77,6 +77,7 @@ export async function selfDebugFile(
     const importMatches = content.matchAll(/import\s+.*from\s+['"]([^'"]+)['"]/g);
     for (const match of importMatches) {
       const importPath = match[1];
+      if (!importPath) continue;
       if (importPath.startsWith('@/')) {
         // Check if @ alias resolves correctly (would need tsconfig check)
         // For now, just validate format

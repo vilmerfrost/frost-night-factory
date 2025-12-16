@@ -79,7 +79,13 @@ export const AUTHORITY_MATRIX: AuthorityConfig[] = [
  */
 export function getAuthorityConfig(filePath: string): AuthorityConfig {
   const tier = getFileTier(filePath);
-  return AUTHORITY_MATRIX.find(a => a.tier === tier) || AUTHORITY_MATRIX[3]; // Default to NORMAL
+  const config = AUTHORITY_MATRIX.find(a => a.tier === tier);
+  if (!config) {
+    const defaultConfig = AUTHORITY_MATRIX[3];
+    if (!defaultConfig) throw new Error("AUTHORITY_MATRIX is empty");
+    return defaultConfig;
+  }
+  return config;
 }
 
 /**
@@ -315,6 +321,12 @@ export function getRecommendedModel(filePath: string, attemptNumber: number): st
   
   // Escalate model with attempt number
   const modelIndex = Math.min(attemptNumber, config.models.length - 1);
-  return config.models[modelIndex];
+  const model = config.models[modelIndex];
+  if (!model) {
+    const fallback = config.models[config.models.length - 1];
+    if (!fallback) throw new Error(`No models available in config for ${config.tier}`);
+    return fallback;
+  }
+  return model;
 }
 

@@ -82,8 +82,11 @@ async function main() {
         console.log(`     Root Cause: ${error.rootCause}`);
         
         if (error.suggestedFixes.length > 0) {
-          console.log(`     Suggested Fix: ${error.suggestedFixes[0].strategy}`);
-          console.log(`     Success Probability: ${(error.suggestedFixes[0].probability * 100).toFixed(0)}%`);
+          const firstFix = error.suggestedFixes[0];
+          if (firstFix) {
+            console.log(`     Suggested Fix: ${firstFix.strategy}`);
+            console.log(`     Success Probability: ${(firstFix.probability * 100).toFixed(0)}%`);
+          }
         }
       }
     }

@@ -7,6 +7,12 @@ import * as path from 'path';
 import { autoFixPythonSyntax } from './pythonSyntaxFixer';
 
 /**
+ * ✅ Compact helper: Remove null/undefined from arrays
+ */
+const compact = <T>(arr: Array<T | null | undefined>): T[] =>
+  arr.filter((x): x is T => x != null);
+
+/**
  * Error Categories for precise fixing
  */
 export enum ErrorCategory {
@@ -81,7 +87,7 @@ const ERROR_PATTERNS: ErrorPattern[] = [
     category: ErrorCategory.IMPORT_ERROR,
     extractFiles: (match, fullError) => {
       const fileMatch = fullError.match(/([a-zA-Z0-9_\-\/\.]+\.(tsx?|jsx?|mjs))/);
-      return fileMatch ? [fileMatch[1]] : [];
+      return compact([fileMatch?.[1]]);
     },
   },
   
@@ -113,14 +119,15 @@ const ERROR_PATTERNS: ErrorPattern[] = [
     extractFiles: (match, fullError) => {
       // Try to extract file path from error message
       const fileMatch = fullError.match(/([a-zA-Z0-9_\/\\.-]+\.(tsx|ts|jsx|js))(?:\s*\((\d+),(\d+)\))?/);
-      return fileMatch ? [fileMatch[1]] : [];
+      return compact([fileMatch?.[1]]);
     },
     extractMetadata: (match, fullError) => {
       const fileMatch = fullError.match(/([a-zA-Z0-9_\/\\.-]+\.(tsx|ts|jsx|js))(?:\s*\((\d+),(\d+)\))?/);
+      const filePath = fileMatch?.[1];
       return {
-        file: fileMatch ? fileMatch[1] : undefined,
-        line: fileMatch && fileMatch[3] ? parseInt(fileMatch[3]) : undefined,
-        column: fileMatch && fileMatch[4] ? parseInt(fileMatch[4]) : undefined,
+        file: filePath,
+        line: fileMatch?.[3] ? parseInt(fileMatch[3]) : undefined,
+        column: fileMatch?.[4] ? parseInt(fileMatch[4]) : undefined,
         type: 'missing_use_client',
       };
     },
@@ -133,13 +140,14 @@ const ERROR_PATTERNS: ErrorPattern[] = [
     confidence: 0.9,
     extractFiles: (match, fullError) => {
       const fileMatch = fullError.match(/([a-zA-Z0-9_\/\\.-]+\.(tsx|ts|jsx|js))(?:\s*\((\d+),(\d+)\))?/);
-      return fileMatch ? [fileMatch[1]] : [];
+      return compact([fileMatch?.[1]]);
     },
     extractMetadata: (match, fullError) => {
       const fileMatch = fullError.match(/([a-zA-Z0-9_\/\\.-]+\.(tsx|ts|jsx|js))(?:\s*\((\d+),(\d+)\))?/);
+      const filePath = fileMatch?.[1];
       return {
-        file: fileMatch ? fileMatch[1] : undefined,
-        line: fileMatch && fileMatch[3] ? parseInt(fileMatch[3]) : undefined,
+        file: filePath,
+        line: fileMatch?.[3] ? parseInt(fileMatch[3]) : undefined,
         type: 'missing_use_client',
       };
     },
@@ -174,7 +182,10 @@ const ERROR_PATTERNS: ErrorPattern[] = [
       const files: string[] = [];
       let fileMatch;
       while ((fileMatch = filePattern.exec(fullError)) !== null) {
-        files.push(fileMatch[1]);
+        const filePath = fileMatch[1];
+        if (filePath) {
+          files.push(filePath);
+        }
       }
       return files;
     },
@@ -228,12 +239,17 @@ const ERROR_PATTERNS: ErrorPattern[] = [
     category: ErrorCategory.PYTHON_SYNTAX,
     severity: 'high',
     confidence: 95,
-    extractFiles: (match) => [match[1]],
-    extractMetadata: (match) => ({
-      file: match[1],
-      line: parseInt(match[2]),
-      type: 'unclosed_bracket',
-    }),
+    extractFiles: (match) => compact([match[1]]),
+    extractMetadata: (match) => {
+      const filePath = match[1];
+      if (!filePath) return { type: 'unclosed_bracket' };
+      const lineStr = match[2];
+      return {
+        file: filePath,
+        line: lineStr ? parseInt(lineStr) : undefined,
+        type: 'unclosed_bracket',
+      };
+    },
     suggestedFix: 'Add missing closing bracket/parenthesis/brace',
   },
   {
@@ -241,12 +257,17 @@ const ERROR_PATTERNS: ErrorPattern[] = [
     category: ErrorCategory.PYTHON_SYNTAX,
     severity: 'high',
     confidence: 90,
-    extractFiles: (match) => [match[1]],
-    extractMetadata: (match) => ({
-      file: match[1],
-      line: parseInt(match[2]),
-      type: 'unexpected_eof',
-    }),
+    extractFiles: (match) => compact([match[1]]),
+    extractMetadata: (match) => {
+      const filePath = match[1];
+      if (!filePath) return { type: 'unexpected_eof' };
+      const lineStr = match[2];
+      return {
+        file: filePath,
+        line: lineStr ? parseInt(lineStr) : undefined,
+        type: 'unexpected_eof',
+      };
+    },
     suggestedFix: 'Add missing closing bracket, parenthesis, or colon',
   },
   {
@@ -254,12 +275,18 @@ const ERROR_PATTERNS: ErrorPattern[] = [
     category: ErrorCategory.PYTHON_SYNTAX,
     severity: 'high',
     confidence: 95,
-    extractFiles: (match) => [match[1]],
-    extractMetadata: (match) => ({
-      file: match[1],
-      line: parseInt(match[2]),
-      type: 'missing_indentation',
-    }),
+    extractFiles: (match) => compact([match[1]]),
+    extractMetadata: (match) => {
+      const filePath = match[1];
+      if (!filePath) return { type: 'missing_indentation' };
+      const lineStr = match[2];
+      if (!lineStr) return { file: filePath, type: 'missing_indentation' };
+      return {
+        file: filePath,
+        line: parseInt(lineStr),
+        type: 'missing_indentation',
+      };
+    },
     suggestedFix: 'Add indented block after colon (if, for, def, etc.)',
   },
   {
@@ -267,12 +294,17 @@ const ERROR_PATTERNS: ErrorPattern[] = [
     category: ErrorCategory.PYTHON_SYNTAX,
     severity: 'medium',
     confidence: 70,
-    extractFiles: (match) => [match[1]],
-    extractMetadata: (match) => ({
-      file: match[1],
-      line: parseInt(match[2]),
-      type: 'invalid_syntax',
-    }),
+    extractFiles: (match) => compact([match[1]]),
+    extractMetadata: (match) => {
+      const filePath = match[1];
+      if (!filePath) return { type: 'invalid_syntax' };
+      const lineStr = match[2];
+      return {
+        file: filePath,
+        line: lineStr ? parseInt(lineStr) : undefined,
+        type: 'invalid_syntax',
+      };
+    },
     suggestedFix: 'Check syntax on the specified line',
   },
   {
@@ -280,13 +312,19 @@ const ERROR_PATTERNS: ErrorPattern[] = [
     category: ErrorCategory.PYTHON_SYNTAX,
     severity: 'high',
     confidence: 90,
-    extractFiles: (match) => [match[1]],
-    extractMetadata: (match) => ({
-      file: match[1],
-      line: parseInt(match[2]),
-      column: parseInt(match[3]),
-      type: 'syntax_error',
-    }),
+    extractFiles: (match) => compact([match[1]]),
+    extractMetadata: (match) => {
+      const filePath = match[1];
+      if (!filePath) return { type: 'syntax_error' };
+      const lineStr = match[2];
+      const colStr = match[3];
+      return {
+        file: filePath,
+        line: lineStr ? parseInt(lineStr) : undefined,
+        column: colStr ? parseInt(colStr) : undefined,
+        type: 'syntax_error',
+      };
+    },
   },
   
   // PYTHON TYPE ERRORS (MyPy)
@@ -295,12 +333,18 @@ const ERROR_PATTERNS: ErrorPattern[] = [
     category: ErrorCategory.PYTHON_TYPE,
     severity: 'medium',
     confidence: 85,
-    extractFiles: (match) => [match[1]],
-    extractMetadata: (match) => ({
-      file: match[1],
-      line: parseInt(match[2]),
-      type: 'type_incompatible',
-    }),
+    extractFiles: (match) => compact([match[1]]),
+    extractMetadata: (match) => {
+      const filePath = match[1];
+      if (!filePath) return { type: 'type_incompatible' };
+      const lineStr = match[2];
+      if (!lineStr) return { file: filePath, type: 'type_incompatible' };
+      return {
+        file: filePath,
+        line: parseInt(lineStr),
+        type: 'type_incompatible',
+      };
+    },
     suggestedFix: 'Fix type annotation or value assignment',
   },
   {
@@ -308,12 +352,18 @@ const ERROR_PATTERNS: ErrorPattern[] = [
     category: ErrorCategory.PYTHON_TYPE,
     severity: 'medium',
     confidence: 85,
-    extractFiles: (match) => [match[1]],
-    extractMetadata: (match) => ({
-      file: match[1],
-      line: parseInt(match[2]),
-      type: 'missing_attribute',
-    }),
+    extractFiles: (match) => compact([match[1]]),
+    extractMetadata: (match) => {
+      const filePath = match[1];
+      if (!filePath) return { type: 'missing_attribute' };
+      const lineStr = match[2];
+      if (!lineStr) return { file: filePath, type: 'missing_attribute' };
+      return {
+        file: filePath,
+        line: parseInt(lineStr),
+        type: 'missing_attribute',
+      };
+    },
     suggestedFix: 'Add missing attribute or fix attribute name',
   },
   
@@ -338,37 +388,43 @@ export function extractTargetFiles(error: string): string[] {
   const tsPattern = /([a-zA-Z0-9_\-\/\.]+\.(tsx?|jsx?|json|css|mjs))(?:\((\d+),(\d+)\))?:\s*(?:error|warning)/gi;
   let match;
   while ((match = tsPattern.exec(error)) !== null) {
-    files.add(match[1]);
+    const filePath = match[1];
+    if (filePath) files.add(filePath);
   }
   
   // Pattern 2: Node.js style - at /path/to/file.ts:line:col
   const nodePattern = /at\s+(?:.*?\s+\()?([a-zA-Z0-9_\-\/\.]+\.(tsx?|jsx?|json|mjs))(?::(\d+))?/gi;
   while ((match = nodePattern.exec(error)) !== null) {
-    files.add(match[1]);
+    const filePath = match[1];
+    if (filePath) files.add(filePath);
   }
   
   // Pattern 3: Webpack/Next.js style - ./path/to/file.tsx
   const webpackPattern = /\.\/([a-zA-Z0-9_\-\/\.]+\.(tsx?|jsx?|css|mjs))/gi;
   while ((match = webpackPattern.exec(error)) !== null) {
-    files.add(match[1]);
+    const filePath = match[1];
+    if (filePath) files.add(filePath);
   }
   
   // Pattern 4: Python style - file.py:line:col: error
   const pythonPattern = /([a-zA-Z0-9_\-\/\.]+\.py)(?::(\d+))(?::(\d+))?:\s*(?:error|SyntaxError|Syntax Warning)/gi;
   while ((match = pythonPattern.exec(error)) !== null) {
-    files.add(match[1]);
+    const filePath = match[1];
+    if (filePath) files.add(filePath);
   }
   
   // Pattern 5: Python style - file.py:line: message
   const pythonSimplePattern = /([a-zA-Z0-9_\-\/\.]+\.py):(\d+):/gi;
   while ((match = pythonSimplePattern.exec(error)) !== null) {
-    files.add(match[1]);
+    const filePath = match[1];
+    if (filePath) files.add(filePath);
   }
   
   // Pattern 6: Import errors - from './path' or from '@/path'
   const importPattern = /from\s+['"](@\/|\.\.?\/)?([a-zA-Z0-9_\-\/\.]+)['"]/gi;
   while ((match = importPattern.exec(error)) !== null) {
     const filePath = match[2];
+    if (!filePath) continue;
     // Add common extensions if missing
     if (!filePath.includes('.')) {
       files.add(`${filePath}.tsx`);

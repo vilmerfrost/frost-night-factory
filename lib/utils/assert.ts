@@ -41,3 +41,10 @@ export function assertNonEmptyString(v: string | undefined | null, msg: string):
   if (!v || v.trim().length === 0) throw new Error(msg);
   return v;
 }
+
+/**
+ * Assert that a value is non-null (for supabase client, etc.)
+ */
+export function assertNonNull<T>(value: T | null | undefined, message?: string): asserts value is NonNullable<T> {
+  if (value == null) throw new Error(message ?? "Expected value to be non-null");
+}

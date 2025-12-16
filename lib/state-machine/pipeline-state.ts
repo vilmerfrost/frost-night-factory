@@ -12,6 +12,7 @@ import {
   setActiveWorkers 
 } from '../monitoring/metrics';
 import { snapshots } from '../snapshots/snapshot-manager';
+import { assertNonNull } from '../utils/assert';
 
 // Lazy initialization to handle missing env vars gracefully
 function getSupabaseClient() {
@@ -26,7 +27,9 @@ function getSupabaseClient() {
   return createClient(url, key);
 }
 
-const supabase = getSupabaseClient();
+const supabaseRaw = getSupabaseClient();
+// ✅ Assert supabase is non-null at module level (or handle gracefully in methods)
+const supabase = supabaseRaw;
 
 export type PipelinePhase = 'planner' | 'coder' | 'tester' | 'deployer';
 export type PhaseStatus = 'idle' | 'running' | 'success' | 'failed' | 'blocked' | 'needs_review';
@@ -76,6 +79,11 @@ export class PipelineStateMachine {
    * Claim a pipeline (pessimistic locking)
    */
   async claimPipeline(): Promise<PipelineState | null> {
+    if (!supabase) {
+      console.warn('⚠️ Supabase not initialized - cannot claim pipeline');
+      return null;
+    }
+    
     try {
       // Try RPC first (if function exists)
       const { data, error } = await supabase.rpc('claim_pipeline', {
@@ -101,6 +109,11 @@ export class PipelineStateMachine {
    * Fallback claim method (without RPC)
    */
   private async claimPipelineFallback(): Promise<PipelineState | null> {
+    if (!supabase) {
+      console.warn('⚠️ Supabase not initialized - cannot claim pipeline');
+      return null;
+    }
+    
     // Find idle pipeline
     const { data: pipelines } = await supabase
       .from('pipelines')
@@ -148,21 +161,26 @@ export class PipelineStateMachine {
     status: PhaseStatus = 'running',
     workspaceRoot?: string
   ): Promise<boolean> {
-    const { data: current } = await supabase
+    if (!supabase) {
+      console.warn('⚠️ Supabase not initialized - cannot transition phase');
+      return false;
+    }
+    
+    const { data: currentState } = await supabase
       .from('pipelines')
-      .select('phase_status')
+      .select('phase_status, phase')
       .eq('id', pipelineId)
       .single();
     
-    if (!current) {
+    if (!currentState) {
       console.error(`Pipeline not found: ${pipelineId}`);
       return false;
     }
     
     // Validate transition
-    const validNext = VALID_TRANSITIONS[current.phase_status as PhaseStatus] || [];
+    const validNext = VALID_TRANSITIONS[currentState.phase_status as PhaseStatus] || [];
     if (!validNext.includes(status)) {
-      console.error(`Invalid transition: ${current.phase_status} -> ${status}`);
+      console.error(`Invalid transition: ${currentState.phase_status} -> ${status}`);
       return false;
     }
     
@@ -176,16 +194,10 @@ export class PipelineStateMachine {
       }
     }
     
-    const { data: current } = await supabase
-      ?.from('pipelines')
-      .select('phase')
-      .eq('id', pipelineId)
-      .single() || { data: null };
-    
-    const fromPhase = current?.phase || 'unknown';
+    const fromPhase = currentState.phase || 'unknown';
     
     const { error } = await supabase
-      ?.from('pipelines')
+      .from('pipelines')
       .update({
         phase: newPhase,
         phase_status: status,
@@ -193,7 +205,7 @@ export class PipelineStateMachine {
         updated_at: new Date().toISOString(),
       })
       .eq('id', pipelineId)
-      .eq('worker_id', this.workerId) || { error: null };
+      .eq('worker_id', this.workerId);
     
     if (error) {
       console.error(`Failed to transition phase:`, error);
@@ -250,6 +262,11 @@ export class PipelineStateMachine {
     pipelineId: string,
     status: PhaseStatus
   ): Promise<boolean> {
+    if (!supabase) {
+      console.warn('⚠️ Supabase not initialized - cannot update status');
+      return false;
+    }
+    
     const { error } = await supabase
       .from('pipelines')
       .update({
@@ -276,17 +293,22 @@ export class PipelineStateMachine {
     errorType: ErrorType,
     errorMessage: string
   ): Promise<{ shouldRetry: boolean; isLoop: boolean }> {
+    if (!supabase) {
+      console.warn('⚠️ Supabase not initialized - cannot record error');
+      return { shouldRetry: false, isLoop: false };
+    }
+    
     const errorHash = this.hashError(errorType, errorMessage);
     
     // Get current attempt count
-    const { data: current } = await supabase
+    const { data: currentState } = await supabase
       .from('pipelines')
-      .select('phase_attempt, last_error_hash')
+      .select('phase_attempt, last_error_hash, phase')
       .eq('id', pipelineId)
       .single();
     
-    const newAttempt = (current?.phase_attempt || 0) + 1;
-    const isSameError = current?.last_error_hash === errorHash;
+    const newAttempt = (currentState?.phase_attempt || 0) + 1;
+    const isSameError = currentState?.last_error_hash === errorHash;
     
     // Update pipeline
     await supabase
@@ -325,7 +347,7 @@ export class PipelineStateMachine {
       return { shouldRetry: false, isLoop: true };
     }
     
-    incPipelineError(errorType, current?.phase || 'unknown');
+    incPipelineError(errorType, currentState?.phase || 'unknown');
     
     // Determine if we should retry
     const shouldRetry = newAttempt < 5 && this.isRetryableError(errorType);
@@ -337,6 +359,11 @@ export class PipelineStateMachine {
    * Track error in error_state table
    */
   private async trackErrorState(errorHash: string, errorType: ErrorType): Promise<void> {
+    if (!supabase) {
+      console.warn('⚠️ Supabase not initialized - cannot track error state');
+      return;
+    }
+    
     try {
       // Try upsert
       const { data: existing } = await supabase
@@ -374,6 +401,11 @@ export class PipelineStateMachine {
    * Record successful fix
    */
   async recordFix(errorHash: string, modelUsed: string): Promise<void> {
+    if (!supabase) {
+      console.warn('⚠️ Supabase not initialized - cannot record fix');
+      return;
+    }
+    
     await supabase
       .from('error_state')
       .update({
@@ -388,6 +420,11 @@ export class PipelineStateMachine {
    * Block pipeline (circuit breaker)
    */
   async blockPipeline(pipelineId: string, reason: string): Promise<void> {
+    if (!supabase) {
+      console.warn('⚠️ Supabase not initialized - cannot block pipeline');
+      return;
+    }
+    
     this.stopHeartbeat(pipelineId);
     
     await supabase
@@ -407,6 +444,11 @@ export class PipelineStateMachine {
    * Release pipeline (cleanup)
    */
   async releasePipeline(pipelineId: string, status: PhaseStatus = 'idle'): Promise<void> {
+    if (!supabase) {
+      console.warn('⚠️ Supabase not initialized - cannot release pipeline');
+      return;
+    }
+    
     this.stopHeartbeat(pipelineId);
     
     await supabase
@@ -427,16 +469,21 @@ export class PipelineStateMachine {
    * Mark phase as success and move to next
    */
   async completePhase(pipelineId: string): Promise<boolean> {
-    const { data: current } = await supabase
+    if (!supabase) {
+      console.warn('⚠️ Supabase not initialized - cannot complete phase');
+      return false;
+    }
+    
+    const { data: currentPhase } = await supabase
       .from('pipelines')
       .select('phase')
       .eq('id', pipelineId)
       .single();
     
-    if (!current) return false;
+    if (!currentPhase) return false;
     
     const phaseOrder: PipelinePhase[] = ['planner', 'coder', 'tester', 'deployer'];
-    const currentIndex = phaseOrder.indexOf(current.phase);
+    const currentIndex = phaseOrder.indexOf(currentPhase.phase);
     
     if (currentIndex === phaseOrder.length - 1) {
       // All phases complete
@@ -455,6 +502,10 @@ export class PipelineStateMachine {
     
     // Move to next phase
     const nextPhase = phaseOrder[currentIndex + 1];
+    if (!nextPhase) {
+      console.error(`No next phase available for index ${currentIndex}`);
+      return false;
+    }
     return this.transitionPhase(pipelineId, nextPhase, 'running');
   }
   
@@ -462,10 +513,16 @@ export class PipelineStateMachine {
    * Heartbeat (zombie prevention)
    */
   private startHeartbeat(pipelineId: string): void {
+    if (!supabase) {
+      console.warn('⚠️ Supabase not initialized - cannot start heartbeat');
+      return;
+    }
+    
     // Clear existing heartbeat if any
     this.stopHeartbeat(pipelineId);
     
     const interval = setInterval(async () => {
+      if (!supabase) return;
       await supabase
         .from('pipelines')
         .update({ last_heartbeat: new Date().toISOString() })

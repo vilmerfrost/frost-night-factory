@@ -11228,6 +11228,8 @@ CRITICAL EXPORT RULES (MANDATORY):
             ]
           });
         } else if (smartLevel === 'SMART') {
+          // ✅ Use fixPipelineId from outer scope
+          const pipelineId = fixPipelineId;
           finalFixOutput = await callAI({
             pipelineId,
             step: 'tester',

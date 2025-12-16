@@ -104,23 +104,23 @@ export interface PaginatedResponse<T> {
 // =============================================================================
 
 export const Components = {
-  // Layout
-  AppShell: () => import('../components/layout/app-shell'),
-  DashboardShell: () => import('../components/layout/dashboard-shell'),
-  PageRenderer: () => import('../components/layout/page-renderer'),
+  // Layout (commented out until components exist)
+  // AppShell: () => import('@/components/layout/app-shell'),
+  // DashboardShell: () => import('@/components/layout/dashboard-shell'),
+  // PageRenderer: () => import('@/components/layout/page-renderer'),
   
   // UI
-  Button: () => import('../components/ui/button'),
-  Card: () => import('../components/ui/card'),
-  Input: () => import('../components/ui/input'),
-  Badge: () => import('../components/ui/badge'),
-  Toast: () => import('../components/ui/toast'),
+  Button: () => import('@/components/ui/button'),
+  Card: () => import('@/components/ui/card'),
+  Input: () => import('@/components/ui/input'),
+  Badge: () => import('@/components/ui/badge'),
+  // Toast: () => import('@/components/ui/toast'),
   
-  // Domain-specific
-  InvoiceCard: () => import('../components/invoice/invoice-card'),
-  InvoiceTable: () => import('../components/invoice/invoice-table'),
-  PaymentForm: () => import('../components/payment/payment-form'),
-  UserProfile: () => import('../components/user/user-profile'),
+  // Domain-specific (commented out until components exist)
+  // InvoiceCard: () => import('@/components/invoice/invoice-card'),
+  // InvoiceTable: () => import('@/components/invoice/invoice-table'),
+  // PaymentForm: () => import('@/components/payment/payment-form'),
+  // UserProfile: () => import('@/components/user/user-profile'),
 } as const;
 
 export type ComponentKey = keyof typeof Components;

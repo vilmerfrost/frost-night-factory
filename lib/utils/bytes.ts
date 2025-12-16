@@ -20,18 +20,24 @@ export function toUtf8(input: ByteLike): string {
   if (input instanceof ArrayBuffer) return Buffer.from(input).toString("utf-8");
 
   // ArrayBufferView inkluderar t.ex. Uint8Array / DataView
-  // Copy to avoid ArrayBufferLike issues
+  // Copy to avoid ArrayBufferLike issues - convert to standalone Uint8Array first
   let view: Uint8Array;
   if (input instanceof Uint8Array) {
-    view = new Uint8Array(input.byteLength);
-    view.set(input);
+    // Create a standalone copy
+    view = new Uint8Array(input.length);
+    for (let i = 0; i < input.length; i++) {
+      view[i] = input[i]!;
+    }
   } else {
+    // For other ArrayBufferView types, copy via Uint8Array
     const temp = new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
-    view = new Uint8Array(temp.byteLength);
-    view.set(temp);
+    view = new Uint8Array(temp.length);
+    for (let i = 0; i < temp.length; i++) {
+      view[i] = temp[i]!;
+    }
   }
 
-  return Buffer.from(view).toString("utf-8");
+  return Buffer.from(view.buffer).toString("utf-8");
 }
 
 /**
@@ -42,17 +48,23 @@ export function toBuffer(input: ByteLike): Buffer {
   if (typeof input === "string") return Buffer.from(input, "utf-8");
   if (input instanceof ArrayBuffer) return Buffer.from(input);
   
-  // Copy to avoid ArrayBufferLike issues
+  // Copy to avoid ArrayBufferLike issues - convert to standalone Uint8Array first
   let view: Uint8Array;
   if (input instanceof Uint8Array) {
-    view = new Uint8Array(input.byteLength);
-    view.set(input);
+    // Create a standalone copy
+    view = new Uint8Array(input.length);
+    for (let i = 0; i < input.length; i++) {
+      view[i] = input[i]!;
+    }
   } else {
+    // For other ArrayBufferView types, copy via Uint8Array
     const temp = new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
-    view = new Uint8Array(temp.byteLength);
-    view.set(temp);
+    view = new Uint8Array(temp.length);
+    for (let i = 0; i < temp.length; i++) {
+      view[i] = temp[i]!;
+    }
   }
-  return Buffer.from(view);
+  return Buffer.from(view.buffer);
 }
 
 /**

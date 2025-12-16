@@ -139,7 +139,7 @@ async function parseEndpointsFromFastAPI(filePath: string): Promise<APIEndpoint[
       // Try to infer response from function
       const functionBody = content.slice((match.index ?? 0) + match[0].length).split('def ')[0];
       
-      if (functionName) {
+      if (functionName && functionBody) {
         endpoints.push({
           method,
           path,

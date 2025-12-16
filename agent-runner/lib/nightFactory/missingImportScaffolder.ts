@@ -2,6 +2,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { isLibFile } from '../jsx-detector';
+import { splitOnce } from '@/lib/utils/strings';
 
 export interface ScaffolderOptions {
   workspaceRoot: string;
@@ -86,8 +87,9 @@ async function collectAliasImports(files: string[]): Promise<ImportRecord[]> {
     let match: RegExpExecArray | null;
 
     while ((match = importRegex.exec(content)) !== null) {
-      const clause = match[1].trim();
-      const specifier = match[2].trim();
+      const clause = match[1]?.trim();
+      const specifier = match[2]?.trim();
+      if (!clause || !specifier) continue;
 
       const namedImports: string[] = [];
       let defaultImport: string | undefined;
@@ -101,7 +103,10 @@ async function collectAliasImports(files: string[]): Promise<ImportRecord[]> {
         }
       } else if (clause.includes('{')) {
         // import Default, { A } from '@/...'
-        const [defPart, namedPart] = clause.split('{');
+        const parts = splitOnce(clause, '{');
+        if (!parts) continue;
+        const [defPart, namedPart] = parts;
+        if (!defPart || !namedPart) continue;
         defaultImport = defPart.replace(/,/g, '').trim();
         const inner = namedPart.replace(/[{}]/g, '');
         for (const part of inner.split(',')) {
@@ -170,12 +175,12 @@ async function resolveMissingModules(
     if (exists) continue;
 
     const key = candidates[0];
-    if (seen.has(key)) continue;
+    if (!key || seen.has(key)) continue;
     seen.add(key);
 
     missing.push({
       ...imp,
-      targetFile: candidates[0], // Will be .ts for lib files, .tsx for components
+      targetFile: key, // Will be .ts for lib files, .tsx for components
       kind,
     });
   }

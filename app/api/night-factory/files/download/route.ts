@@ -24,14 +24,14 @@ export async function POST(req: Request) {
     }
 
     // Eftersom 'data' redan är en Blob, anropa arrayBuffer() direkt på den:
-    const arrayBuffer = await data.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    const blobArrayBuffer = await data.arrayBuffer();
+    const buffer = Buffer.from(blobArrayBuffer);
 
     // ✅ Fix: Convert Buffer to Uint8Array then to ArrayBuffer for BodyInit compatibility
     const bytes = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-    const arrayBuffer = uint8ArrayToArrayBuffer(bytes);
+    const responseArrayBuffer = uint8ArrayToArrayBuffer(bytes);
 
-    return new NextResponse(arrayBuffer, {
+    return new NextResponse(responseArrayBuffer, {
       headers: {
         "Content-Type": "application/octet-stream",
         "Content-Disposition": `attachment; filename="${filename}"`,

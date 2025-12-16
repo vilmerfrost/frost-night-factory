@@ -19,9 +19,11 @@ import { getV85Version } from '../lib/nightFactory/v85-index';
 let passed = 0;
 let failed = 0;
 
-function test(name: string, fn: () => boolean | void) {
+type MaybePromise<T> = T | Promise<T>;
+
+async function test(name: string, fn: () => MaybePromise<boolean | void>) {
   try {
-    const result = fn();
+    const result = await fn();
     if (result === false) {
       console.log(`  ❌ ${name}`);
       failed++;
@@ -62,7 +64,7 @@ async function main() {
   console.log('📋 Error Classifier Tests:');
   console.log('───────────────────────────────────────────────────────────────');
   
-  test('Classifies JSX in .ts file', () => {
+  await test('Classifies JSX in .ts file', () => {
     const error = classifyError({
       file: 'src/app/api/test/route.ts',
       message: 'JSX syntax detected in .ts file',
@@ -70,7 +72,7 @@ async function main() {
     return error.category === ErrorCategory.FILE_EXTENSION_MISMATCH;
   });
   
-  test('Classifies API route JSX error', () => {
+  await test('Classifies API route JSX error', () => {
     const error = classifyError({
       file: 'src/app/api/test/route.ts',
       message: 'API route files must not contain JSX',
@@ -78,7 +80,7 @@ async function main() {
     return error.category === ErrorCategory.FILE_STRUCTURE_VIOLATION;
   });
   
-  test('Classifies missing import', () => {
+  await test('Classifies missing import', () => {
     const error = classifyError({
       file: 'src/lib/utils.ts',
       message: "Cannot find module '@/lib/helpers'",
@@ -86,7 +88,7 @@ async function main() {
     return error.category === ErrorCategory.MISSING_IMPORT;
   });
   
-  test('Classifies lazy code', () => {
+  await test('Classifies lazy code', () => {
     const error = classifyError({
       file: 'src/components/Card.tsx',
       message: 'return null detected',
@@ -94,7 +96,7 @@ async function main() {
     return error.category === ErrorCategory.LAZY_CODE;
   });
   
-  test('Suggests REMOVE_JSX for JSX errors', () => {
+  await test('Suggests REMOVE_JSX for JSX errors', () => {
     const error = classifyError({
       file: 'src/app/api/test/route.ts',
       message: 'JSX syntax detected in .ts file',
@@ -102,7 +104,7 @@ async function main() {
     return error.suggestedFixes[0]?.strategy === FixStrategy.REMOVE_JSX;
   });
   
-  test('Escalates after 3 retries for critical errors', () => {
+  await test('Escalates after 3 retries for critical errors', () => {
     const error = classifyError({
       file: 'src/app/api/test/route.ts',
       message: 'JSX syntax detected in .ts file',
@@ -116,24 +118,24 @@ async function main() {
   console.log('\n📋 Blueprint Validation Tests:');
   console.log('───────────────────────────────────────────────────────────────');
   
-  test('Creates default blueprint', () => {
+  await test('Creates default blueprint', () => {
     const blueprint = createDefaultBlueprint('test-project');
     return blueprint.project_name === 'test-project' && 
            blueprint.files.length > 0;
   });
   
-  test('Validates correct blueprint', () => {
+  await test('Validates correct blueprint', () => {
     const blueprint = createDefaultBlueprint('test-project');
     const result = validateBlueprint(blueprint);
     return result.valid === true;
   });
   
-  test('Rejects invalid blueprint', () => {
+  await test('Rejects invalid blueprint', () => {
     const result = validateBlueprint({ invalid: true });
     return result.valid === false;
   });
   
-  test('Detects API route with wrong extension', () => {
+  await test('Detects API route with wrong extension', () => {
     const result = validateBlueprint({
       project_name: 'test',
       fileTypeConstraints: DEFAULT_FILE_TYPE_CONSTRAINTS,
@@ -155,26 +157,26 @@ async function main() {
   console.log('\n📋 Coder Prompt Tests:');
   console.log('───────────────────────────────────────────────────────────────');
   
-  test('Generates system prompt with constraints', () => {
+  await test('Generates system prompt with constraints', () => {
     const prompt = generateCoderSystemPrompt(DEFAULT_FILE_TYPE_CONSTRAINTS);
     return prompt.includes('API ROUTES') && 
            prompt.includes('COMPONENTS') && 
            prompt.includes('UTILITIES');
   });
   
-  test('System prompt includes NO JSX rule', () => {
+  await test('System prompt includes NO JSX rule', () => {
     const prompt = generateCoderSystemPrompt(DEFAULT_FILE_TYPE_CONSTRAINTS);
     return prompt.includes('NO JSX') || prompt.includes('Not import React');
   });
   
-  test('Post-process detects React in API route', () => {
+  await test('Post-process detects React in API route', () => {
     const code = `import React from 'react';
 export async function GET() { return Response.json({}); }`;
     const result = postProcessCode(code, 'src/app/api/test/route.ts', DEFAULT_FILE_TYPE_CONSTRAINTS);
     return result.warnings.some(w => w.includes('React'));
   });
   
-  test('Post-process detects return null', () => {
+  await test('Post-process detects return null', () => {
     const code = `export default function Component() { return null; }`;
     const result = postProcessCode(code, 'src/components/Test.tsx', DEFAULT_FILE_TYPE_CONSTRAINTS);
     return result.warnings.some(w => w.includes('return null'));
@@ -186,12 +188,12 @@ export async function GET() { return Response.json({}); }`;
   console.log('\n📋 AST Validator Tests:');
   console.log('───────────────────────────────────────────────────────────────');
   
-  test('Detects syntax error', () => {
+  await test('Detects syntax error', () => {
     const violations = checkFileSyntax('test.ts', 'const x = {;');
     return violations.length > 0;
   });
   
-  test('Accepts valid TypeScript', () => {
+  await test('Accepts valid TypeScript', () => {
     const violations = checkFileSyntax('test.ts', 'const x: number = 42;');
     return violations.length === 0;
   });
@@ -202,7 +204,7 @@ export async function GET() { return Response.json({}); }`;
   console.log('\n📋 Feature Flags Tests:');
   console.log('───────────────────────────────────────────────────────────────');
   
-  test('Default flags are all enabled', () => {
+  await test('Default flags are all enabled', () => {
     return DEFAULT_V85_FLAGS.FF_V85_VALIDATION === true &&
            DEFAULT_V85_FLAGS.FF_V85_AST_GUARDRAILS === true &&
            DEFAULT_V85_FLAGS.FF_V85_COST_TRACKING === true;
@@ -214,18 +216,18 @@ export async function GET() { return Response.json({}); }`;
   console.log('\n📋 Layout Contract Tests:');
   console.log('───────────────────────────────────────────────────────────────');
   
-  test('Layout contracts exist for all components', async () => {
+  await test('Layout contracts exist for all components', async () => {
     const { LAYOUT_CONTRACTS } = await import('../lib/nightFactory/layout-contract');
     return LAYOUT_CONTRACTS.length >= 10;
   });
   
-  test('Can get FormPage contract', async () => {
+  await test('Can get FormPage contract', async () => {
     const { getLayoutContract } = await import('../lib/nightFactory/layout-contract');
     const contract = getLayoutContract('FormPage');
     return contract !== null && contract.props.title !== undefined;
   });
   
-  test('isLayoutComponent detects layout components', async () => {
+  await test('isLayoutComponent detects layout components', async () => {
     const { isLayoutComponent } = await import('../lib/nightFactory/layout-contract');
     return isLayoutComponent('AppShell') === true &&
            isLayoutComponent('RandomComponent') === false;
@@ -237,19 +239,19 @@ export async function GET() { return Response.json({}); }`;
   console.log('\n📋 Batch Fixer Tests:');
   console.log('───────────────────────────────────────────────────────────────');
   
-  test('Batch fixer health check passes', async () => {
+  await test('Batch fixer health check passes', async () => {
     const { batchFixerHealthCheck } = await import('../lib/nightFactory/v85-batch-fixer');
     const result = batchFixerHealthCheck();
     return result.healthy === true;
   });
   
-  test('Error mapping handles TS2322', async () => {
+  await test('Error mapping handles TS2322', async () => {
     const { mapErrorClassToErrorCategory } = await import('../lib/nightFactory/v85-error-mapping');
     const category = mapErrorClassToErrorCategory('TS2322');
     return category !== undefined;
   });
   
-  test('IntrinsicAttributes detection works', async () => {
+  await test('IntrinsicAttributes detection works', async () => {
     const { isIntrinsicAttributesError } = await import('../lib/nightFactory/v85-error-mapping');
     return isIntrinsicAttributesError("Property 'title' does not exist on type 'IntrinsicAttributes'") === true &&
            isIntrinsicAttributesError("Normal error") === false;
@@ -261,7 +263,7 @@ export async function GET() { return Response.json({}); }`;
   console.log('\n📋 IntrinsicAttributes Error Tests:');
   console.log('───────────────────────────────────────────────────────────────');
   
-  test('Classifies IntrinsicAttributes error correctly', () => {
+  await test('Classifies IntrinsicAttributes error correctly', () => {
     const error = classifyError({
       file: 'src/components/layout/FormPage.tsx',
       message: "Property 'title' does not exist on type 'IntrinsicAttributes'",
@@ -270,7 +272,7 @@ export async function GET() { return Response.json({}); }`;
            error.subcategory.includes('intrinsic');
   });
   
-  test('Classifies TS2322 IntrinsicAttributes error', () => {
+  await test('Classifies TS2322 IntrinsicAttributes error', () => {
     const error = classifyError({
       file: 'src/app/page.tsx',
       message: "TS2322: Type 'X' is not assignable to type 'IntrinsicAttributes'",

@@ -4,7 +4,7 @@ import { generateContent } from "@/lib/nightFactory/modelClient";
 import { execSync } from "child_process";
 import fs from "fs/promises";
 import path from "path";
-import { toUtf8 } from "@/lib/utils/bytes";
+import { toUtf8 } from "../utils/bytes";
 
 export interface ReviewerOutput {
   summary: string[];

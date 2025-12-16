@@ -151,9 +151,92 @@ export function enforceLibNoJsxInvariant(relPathPosix: string, content: string):
 /**
  * Optional helper: if ImportHealer finds missing exports in a lib module,
  * we can generate stubs for specific exports deterministically.
+ * 
+ * ✅ ADDITIVE: Reads existing file and adds missing exports (union), doesn't replace entire file
  */
-export function buildLibStubWithExports(relPathPosix: string, exportsNeeded: string[]): string {
-  const header = `// AUTO-STUB (MISSING_EXPORTS): ${relPathPosix}\n`;
-  const body = exportsNeeded.map(stubExport).join("");
-  return header + body;
+export function buildLibStubWithExports(
+  relPathPosix: string, 
+  exportsNeeded: string[],
+  existingContent?: string
+): string {
+  // If we have existing content, parse it to find existing exports
+  const existingExports = new Set<string>();
+  if (existingContent) {
+    try {
+      const safe = toFileNameSafe(relPathPosix, "lib-stub.ts");
+      const sf = ts.createSourceFile(
+        safe,
+        existingContent,
+        ts.ScriptTarget.Latest,
+        true,
+        relPathPosix.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+      );
+      
+      const visit = (node: ts.Node) => {
+        // Named exports
+        if (ts.isExportDeclaration(node) && node.exportClause && ts.isNamedExports(node.exportClause)) {
+          for (const el of node.exportClause.elements) {
+            existingExports.add(el.name.text);
+          }
+        }
+        // Export keyword on declarations
+        if (ts.isFunctionDeclaration(node) && node.name) {
+          const mods = ts.getModifiers(node);
+          if (mods?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)) {
+            existingExports.add(node.name.text);
+          }
+        }
+        if (ts.isVariableStatement(node)) {
+          const mods = ts.getModifiers(node);
+          if (mods?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)) {
+            for (const decl of node.declarationList.declarations) {
+              if (ts.isIdentifier(decl.name)) existingExports.add(decl.name.text);
+            }
+          }
+        }
+        if (
+          ts.isInterfaceDeclaration(node) ||
+          ts.isTypeAliasDeclaration(node) ||
+          ts.isClassDeclaration(node) ||
+          ts.isEnumDeclaration(node)
+        ) {
+          const mods = ts.getModifiers(node);
+          if (mods?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) && node.name) {
+            existingExports.add(node.name.text);
+          }
+        }
+        // Default export
+        if (ts.isExportAssignment(node)) {
+          existingExports.add("default");
+        }
+        ts.forEachChild(node, visit);
+      };
+      
+      visit(sf);
+    } catch {
+      // If parsing fails, assume no existing exports
+    }
+  }
+  
+  // Only add exports that don't already exist
+  const missingExports = exportsNeeded.filter(exp => !existingExports.has(exp));
+  
+  if (missingExports.length === 0) {
+    // All exports already exist, return existing content
+    return existingContent || `// AUTO-STUB (MISSING_EXPORTS): ${relPathPosix}\n`;
+  }
+  
+  // Build additive stub block
+  const header = existingContent 
+    ? `\n// === AUTO_STUB_EXPORTS_START ===\n`
+    : `// AUTO-STUB (MISSING_EXPORTS): ${relPathPosix}\n`;
+  const body = missingExports.map(stubExport).join("");
+  const footer = existingContent ? `// === AUTO_STUB_EXPORTS_END ===\n` : "";
+  
+  // If we have existing content, append; otherwise create new
+  if (existingContent) {
+    return existingContent.trimEnd() + "\n" + header + body + footer;
+  }
+  
+  return header + body + footer;
 }

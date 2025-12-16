@@ -33,6 +33,27 @@ export class ExportRegistry {
 
   async registerFile(absFilePath: string): Promise<void> {
     if (!(await exists(absFilePath))) return;
+    
+    // Check if path is a directory (EISDIR prevention)
+    try {
+      const stat = await fs.stat(absFilePath);
+      if (stat.isDirectory()) {
+        console.warn(`⚠️ [ExportRegistry] Skipping directory: ${absFilePath}`);
+        // Try to register index.ts if it exists
+        const indexPath = path.join(absFilePath, "index.ts");
+        if (await exists(indexPath)) {
+          await this.registerFile(indexPath);
+        }
+        return;
+      }
+    } catch (error: any) {
+      // If stat fails, assume it's not a directory and continue
+      if (error.code !== "ENOENT") {
+        console.warn(`⚠️ [ExportRegistry] Error checking path ${absFilePath}: ${error.message}`);
+        return;
+      }
+    }
+    
     const content = await fs.readFile(absFilePath, "utf8");
     const info = this.scanExports(absFilePath, content);
     this.exportsByAbs.set(absFilePath, info);
@@ -129,7 +150,30 @@ export class ExportRegistry {
     ];
 
     for (const c of candidates) {
-      if (await exists(c)) return c;
+      if (await exists(c)) {
+        // Check if it's a directory - if so, try index files
+        try {
+          const stat = await fs.stat(c);
+          if (stat.isDirectory()) {
+            // Try index.ts, index.tsx, etc.
+            const indexCandidates = [
+              path.join(c, "index.ts"),
+              path.join(c, "index.tsx"),
+              path.join(c, "index.js"),
+              path.join(c, "index.jsx"),
+            ];
+            for (const idx of indexCandidates) {
+              if (await exists(idx)) return idx;
+            }
+            // Directory exists but no index file - return the directory path
+            // The caller should handle this
+            return c;
+          }
+        } catch {
+          // If stat fails, assume it's a file and return it
+        }
+        return c;
+      }
     }
     return null;
   }

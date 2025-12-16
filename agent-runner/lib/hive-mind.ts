@@ -431,7 +431,7 @@ export async function updateFixCandidateOutcome(
           build_passed: buildPassed,
           tests_passed: testsPassed,
         })
-        .eq('id', candidates[0].id);
+        .eq('id', candidates[0]?.id ?? '');
     }
   } catch (error: any) {
     console.warn(`⚠️ [Hive Mind] Update fix candidate failed: ${error.message}`);

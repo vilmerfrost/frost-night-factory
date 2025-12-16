@@ -5,7 +5,7 @@
 import { execSync } from "child_process";
 import { callAI } from "@/lib/nightFactory/modelClient";
 import { convertTesterToJSON, buildPipelineContext } from "./json-converter";
-import { toUtf8 } from "@/lib/utils/bytes";
+import { toUtf8 } from "../utils/bytes";
 import type { TesterOutput } from "./phases";
 import type { 
   ResearchPhaseJSON, 

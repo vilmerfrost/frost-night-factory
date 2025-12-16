@@ -16,12 +16,80 @@ export const GOLDEN_CONTRACTS: GoldenContract[] = [
   {
     file: "src/lib/types.ts",
     template: "templates/fortress/types.ts",
-    requiredExports: ["InvoiceData", "LineItem", "ValidationResult"],
+    requiredExports: [
+      "Invoice",           // App-layer model (camelCase)
+      "Invoices",          // DB-layer model (snake_case, auto-generated)
+      "InvoiceData", 
+      "InvoiceItem", 
+      "InvoiceStatus", 
+      "CurrencyCode", 
+      "ValidationResult",
+      "Nullable",
+      "Optional",
+      "AsyncResult",
+      "ApiResponse",
+      "PaginatedResponse"
+    ],
   },
   {
     file: "src/lib/config.ts",
     template: "templates/fortress/config.ts",
     requiredExports: ["appConfig", "apiConfig"],
+  },
+  {
+    file: "src/lib/extraction.ts",
+    template: "templates/fortress/extraction.ts",
+    requiredExports: ["extractInvoiceData"],
+  },
+  {
+    file: "src/lib/ai-extractor.ts",
+    template: "templates/fortress/ai-extractor.ts",
+    requiredExports: ["extractWithAI"],
+  },
+  {
+    file: "src/lib/fallback-extractor.ts",
+    template: "templates/fortress/fallback-extractor.ts",
+    requiredExports: ["fallbackExtractor"],
+  },
+  {
+    file: "src/lib/pdf-loader.ts",
+    template: "templates/fortress/pdf-loader.ts",
+    requiredExports: ["PDFLoader"],
+  },
+  {
+    file: "src/lib/db-mappers.ts",
+    template: "templates/fortress/db-mappers.ts",
+    requiredExports: ["dbToInvoice", "invoiceToDb", "dbToInvoiceArray"],
+  },
+  {
+    file: "src/lib/supabase/client.ts",
+    template: "templates/fortress/supabase-client.ts",
+    requiredExports: ["createClient", "createBrowserClient", "supabaseClient"],
+  },
+  {
+    file: "src/lib/supabase/server.ts",
+    template: "templates/fortress/supabase-server.ts",
+    requiredExports: ["createClient", "createServerComponentClient"],
+  },
+  {
+    file: "src/lib/supabase/server-client.ts",
+    template: "templates/fortress/supabase-server.ts",
+    requiredExports: ["createClient", "createServerComponentClient"],
+  },
+  {
+    file: "src/lib/auth/session.ts",
+    template: "templates/fortress/auth-session.ts",
+    requiredExports: ["getUserSession"],
+  },
+  {
+    file: "src/lib/extractors/ai-extractor.ts",
+    template: "templates/fortress/ai-extractor.ts",
+    requiredExports: ["extractWithAI"],
+  },
+  {
+    file: "src/lib/extractors/aiExtractor.ts",
+    template: "templates/fortress/ai-extractor.ts",
+    requiredExports: ["extractWithAI"],
   },
   // Add more if you want: validators, api index, etc.
 ];

@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "cd .. && tsx agent-runner/index.ts"
+    "start": "cd .. && tsx --tsconfig tsconfig.json agent-runner/index.ts"
   },
   "dependencies": {},
   "devDependencies": {}

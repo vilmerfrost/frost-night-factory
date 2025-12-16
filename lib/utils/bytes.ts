@@ -68,7 +68,11 @@ export function toBuffer(input: ByteLike): Buffer {
       view[i] = temp[i]!;
     }
   }
-  return Buffer.from(view.buffer);
+  // Convert view.buffer (which is ArrayBufferLike) to ArrayBuffer
+  const arrayBuffer = new ArrayBuffer(view.byteLength);
+  const targetView = new Uint8Array(arrayBuffer);
+  targetView.set(view);
+  return Buffer.from(arrayBuffer);
 }
 
 /**

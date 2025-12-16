@@ -63,6 +63,7 @@ export const GOLDEN_TSCONFIG = `{
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
+    "tsBuildInfoFile": "./node_modules/.cache/tsbuildinfo",
     "plugins": [{ "name": "next" }],
     "baseUrl": ".",
     "paths": {

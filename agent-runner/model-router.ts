@@ -3,7 +3,7 @@
 
 import path from "node:path";
 import { MODELS, type ModelId } from "./lib/models";
-import { getRecordOrDefault } from "@/lib/utils/maps";
+import { getRecordOrDefault } from "../lib/utils/maps";
 
 export interface ModelConfig {
   provider: 'anthropic' | 'openai' | 'deepseek' | 'groq'

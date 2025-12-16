@@ -9,7 +9,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import puppeteer from 'puppeteer';
 import { callAI } from './modelClient';
-import { toBuffer } from '@/lib/utils/bytes';
+import { toBuffer } from '../utils/bytes';
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || '',

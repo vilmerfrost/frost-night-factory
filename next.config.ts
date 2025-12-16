@@ -1,8 +1,3 @@
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
-  /* config options here */
-  reactCompiler: true,
-};
-
-export default nextConfig;
+// Next.js configuration with TypeScript support
+// Type: config
+// TODO: Implement this file

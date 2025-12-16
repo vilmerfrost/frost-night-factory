@@ -67,6 +67,91 @@ export class ImportHealer {
   ) {}
 
   /**
+   * Auto-create barrel file (index.ts) for a directory if it doesn't exist
+   * Exports all .ts/.tsx files in the directory
+   */
+  private async ensureBarrelFile(dirPath: string): Promise<string | null> {
+    try {
+      const stat = await fs.stat(dirPath);
+      if (!stat.isDirectory()) return null;
+      
+      const indexPath = path.join(dirPath, "index.ts");
+      const indexTsxPath = path.join(dirPath, "index.tsx");
+      
+      // If index already exists, return its path
+      if (await exists(indexPath)) return indexPath;
+      if (await exists(indexTsxPath)) return indexTsxPath;
+      
+      // Read directory and find all .ts/.tsx files (excluding index files and .d.ts)
+      const files = await fs.readdir(dirPath);
+      const exportFiles = files.filter(f => 
+        /\.(ts|tsx)$/.test(f) && 
+        !/^index\.(ts|tsx)$/.test(f) && 
+        !f.endsWith('.d.ts')
+      );
+      
+      if (exportFiles.length === 0) return null;
+      
+      // Generate barrel file content
+      const lines: string[] = [];
+      for (const f of exportFiles) {
+        const base = f.replace(/\.(ts|tsx)$/, '');
+        lines.push(`export * from './${base}';`);
+      }
+      
+      const barrelContent = lines.join('\n') + '\n';
+      await atomicWriteFile(indexPath, barrelContent);
+      
+      console.log(`📦 [Auto-Barrel] Created ${indexPath} with ${exportFiles.length} exports`);
+      return indexPath;
+    } catch (error: any) {
+      // Directory doesn't exist or other error
+      return null;
+    }
+  }
+
+  /**
+   * Safe file reader that checks if path is a directory before reading
+   * Prevents EISDIR errors by automatically trying index.ts/index.tsx for directories
+   */
+  private async safeReadFile(filePath: string): Promise<string | null> {
+    try {
+      const stat = await fs.stat(filePath);
+      
+      // If it's a directory, try to create barrel file or read existing index
+      if (stat.isDirectory()) {
+        // Try to ensure barrel file exists
+        const barrelPath = await this.ensureBarrelFile(filePath);
+        if (barrelPath) {
+          return await fs.readFile(barrelPath, "utf-8");
+        }
+        // Fallback: check for existing index files
+        const indexPath = path.join(filePath, "index.ts");
+        if (await exists(indexPath)) {
+          return await fs.readFile(indexPath, "utf-8");
+        }
+        const indexTsxPath = path.join(filePath, "index.tsx");
+        if (await exists(indexTsxPath)) {
+          return await fs.readFile(indexTsxPath, "utf-8");
+        }
+        console.warn(`⚠️ [ImportHealer] Cannot read directory (no index file and no files to export): ${filePath}`);
+        return null;
+      }
+      
+      // It's a file, read it
+      return await fs.readFile(filePath, "utf-8");
+    } catch (error: any) {
+      // File doesn't exist or other error
+      if (error.code === "ENOENT") {
+        console.warn(`⚠️ [ImportHealer] File not found: ${filePath}`);
+      } else {
+        console.warn(`⚠️ [ImportHealer] Error reading file ${filePath}: ${error.message}`);
+      }
+      return null;
+    }
+  }
+
+  /**
    * Heal imports for one file:
    *  - resolve local modules
    *  - if imported named export is missing, inject stub into target OR patch GOLDEN template
@@ -76,7 +161,11 @@ export class ImportHealer {
     const notes: string[] = [];
     if (!(await exists(importerAbs))) return { fixed: 0, notes };
 
-    const content = await fs.readFile(importerAbs, "utf8");
+    const content = await this.safeReadFile(importerAbs);
+    if (!content) {
+      console.warn(`⚠️ [ImportHealer] Cannot read importer file: ${importerAbs}`);
+      return { fixed: 0, notes };
+    }
     const safe = toFileNameSafe(importerAbs, "import-healer.ts");
     const sf = ts.createSourceFile(safe, content, ts.ScriptTarget.Latest, true, guessKind(safe));
 
@@ -86,8 +175,24 @@ export class ImportHealer {
       if (!ts.isImportDeclaration(stmt)) continue;
       const spec = (stmt.moduleSpecifier as ts.StringLiteral).text;
 
-      const targetAbs = await this.registry.resolveLocalModule(importerAbs, spec);
+      let targetAbs = await this.registry.resolveLocalModule(importerAbs, spec);
       if (!targetAbs) continue;
+      
+      // ✅ AUTO-BARREL: If targetAbs is a directory, create index.ts
+      try {
+        const stat = await fs.stat(targetAbs);
+        if (stat.isDirectory()) {
+          const barrelPath = await this.ensureBarrelFile(targetAbs);
+          if (barrelPath) {
+            targetAbs = barrelPath; // Use the barrel file instead
+          } else {
+            notes.push(`Directory import ${spec} has no index.ts and no files to export`);
+            continue;
+          }
+        }
+      } catch {
+        // Path doesn't exist, continue with original targetAbs
+      }
 
       const importClause = stmt.importClause;
       if (!importClause) continue;
@@ -150,15 +255,20 @@ export class ImportHealer {
         }
       } else {
         // Non-golden: inject stub exports into the target file
-        const targetRaw = await fs.readFile(targetAbs, "utf8");
+        const targetRaw = await this.safeReadFile(targetAbs);
+        if (!targetRaw) {
+          notes.push(`Cannot read target file ${relPosix} (may be a directory without index)`);
+          continue;
+        }
 
         // Extra: if it's a lib file and missing exports, use lib stub generator (stays JSX-free)
         const rel = relPosix.replace(/\\/g, "/");
         if (rel.startsWith("src/lib/")) {
           const needed = Array.from(new Set([...(needsDefault ? ["default"] : []), ...missingNamed]));
-          const stub = buildLibStubWithExports(rel, needed);
+          // ✅ ADDITIVE: Pass existing content so we don't overwrite existing exports
+          const stub = buildLibStubWithExports(rel, needed, targetRaw);
           await atomicWriteFile(targetAbs, stub);
-          notes.push(`Replaced lib file with deterministic export stub: ${relPosix} (${needed.join(", ")})`);
+          notes.push(`Added missing exports to lib file: ${relPosix} (${needed.join(", ")})`);
           fixed += needed.length;
           await this.registry.registerFile(targetAbs);
           continue;
@@ -182,6 +292,35 @@ export class ImportHealer {
   }
 
   private async safeRegisterAndGet(targetAbs: string) {
+    // Check if it's a directory first (EISDIR prevention)
+    try {
+      const stat = await fs.stat(targetAbs);
+      if (stat.isDirectory()) {
+        // Try index.ts instead
+        const indexPath = path.join(targetAbs, "index.ts");
+        if (await exists(indexPath)) {
+          await this.registry.registerFile(indexPath);
+          return this.registry.get(indexPath);
+        }
+        // Try index.tsx
+        const indexTsxPath = path.join(targetAbs, "index.tsx");
+        if (await exists(indexTsxPath)) {
+          await this.registry.registerFile(indexTsxPath);
+          return this.registry.get(indexTsxPath);
+        }
+        // No index file found, return empty exports
+        return null;
+      }
+    } catch (error: any) {
+      // If stat fails and it's not ENOENT, log and return null
+      if (error.code !== "ENOENT") {
+        console.warn(`⚠️ [ImportHealer] Error checking path ${targetAbs}: ${error.message}`);
+        return null;
+      }
+      // Path doesn't exist, return null
+      return null;
+    }
+    
     await this.registry.registerFile(targetAbs);
     return this.registry.get(targetAbs);
   }

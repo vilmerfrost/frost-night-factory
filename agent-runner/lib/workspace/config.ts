@@ -1,5 +1,32 @@
 // agent-runner/lib/workspace/config.ts
+import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+/**
+ * Safe realpath that falls back to resolve if realpath fails.
+ */
+function safeRealpath(p: string): string {
+  try {
+    return fs.realpathSync.native(p);
+  } catch {
+    return path.resolve(p);
+  }
+}
+
+/**
+ * Canonical workspace root.
+ * Anchor to the agent-runner folder (NOT process.cwd()) so "cd .." won't break security.
+ */
+function defaultWorkspaceRoot(): string {
+  // In ESM, __dirname doesn't exist, so we use import.meta.url
+  // This file is at: <repo>/agent-runner/lib/workspace/config.ts
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = path.dirname(__filename);
+  // __dirname = <repo>/agent-runner/lib/workspace
+  const agentRunnerRoot = path.resolve(__dirname, "..", ".."); // -> <repo>/agent-runner
+  return path.join(agentRunnerRoot, "workspace", "sandbox");
+}
 
 /**
  * Single source of truth for workspace root.
@@ -11,8 +38,13 @@ import path from "node:path";
  * - "Missing critical files" errors despite files existing in another root
  */
 export function getWorkspaceRoot(): string {
-  // ENDA stället som definierar root
-  return path.resolve(process.cwd(), "workspace", "sandbox");
+  // Allow override via env var for testing/deployment
+  const envRoot = (process.env.FROST_WORKSPACE_ROOT ?? "").trim();
+  if (envRoot) {
+    return path.resolve(envRoot);
+  }
+  // Default: always anchor to agent-runner/workspace/sandbox regardless of process.cwd()
+  return defaultWorkspaceRoot();
 }
 
 /**
@@ -26,14 +58,17 @@ export function getWorkspaceRoot(): string {
  */
 export function assertInsideWorkspace(absPath: string): void {
   const root = getWorkspaceRoot();
-  const resolved = path.resolve(absPath);
+  const rootReal = safeRealpath(root);
+  const targetReal = safeRealpath(path.resolve(absPath));
 
-  const rel = path.relative(root, resolved);
+  const rel = path.relative(rootReal, targetReal);
+
+  // Outside if it starts with ".." (or is absolute in weird edge cases)
   if (rel.startsWith("..") || path.isAbsolute(rel)) {
     throw new Error(
       `[SECURITY] Path escapes workspace root.\n` +
-      `root=${root}\n` +
-      `path=${resolved}\n` +
+      `root=${rootReal}\n` +
+      `path=${targetReal}\n` +
       `relative=${rel}`
     );
   }

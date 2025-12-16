@@ -26,7 +26,11 @@ export interface GenerationResult {
  * 🔧 STUB GENERATOR: Pre-scaffold imports to prevent ghost imports
  * Scans prompt for import statements and creates empty stub files
  */
-async function preScaffoldImports(prompt: string, projectRoot: string): Promise<void> {
+async function preScaffoldImports(
+  prompt: string, 
+  projectRoot: string,
+  plan?: { files?: Array<{ path: string }> }
+): Promise<void> {
   console.log(`🔧 [STUB GENERATOR] Scanning for imports to pre-scaffold...`);
   
   // Extract import statements from prompt
@@ -37,15 +41,42 @@ async function preScaffoldImports(prompt: string, projectRoot: string): Promise<
   while ((match = importPattern.exec(prompt)) !== null) {
     const importPath = match[1];
     if (!importPath) continue;
-    // Convert @/components/Sidebar -> src/components/Sidebar.tsx
-    const filePath = importPath.startsWith('src/') 
+    
+    // Convert @/lib/extractors -> src/lib/extractors
+    const basePath = importPath.startsWith('src/') 
       ? importPath 
       : `src/${importPath}`;
     
-    // ✅ Use centralized path-rules to determine correct extension
-    const fullPath = ensurePreferredExtension(filePath);
+    // ✅ FIX: Check if plan has index.ts for this import path
+    // If plan has src/lib/extractors/index.ts, use that instead of src/lib/extractors.ts
+    const indexPath = `${basePath}/index.ts`;
+    const directPath = `${basePath}.ts`;
+    const directPathTsx = `${basePath}.tsx`;
     
-    imports.add(fullPath);
+    let targetPath: string;
+    
+    if (plan?.files) {
+      // Check if plan has index.ts structure
+      const hasIndexFile = plan.files.some(f => f.path === indexPath);
+      const hasDirectFile = plan.files.some(f => f.path === directPath || f.path === directPathTsx);
+      
+      if (hasIndexFile) {
+        // Plan expects directory/index.ts structure
+        targetPath = indexPath;
+      } else if (hasDirectFile) {
+        // Plan expects direct file
+        const planFile = plan.files.find(f => f.path === directPath || f.path === directPathTsx);
+        targetPath = planFile?.path || ensurePreferredExtension(basePath);
+      } else {
+        // No plan info, use default logic
+        targetPath = ensurePreferredExtension(basePath);
+      }
+    } else {
+      // No plan available, use default logic
+      targetPath = ensurePreferredExtension(basePath);
+    }
+    
+    imports.add(targetPath);
   }
   
   // Also check for common component imports
@@ -69,6 +100,16 @@ async function preScaffoldImports(prompt: string, projectRoot: string): Promise<
   for (const importPath of imports) {
     const fullPath = path.join(projectRoot, importPath);
     const dir = path.dirname(fullPath);
+    
+    // ✅ FIX: Check if path is a directory (EISDIR prevention)
+    // If directory exists but file doesn't, and this is NOT an index.ts, skip
+    if (fs.existsSync(dir) && fs.statSync(dir).isDirectory() && !importPath.endsWith('/index.ts') && !importPath.endsWith('/index.tsx')) {
+      // Directory exists but we're trying to create a file with same name
+      // This means plan expects index.ts structure but we're creating flat file
+      // Skip this stub - let the actual file generation handle it
+      console.log(`   ⚠️ Skipping stub for ${importPath} (directory exists, likely needs index.ts)`);
+      continue;
+    }
     
     if (!fs.existsSync(fullPath)) {
       // Create directory if needed
@@ -95,9 +136,17 @@ export default function ${componentName}() {
 `;
       }
       
-      fs.writeFileSync(fullPath, stubContent, 'utf-8');
-      console.log(`   📄 Created stub: ${importPath}`);
-      stubsCreated++;
+      try {
+        fs.writeFileSync(fullPath, stubContent, 'utf-8');
+        console.log(`   📄 Created stub: ${importPath}`);
+        stubsCreated++;
+      } catch (error: any) {
+        if (error.code === 'EISDIR') {
+          console.warn(`   ⚠️ Skipping stub for ${importPath} (path is a directory, likely needs index.ts)`);
+        } else {
+          console.warn(`   ⚠️ Failed to create stub for ${importPath}: ${error.message}`);
+        }
+      }
     }
   }
   
@@ -118,7 +167,8 @@ export async function generateWithValidation(
   prompt: string,
   targetFile: string,
   projectRoot: string,
-  maxAttempts: number = 10
+  maxAttempts: number = 10,
+  plan?: { files?: Array<{ path: string }> }
 ): Promise<GenerationResult> {
   
   // ✅ Phase 1: Generate context ONCE (will be cached)
@@ -139,7 +189,7 @@ export async function generateWithValidation(
   // ═══════════════════════════════════════════════════════════════════
   // 🔧 STUB GENERATOR: Create empty stubs for imports BEFORE generation
   // ═══════════════════════════════════════════════════════════════════
-  await preScaffoldImports(prompt, projectRoot);
+  await preScaffoldImports(prompt, projectRoot, plan);
   
   // ✅ Phase 2: Check semantic cache BEFORE generating (STRICT MATCHING)
   // ✅ Pass filePath for better classification (even if prompt doesn't contain it)

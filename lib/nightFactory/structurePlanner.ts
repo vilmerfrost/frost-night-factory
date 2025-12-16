@@ -43,6 +43,18 @@ export async function planPerfectFileStructure(requirements: string, rootDir: st
   4. TYPES: Consolidate ALL types into '${libPath}/types.ts'.
   5. EXPORTS: Be explicit. Pages export 'default'. Components export 'named'.
   6. IMPORTS: Use @/ aliases (e.g., @/components/ui/Button, @/lib/types).
+  7. FILE STRUCTURE: Use FLAT FILES, NOT directory/index.ts structures.
+     - ✅ CORRECT: src/lib/extractors.ts
+     - ❌ WRONG: src/lib/extractors/index.ts
+     - This prevents EISDIR errors and simplifies imports.
+  8. DATABASE-FIRST TYPES: Types in ${libPath}/types.ts are AUTO-GENERATED from database schema.
+     - ALL database field names use snake_case (e.g. invoice_number, created_at)
+     - NEVER convert to camelCase - use exact field names from types.ts
+     - When accessing database rows:
+       ✅ CORRECT: invoice.invoice_number, invoice.created_at
+       ❌ WRONG: invoice.invoiceNumber, invoice.createdAt
+     - Type definitions are READ-ONLY - never modify types.ts manually
+     - Use db-mappers.ts to convert between DB (snake_case) and App (camelCase) layers.
 
   OUTPUT JSON ONLY:
   {

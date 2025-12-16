@@ -1,9 +1,3 @@
-/** @type {import('next').NextConfig} */
-const nextConfig = {
-  reactStrictMode: true,
-  typescript: {
-    tsconfigPath: './tsconfig.json',
-  },
-}
-
-module.exports = nextConfig
+// Next.js configuration
+// Type: config
+// TODO: Implement this file

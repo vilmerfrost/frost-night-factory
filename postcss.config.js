@@ -1,7 +1,3 @@
-// ✅ RÄTT (CommonJS syntax)
-module.exports = {
-  plugins: {
-    tailwindcss: {},
-    autoprefixer: {},
-  },
-}
+// PostCSS configuration
+// Type: config
+// TODO: Implement this file

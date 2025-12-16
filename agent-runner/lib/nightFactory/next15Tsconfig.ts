@@ -20,11 +20,12 @@ export const NEXT15_TSCONFIG: Record<string, unknown> = {
     allowSyntheticDefaultImports: true,
     forceConsistentCasingInFileNames: true,
     incremental: true,
+    tsBuildInfoFile: './node_modules/.cache/tsbuildinfo',
     baseUrl: '.',
     paths: {
       '@/*': ['./src/*'],
     },
-    types: ['node', 'jest'], // add whatever you need
+    types: ['node'], // add whatever you need (removed jest - not used)
   },
   include: ['next-env.d.ts', 'src/**/*.ts', 'src/**/*.tsx'],
   exclude: ['node_modules', '.next', 'out'],

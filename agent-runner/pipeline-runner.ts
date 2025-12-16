@@ -2464,6 +2464,19 @@ If you need something not listed, include it in your file creation plan.
       repo_map_size: repoMap.length
     });
     
+    // =============================================================================
+    // 🔧 DATABASE-FIRST TYPE GENERATION: Generate types.ts from migrations
+    // =============================================================================
+    console.log('🔧 [DB-First Types] Generating types from migrations...');
+    try {
+      const { autoGenerateTypes } = await import('./lib/nightFactory/db-type-generator');
+      autoGenerateTypes(repoPath);
+      console.log('✅ [DB-First Types] Types generated successfully');
+    } catch (error: any) {
+      console.warn(`⚠️ [DB-First Types] Generation failed (non-fatal): ${error.message}`);
+      // Continue - types.ts will use golden template as fallback
+    }
+    
     await updateStep(pipeline.id, 'planner', 'completed', JSON.stringify({ 
         content: plan, 
         isPython: intent.isPython, 
@@ -2620,6 +2633,31 @@ export function sanitizeModelOutput(code: string, filePath: string): string {
   // Remove any remaining markdown artifacts
   sanitized = sanitized.replace(/^```[a-zA-Z0-9_-]*\s*$/gm, '');
   sanitized = sanitized.replace(/^\[FILE:\s*[^\]]+\]$/gm, '');
+  
+  // ✅ ZOD ERROR FIX: Replace .errors with .flatten() for ZodError
+  // Fixes: Property 'errors' does not exist on type 'ZodError'
+  if (filePath.includes('route.ts') || filePath.includes('api/')) {
+    // Replace parsed.error.errors with parsed.error.flatten()
+    sanitized = sanitized.replace(
+      /parsed\.error\.errors/g,
+      'parsed.error.flatten()'
+    );
+    // Also handle other common patterns
+    sanitized = sanitized.replace(
+      /error\.errors/g,
+      'error.flatten()'
+    );
+    // Fix details: parsed.error.errors -> details: parsed.error.flatten()
+    sanitized = sanitized.replace(
+      /details:\s*parsed\.error\.errors/g,
+      'details: parsed.error.flatten()'
+    );
+    // Fix return statements with .errors
+    sanitized = sanitized.replace(
+      /(\{[\s\S]*?)details:\s*parsed\.error\.errors([\s\S]*?\})/g,
+      '$1details: parsed.error.flatten()$2'
+    );
+  }
   
   return sanitized.trim();
 }
@@ -3837,6 +3875,20 @@ async function createStubFiles(files: string[], repoPath: string): Promise<void>
     const fullPath = path.join(repoPath, normalizedFilePath);
     const dir = path.dirname(fullPath);
     
+    // ✅ FIX: Check if parent directory exists as a file (EISDIR prevention)
+    // If we're creating src/lib/extractors/index.ts but src/lib/extractors.ts exists as a file,
+    // we need to handle this conflict
+    const parentDir = path.dirname(normalizedFilePath);
+    const parentDirPath = path.join(repoPath, parentDir);
+    
+    // Check if parent directory path exists as a FILE (not directory)
+    if (fs.existsSync(parentDirPath) && fs.statSync(parentDirPath).isFile()) {
+      // Parent path is a file, but we're trying to create a directory/index.ts
+      // This is a conflict - skip this stub
+      console.warn(`   ⚠️ Skipping stub for ${normalizedFilePath} (parent path exists as file: ${parentDir})`);
+      continue;
+    }
+    
     // Skip if file already exists (don't overwrite)
     if (fs.existsSync(fullPath)) {
       continue;
@@ -3877,7 +3929,11 @@ export default function ${componentName}() {
       console.log(`   📄 Created stub: ${normalizedFilePath}`);
       stubsCreated++;
     } catch (error: any) {
-      console.warn(`   ⚠️ Failed to create stub for ${normalizedFilePath}: ${error.message}`);
+      if (error.code === 'EISDIR') {
+        console.warn(`   ⚠️ Skipping stub for ${normalizedFilePath} (path is a directory, likely needs index.ts or different structure)`);
+      } else {
+        console.warn(`   ⚠️ Failed to create stub for ${normalizedFilePath}: ${error.message}`);
+      }
     }
   }
   
@@ -5761,7 +5817,8 @@ You MUST use this exact format:
             fullPrompt,
             targetFile,
             repoPath,
-            10  // Max attempts
+            10, // maxAttempts
+            fileStructurePlan // plan parameter for index.ts detection
           );
           
           if (!result.success) {
@@ -14189,8 +14246,57 @@ export async function runPipelineLoop(sandboxPath: string) {
           await updatePipeline(pipeline.id, { current_phase: 'research' });
       }
 
-    } catch (err) {
+    } catch (err: any) {
       console.error('Pipeline Loop Error:', err);
+      
+      // ✅ WS2: SECURITY errors are non-retryable - fail fast
+      const isSecurityError = err?.message?.includes?.('[SECURITY]') ?? false;
+      if (isSecurityError && pipeline) {
+        console.error('🚨 [SECURITY] Path escape detected - marking pipeline as failed (non-retryable)');
+        try {
+          await updatePipeline(pipeline.id, {
+            status: 'failed',
+            last_error: err.message || 'Security violation: path escapes workspace root'
+          });
+        } catch (updateError) {
+          console.error('❌ Failed to update pipeline status:', updateError);
+        }
+        // Release ports before continuing to next pipeline
+        const frontendPortToRelease = (typeof frontendPort !== 'undefined' ? frontendPort : null) || 
+                                      (typeof pipeline !== 'undefined' ? pipeline.metadata?.frontend_port : null);
+        const backendPortToRelease = (typeof backendPort !== 'undefined' ? backendPort : null) || 
+                                     (typeof pipeline !== 'undefined' ? pipeline.metadata?.backend_port : null);
+        
+        if (frontendPortToRelease) {
+          try {
+            PortManager.releasePort(frontendPortToRelease);
+            console.log(`   ✅ Released port ${frontendPortToRelease}`);
+          } catch {
+            // Ignore port release errors
+          }
+        }
+        if (backendPortToRelease) {
+          try {
+            PortManager.releasePort(backendPortToRelease);
+            console.log(`   ✅ Released port ${backendPortToRelease}`);
+          } catch {
+            // Ignore port release errors
+          }
+        }
+        
+        // End cost tracking
+        if (costTracker) {
+          try {
+            costTracker.endPipeline();
+          } catch {
+            // Ignore cost tracking errors during error handling
+          }
+        }
+        
+        // Skip this pipeline and continue to next (don't retry security errors)
+        await sleep(2000);
+        continue;
+      }
       
       // ✅ P2: End cost tracking on error
       if (costTracker) {

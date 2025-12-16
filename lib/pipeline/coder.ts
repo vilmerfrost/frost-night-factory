@@ -8,6 +8,7 @@ import type { CoderOutput, PlannerOutput } from "./phases";
 import type { ResearchPhaseJSON, PlannerPhaseJSON, CoderPhaseJSON } from "./pipeline-json-types";
 import fs from "fs/promises";
 import path from "path";
+import { assertDefined } from "@/lib/utils/assert";
 
 /**
  * Legacy coder (for backward compatibility)
@@ -62,9 +63,17 @@ Return ONLY the JSON object, no markdown code blocks, no explanations.`;
   // Extract JSON
   let jsonStr = response.trim();
   if (jsonStr.includes("```json")) {
-    jsonStr = jsonStr.split("```json")[1].split("```")[0].trim();
+    const parts = jsonStr.split("```json");
+    if (parts[1]) {
+      const codeParts = parts[1].split("```");
+      if (codeParts[0]) jsonStr = codeParts[0].trim();
+    }
   } else if (jsonStr.includes("```")) {
-    jsonStr = jsonStr.split("```")[1].split("```")[0].trim();
+    const parts = jsonStr.split("```");
+    if (parts[1]) {
+      const codeParts = parts[1].split("```");
+      if (codeParts[0]) jsonStr = codeParts[0].trim();
+    }
   }
 
   let coderOutput: CoderOutput;
@@ -230,9 +239,17 @@ NO markdown, NO explanations. ONLY valid JSON.`;
       // Parse frontend files
       let frontendJson = frontendResponse.trim();
       if (frontendJson.includes("```json")) {
-        frontendJson = frontendJson.split("```json")[1].split("```")[0].trim();
+        const parts = frontendJson.split("```json");
+        if (parts[1]) {
+          const codeParts = parts[1].split("```");
+          if (codeParts[0]) frontendJson = codeParts[0].trim();
+        }
       } else if (frontendJson.includes("```")) {
-        frontendJson = frontendJson.split("```")[1].split("```")[0].trim();
+        const parts = frontendJson.split("```");
+        if (parts[1]) {
+          const codeParts = parts[1].split("```");
+          if (codeParts[0]) frontendJson = codeParts[0].trim();
+        }
       }
 
       try {
@@ -298,9 +315,17 @@ NO markdown, NO explanations. ONLY valid JSON.`;
       // Parse backend files
       let backendJson = backendResponse.trim();
       if (backendJson.includes("```json")) {
-        backendJson = backendJson.split("```json")[1].split("```")[0].trim();
+        const parts = backendJson.split("```json");
+        if (parts[1]) {
+          const codeParts = parts[1].split("```");
+          if (codeParts[0]) backendJson = codeParts[0].trim();
+        }
       } else if (backendJson.includes("```")) {
-        backendJson = backendJson.split("```")[1].split("```")[0].trim();
+        const parts = backendJson.split("```");
+        if (parts[1]) {
+          const codeParts = parts[1].split("```");
+          if (codeParts[0]) backendJson = codeParts[0].trim();
+        }
       }
 
       try {

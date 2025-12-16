@@ -10,6 +10,7 @@ import type { ValidationError, CostLog } from './v85-types';
 import { runFrameworkGuardrails, checkFileSyntax } from './v85-ast-validators';
 import type { Violation } from './v85-ast-validators';
 import { classifyError, classifyViolations } from './v85-error-classifier';
+import { assertDefined, assertNonEmptyArray } from '@/lib/utils/assert';
 
 // Dynamic import for AI client (may not exist in all environments)
 let callAI: any = null;
@@ -105,18 +106,13 @@ export async function validateAndRepairLoop(
     }
 
     // Step 4: Take first critical error
+    assertNonEmptyArray(criticalErrors, "Expected at least one critical error");
     const error = criticalErrors[0];
+    assertDefined(error, "Critical error array should not be empty");
+    
+    assertNonEmptyArray(error.suggestedFixes, `No suggested fixes for ${error.category}`);
     const fix = error.suggestedFixes[0];
-
-    if (!fix) {
-      return {
-        success: false,
-        code: currentCode,
-        costLog,
-        failureReason: `Cannot fix ${error.category} after ${attempt} attempts.`,
-        violations,
-      };
-    }
+    assertDefined(fix, "First suggested fix should exist");
 
     console.log(`\n🔧 Applying ${fix.strategy} for ${error.subcategory}`);
     console.log(`   Success probability: ${(fix.probability * 100).toFixed(0)}%`);
@@ -392,12 +388,15 @@ export function getCostSummary(costLog: CostLog[]): {
     
     if (log.success) successCount++;
     
-    if (!summary.byModel[log.model]) {
-      summary.byModel[log.model] = { cost: 0, attempts: 0, successes: 0 };
+    const model = log.model;
+    if (!model) continue; // Skip logs without model
+    
+    if (!summary.byModel[model]) {
+      summary.byModel[model] = { cost: 0, attempts: 0, successes: 0 };
     }
-    summary.byModel[log.model].cost += log.cost;
-    summary.byModel[log.model].attempts++;
-    if (log.success) summary.byModel[log.model].successes++;
+    summary.byModel[model].cost += log.cost;
+    summary.byModel[model].attempts++;
+    if (log.success) summary.byModel[model].successes++;
   }
   
   summary.successRate = costLog.length > 0 ? successCount / costLog.length : 0;

@@ -13,6 +13,7 @@ import type {
 } from "./pipeline-json-types";
 import fs from "fs/promises";
 import path from "path";
+import { assertDefined } from "@/lib/utils/assert";
 
 /**
  * Legacy SQL phase (for backward compatibility)
@@ -46,9 +47,17 @@ Start directly with CREATE TABLE statements.`;
   // Clean up SQL (remove markdown if present)
   let cleanSql = sql.trim();
   if (cleanSql.includes("```sql")) {
-    cleanSql = cleanSql.split("```sql")[1].split("```")[0].trim();
+    const parts = cleanSql.split("```sql");
+    if (parts[1]) {
+      const codeParts = parts[1].split("```");
+      if (codeParts[0]) cleanSql = codeParts[0].trim();
+    }
   } else if (cleanSql.includes("```")) {
-    cleanSql = cleanSql.split("```")[1].split("```")[0].trim();
+    const parts = cleanSql.split("```");
+    if (parts[1]) {
+      const codeParts = parts[1].split("```");
+      if (codeParts[0]) cleanSql = codeParts[0].trim();
+    }
   }
 
   // Write migration file
@@ -211,9 +220,17 @@ Return ONLY SQL code. No markdown code blocks. Start with comments.`;
   
   // Remove markdown code blocks if present
   if (cleanSql.includes("```sql")) {
-    cleanSql = cleanSql.split("```sql")[1].split("```")[0].trim();
+    const parts = cleanSql.split("```sql");
+    if (parts[1]) {
+      const codeParts = parts[1].split("```");
+      if (codeParts[0]) cleanSql = codeParts[0].trim();
+    }
   } else if (cleanSql.includes("```")) {
-    cleanSql = cleanSql.split("```")[1].split("```")[0].trim();
+    const parts = cleanSql.split("```");
+    if (parts[1]) {
+      const codeParts = parts[1].split("```");
+      if (codeParts[0]) cleanSql = codeParts[0].trim();
+    }
   }
 
   // ============================================================
@@ -344,7 +361,7 @@ ${cleanSql}
   // Update migrations with actual file
   if (migrationFile) {
     result.data.migrations_created = [{
-      version: migrationName.split("_")[0],
+      version: migrationName.split("_")[0] ?? migrationName,
       description: `Auto-generated schema for ${planContext.project_overview.name}`,
       sql_file: `supabase/migrations/${migrationName}`,
       status: "ready_to_apply",

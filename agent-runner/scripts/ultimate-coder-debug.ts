@@ -28,6 +28,9 @@ import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { assertDefined } from "@/lib/utils/assert";
+import { lineAt } from "@/lib/utils/text";
+import { toUtf8 } from "@/lib/utils/bytes";
 import { spawnSync } from "node:child_process";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
@@ -239,14 +242,24 @@ function parseArgs(argv: string[]): Args {
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
 
-    if (k === "--out") args.outDir = path.resolve(process.cwd(), argv[++i]);
-    else if (k === "--limit") args.limit = Number(argv[++i] ?? "200");
-    else if (k === "--replayLimit") args.replayLimit = Number(argv[++i]);
-    else if (k === "--all") args.onlyFailed = false;
+    if (k === "--out") {
+      const nextArg = argv[++i];
+      assertDefined(nextArg, "--out requires a directory path");
+      args.outDir = path.resolve(process.cwd(), nextArg);
+    } else if (k === "--limit") args.limit = Number(argv[++i] ?? "200");
+    else if (k === "--replayLimit") {
+      const nextArg = argv[++i];
+      if (nextArg) args.replayLimit = Number(nextArg);
+    } else if (k === "--all") args.onlyFailed = false;
     else if (k === "--onlyFailed") args.onlyFailed = true;
-    else if (k === "--sinceDays") args.sinceDays = Number(argv[++i]);
-    else if (k === "--corpus") args.corpusDir = path.resolve(process.cwd(), argv[++i]);
-    else if (k === "--checks") {
+    else if (k === "--sinceDays") {
+      const nextArg = argv[++i];
+      if (nextArg) args.sinceDays = Number(nextArg);
+    } else if (k === "--corpus") {
+      const nextArg = argv[++i];
+      assertDefined(nextArg, "--corpus requires a directory path");
+      args.corpusDir = path.resolve(process.cwd(), nextArg);
+    } else if (k === "--checks") {
       const v = String(argv[++i] ?? "basic");
       if (v === "none") args.checks = "none";
       else if (v === "strict") args.checks = "strict";
@@ -611,7 +624,9 @@ function inferFilePathNearIndex(fullText: string, idx: number): string | null {
   let best: string | null = null;
   for (const re of patterns) {
     let m: RegExpExecArray | null;
-    while ((m = re.exec(window)) !== null) best = m[1];
+    while ((m = re.exec(window)) !== null) {
+      if (m[1]) best = m[1];
+    }
   }
   return best ? safeRelPath(best) : null;
 }
@@ -648,13 +663,18 @@ function extractFilesFromSectionedText(fullText: string): GenFile[] {
   };
 
   for (let i = 0; i < lines.length; i++) {
-    const rawLine = lines[i];
+    const rawLine = lineAt(lines, i);
+    if (!rawLine) continue;
+    
     const line = rawLine.trim();
-    const prev = i > 0 ? lines[i - 1].trim() : "";
+    const prevLine = lineAt(lines, i - 1);
+    const prev = prevLine ? prevLine.trim() : "";
 
     const m = headerRe.exec(line);
     if (m) {
       const fp = m[1];
+      if (!fp) continue;
+      
       const marked = isMarkedHeader(line);
       const separated = prev.length === 0;
 
@@ -772,20 +792,23 @@ function parseFenceInfo(info: string): { lang?: string; filePath?: string } | nu
   if (info.includes("/") && !info.includes("file=") && !info.includes("filename=")) {
     const parts = info.split(/\s+/).filter(Boolean);
     const first = parts[0];
-    if (first.includes("/")) return { filePath: first };
+    if (first && first.includes("/")) return { filePath: first };
   }
 
   // Case: ```tsx file="app/page.tsx"
-  const lang = info.split(/\s+/)[0]?.trim();
+  const langParts = info.split(/\s+/);
+  const lang = langParts[0]?.trim();
   const fileMatch =
     /(?:file|filename|path)\s*=\s*["']([^"']+)["']/.exec(info) ??
     /(?:file|filename|path)\s*=\s*([^\s]+)/.exec(info);
 
-  if (fileMatch) return { lang, filePath: fileMatch[1] };
+  if (fileMatch && fileMatch[1]) return { lang, filePath: fileMatch[1] };
 
   // Case: ```tsx app/page.tsx
   const parts = info.split(/\s+/).filter(Boolean);
-  if (parts.length >= 2 && parts[1].includes("/")) return { lang: parts[0], filePath: parts[1] };
+  if (parts.length >= 2 && parts[1] && parts[1].includes("/")) {
+    return { lang: parts[0] ?? undefined, filePath: parts[1] };
+  }
 
   return { lang };
 }
@@ -1001,8 +1024,10 @@ function runBasicChecksIfPossible(caseSandboxDir: string) {
 
 function fingerprintError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
-  return msg
-    .split("\n")[0]
+  const firstLine = msg.split("\n")[0];
+  if (!firstLine) return String(err).slice(0, 200);
+  
+  return firstLine
     .replace(/\b[0-9a-f]{8,}\b/gi, "<id>")
     .replace(/([A-Za-z]:)?[\\/][^\s:]+/g, "<path>")
     .slice(0, 200);
@@ -1524,7 +1549,7 @@ async function main() {
   await runUltimateCoderDebug(process.argv.slice(2));
 }
 
-const isDirectRun = import.meta.url === pathToFileURL(process.argv[1]).href;
+const isDirectRun = import.meta.url === pathToFileURL(process.argv[1] ?? "").href;
 if (isDirectRun) {
   main().catch((e) => {
     console.error("❌ ultimate-coder-debug crashed:", e?.stack ?? e);

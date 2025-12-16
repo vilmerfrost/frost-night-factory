@@ -48,3 +48,14 @@ export function assertNonEmptyString(v: string | undefined | null, msg: string):
 export function assertNonNull<T>(value: T | null | undefined, message?: string): asserts value is NonNullable<T> {
   if (value == null) throw new Error(message ?? "Expected value to be non-null");
 }
+
+/**
+ * Assert that an array is non-empty
+ * Returns a type that guarantees at least one element
+ */
+export function assertNonEmptyArray<T>(
+  arr: T[] | null | undefined,
+  message = "Expected non-empty array"
+): asserts arr is [T, ...T[]] {
+  if (!arr || arr.length === 0) throw new Error(message);
+}

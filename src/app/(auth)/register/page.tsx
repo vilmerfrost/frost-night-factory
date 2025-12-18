@@ -1,3 +1,3 @@
-// Registration page with email/password form
+// Registration form
 // Type: page
 // TODO: Implement this file

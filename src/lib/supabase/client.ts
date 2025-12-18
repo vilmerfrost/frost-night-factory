@@ -1,3 +1,3 @@
-// Browser-side Supabase client
-// Type: client
+// Supabase client singleton
+// Type: utility
 // TODO: Implement this file

@@ -1,3 +1,3 @@
-// Login form with email/password
+// Login form component
 // Type: component
 // TODO: Implement this file

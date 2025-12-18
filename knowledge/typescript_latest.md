@@ -1,32 +1,37 @@
-**TypeScript coders MUST follow these rules for 2025 compliance, focusing on type safety, advanced features, and strict tooling.**
+**Upgrade to TypeScript 7.0 (preview as of December 2025) or at minimum 5.8 for production; enable `strict: true` in `tsconfig.json` mandatorily.**[1][2][7]
 
-### Strict Mode and Type Safety
-- Enable `"strict": true` in `tsconfig.json` (includes `noImplicitAny`, `strictNullChecks`, `strictFunctionTypes`); never disable[1][4][7].
-- Ban `any`; use `unknown` for unsafe inputs, then narrow with checks (e.g., `if (typeof x === 'string')`)[1][7].
-- Rely on type inference for locals (e.g., `const x = 42`); add explicit annotations only for params/returns/interfaces[1].
+### Breaking Changes (Migrate Immediately)
+- **Promise.resolve**: Uses `Awaited<T>` to unwrap promises precisely; prior `any`/`unknown` assumptions fail—annotate explicitly or use type guards.[1]
+- **Unconstrained generics**: No longer assignable to `{}`/`object` under `strictNullChecks`; constrain as `unknown` and narrow before use (e.g., `T extends unknown ? NonNullable<T> : never`).[1]
+- **JSX spreads**: Reject `unknown`/`never`; ensure object types only (e.g., `{...obj as Record<string, any>}`).[1]
+- **Template strings**: Ban `symbol`-constrained generics; convert via `String()` or `.toString()`.[1]
+- **Generator yields**: Enforce explicit typing on `yield` results (e.g., `const value: string = yield 1;`) to avoid implicit `any`.[1]
+- **Logical AND/OR**: Return `unknown` (not `any`) for right operand on `unknown` inputs; add type assertions.[1]
+- **Conditional types**: Block assignability to `infer`/distributive conditionals to prevent perf regressions; refactor to non-distributive forms.[1]
+- **By 5.5**: Intersections of type vars + primitives reduce aggressively—test edge cases like `T & string`.[5]
 
-### Advanced Type System Features (TS 5.9+ RC)
-- Use **template literal types** for dynamic strings: `type ColorCode = `${Color}-color`;` where `Color = "red" | "green"`[1].
-- Apply **mapped types** for transformations: `type ReadOnlyUser = { readonly [K in keyof User]: User[K] }`[1].
-- Leverage **conditional types**: `type IsString<T> = T extends string ? true : false;` for flexible utilities[1].
-- Prefer interfaces for objects; use `type` aliases for unions/intersections/mapped/conditionals[7].
+### New Features (Leverage in 2024/2025 Code)
+- **TypeScript 7.0**: Native Go compiler (`tsgo`) with shared-memory parallelism; use `--build`/`--incremental` for 10x+ faster multi-project builds. LSP protocol standardizes LS (completions, refactoring); reset VS Code TS extension caches post-upgrade.[2]
+- **5.7/5.8**: `--target es2024` + `--lib es2024` for Promise.withResolvers, RegExp advancements; monomorphization cuts property access overhead by 20-50%.[3][4][7]
+- **5.5**: Enhanced type precision (e.g., template literals, inference); perf gains in large codebases.[3]
 
-### Functions and Utilities
-- Type functions explicitly: `(input: string) => Promise<User>`; use overloads for multiple signatures[6].
-- Implement rest params with tuples: `function log(...args: [string, number?]) {}`[6].
-- Avoid type assertions (`as T`); limit to third-party libs; prefer `unknown` + guards[7].
+### Strict Mode Requirements (Enforce Always)
+```
+{
+  "compilerOptions": {
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "target": "es2024",
+    "lib": ["es2024"]
+  }
+}
+```
+- **Narrow aggressively**: Use `in`/`instanceof`/`type guards` over `any`/`unknown`; prefer `satisfies` for inference preservation.
+- **Avoid distro conditionals**: Rewrite as unions (e.g., `T extends U ? X : Y` → `[X, Y][T extends U ? 0 : 1]`).[1]
+- **Refactor safely**: Exploit LS features (Go-to-Def, Rename, Quick Fixes) enabled by static types—no raw JS interop without declarations.[6]
 
-### Project and Tooling Rules
-- Structure with modules: export/import explicitly; use `tsconfig.json` paths for aliases[4][7].
-- Generate docs with **TypeDoc** from source + TSDoc comments (`/** @param x desc */`); output HTML/Markdown[1][3].
-- Follow PR rules: include type updates; run `tsc --noEmit` in CI for checks[1].
-
-### Common Pitfalls to Avoid
-| Mistake                  | Rule                              |
-|--------------------------|-----------------------------------|
-| Overusing `as` casts     | Use only for libs; narrow instead[7] |
-| Skipping `unknown`       | Always over `any` for safety[7]   |
-| Poor structure           | Enforce consistent modules[7]     |
-| Advanced misuse          | Use unions/mapped/intersections correctly[7] |
-
-Violating these risks runtime errors and unmaintainable code; align with TS Handbook for edge cases[4][5].
+**Test all generics/JSX/promises post-upgrade; run `tsc --extendedDiagnostics` for perf baselines.**[2]

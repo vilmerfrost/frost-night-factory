@@ -1,3 +1,3 @@
-// Invoice list component with table display
+// Invoice table/list component
 // Type: component
 // TODO: Implement this file

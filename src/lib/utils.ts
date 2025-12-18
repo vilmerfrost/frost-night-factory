@@ -1,3 +1,3 @@
-// Shared utility functions
+// General utility functions
 // Type: utility
 // TODO: Implement this file

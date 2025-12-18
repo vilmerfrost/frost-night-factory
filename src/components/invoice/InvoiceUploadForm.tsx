@@ -1,3 +1,3 @@
-// PDF upload form with file validation and extraction preview
+// PDF upload and preview component
 // Type: component
 // TODO: Implement this file

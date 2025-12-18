@@ -1,3 +1,3 @@
-// Invoice detail component showing extracted fields and raw JSON
+// Invoice detail display component
 // Type: component
 // TODO: Implement this file

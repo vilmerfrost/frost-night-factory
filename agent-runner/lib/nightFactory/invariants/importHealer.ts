@@ -161,6 +161,21 @@ export class ImportHealer {
     const notes: string[] = [];
     if (!(await exists(importerAbs))) return { fixed: 0, notes };
 
+    // Check if it's a directory (EISDIR fix)
+    try {
+      const stat = await fs.stat(importerAbs);
+      if (stat.isDirectory()) {
+        const indexPath = path.join(importerAbs, 'index.ts');
+        if (await exists(indexPath)) {
+          return await this.healFile(indexPath);
+        }
+        console.warn(`⚠️ [ImportHealer] Skipping directory: ${importerAbs}`);
+        return { fixed: 0, notes };
+      }
+    } catch {
+      return { fixed: 0, notes }; // File doesn't exist
+    }
+
     const content = await this.safeReadFile(importerAbs);
     if (!content) {
       console.warn(`⚠️ [ImportHealer] Cannot read importer file: ${importerAbs}`);

@@ -1,3 +1,3 @@
-// Storage utilities for PDF uploads
+// Storage operations for invoices
 // Type: utility
 // TODO: Implement this file

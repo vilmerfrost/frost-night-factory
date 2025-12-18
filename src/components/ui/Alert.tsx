@@ -1,3 +1,3 @@
-// Alert component for notifications and errors
+// Alert component
 // Type: component
 // TODO: Implement this file

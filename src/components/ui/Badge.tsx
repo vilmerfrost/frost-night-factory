@@ -1,3 +1,3 @@
-// Badge component for status
+// Badge component
 // Type: component
 // TODO: Implement this file

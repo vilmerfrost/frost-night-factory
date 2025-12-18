@@ -1,3 +1,3 @@
-// Supabase context provider for client components
-// Type: provider
+// Supabase context provider
+// Type: component
 // TODO: Implement this file

@@ -23,3 +23,8 @@ export function createBrowserClient(): SupabaseClient {
 
 // Compat with generated code that uses supabaseClient
 export const supabaseClient = createClient();
+
+// === AUTO_CONTRACT_START ===
+// This block is maintained by Frost Night Factory (DO NOT hand-edit exports here)
+export const supabase = {} as any;
+// === AUTO_CONTRACT_END ===

@@ -1,3 +1,3 @@
-// Node.js runtime API for PDF extraction
+// Extract invoice data from PDF
 // Type: api
 // TODO: Implement this file

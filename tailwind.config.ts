@@ -1,3 +1,3 @@
-// Tailwind config with design system colors
+// Tailwind CSS configuration
 // Type: config
 // TODO: Implement this file

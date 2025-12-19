@@ -461,59 +461,12 @@ export async function performDeepResearch(topic: string): Promise<string> {
     );
   }
 
-  console.log("🔍 Brave Search MCP: Deep Searching for:", topic);
-
   try {
-    // Use Brave Search API directly (MCP-style integration)
-    const axios = (await import('axios')).default;
-    const response = await axios.get('https://api.search.brave.com/res/v1/web/search', {
-      headers: {
-        'Accept': 'application/json',
-        'Accept-Encoding': 'gzip',
-        'X-Subscription-Token': apiKey
-      },
-      params: {
-        q: topic,
-        count: 10,
-        search_lang: 'en',
-        country: 'US',
-        safesearch: 'moderate'
-      }
-    });
-
-    const results = response.data.web?.results || [];
-    
-    if (results.length === 0) {
-      console.log("⚠️ No Brave Search results found. Falling back to Gemini.");
-      return generateContent(
-        `Perform deep technical research on: ${topic}`,
-        "You are a Senior Technical Researcher"
-      );
-    }
-
-    // Format research results
-    let researchContent = `# Research: ${topic}\n\n`;
-    researchContent += `Found ${results.length} relevant sources:\n\n`;
-    
-    results.forEach((r: any, i: number) => {
-      researchContent += `## ${i + 1}. ${r.title || 'Untitled'}\n`;
-      researchContent += `**Source:** ${r.url || 'N/A'}\n`;
-      researchContent += `${r.description || 'No description available'}\n\n`;
-    });
-
-    // Use Gemini to synthesize the research into a coherent report
-    const synthesisPrompt = `Based on the following search results, create a comprehensive technical research report:\n\n${researchContent}\n\nFocus on:\n1. Technical constraints and compatibility issues\n2. Latest versions and breaking changes\n3. Best practices and architecture patterns\n4. Common pitfalls and gotchas\n\nBe extremely technical and specific about implementation details, libraries, and versions.`;
-    
-    const synthesized = await generateContent(
-      synthesisPrompt,
-      "You are a Senior Technical Researcher. Synthesize search results into actionable technical insights."
-    );
-
-    console.log("✅ Brave Search Research Complete! Length:", synthesized.length);
-    return synthesized;
+    // 🔌 Use MCP Hub
+    const { MCPHub } = await import('../../lib/nightFactory/mcpHub');
+    return await MCPHub.brave.deepResearch(topic);
   } catch (error: any) {
-    console.error("❌ Brave Search Error:", error?.message);
-    console.log("🔄 Falling back to Gemini...");
+    console.warn("⚠️ Brave Search failed, falling back to Gemini:", error.message);
     return generateContent(
       `Perform deep technical research on: ${topic}`,
       "You are a Senior Technical Researcher"

@@ -8,6 +8,39 @@ import type { ResearchOutput } from "./phases";
 import type { ResearchPhaseJSON } from "./pipeline-json-types";
 
 /**
+ * Determine if a query needs deep (expensive) research or simple (free) search
+ */
+function shouldUseDeepResearch(prompt: string): boolean {
+  const complexIndicators = [
+    'breaking change',
+    'migration',
+    'architecture',
+    'best practice',
+    'production',
+    'security',
+    'performance optimization',
+    'vs', // comparisons
+    'difference between',
+    'when to use',
+    'compared to',
+    'trade-off',
+    'enterprise',
+    'scale',
+    'distributed',
+  ];
+  
+  const promptLower = prompt.toLowerCase();
+  const hasComplexIndicator = complexIndicators.some(indicator => 
+    promptLower.includes(indicator)
+  );
+  
+  // Also check length - longer prompts often need deeper research
+  const isLongQuery = prompt.length > 200;
+  
+  return hasComplexIndicator || isLongQuery;
+}
+
+/**
  * Legacy research output (for backward compatibility)
  */
 export async function runResearchPhase(
@@ -153,8 +186,15 @@ export async function runResearchPhaseJSON(
   error?: string;
   raw_text_audit: string;
 }> {
-  const { usePerplexity = true, useKimi = false, ticketType = "feature" } = options;
+  const { 
+    usePerplexity: usePerplexityOption = shouldUseDeepResearch(userPrompt), // 🔧 Smart default!
+    useKimi = true, // ✅ Always use for synthesis
+    ticketType = "feature" 
+  } = options;
   const isBug = ticketType === "bug";
+  
+  // Use local variable that can be updated if Brave fails
+  let usePerplexity = usePerplexityOption;
 
   console.log(`\n🔍 [RESEARCH PHASE] Starting research for: "${userPrompt.substring(0, 100)}..."`);
   
@@ -164,6 +204,25 @@ export async function runResearchPhaseJSON(
   // ============================================================
   // 1. GATHER RAW RESEARCH FROM MULTIPLE SOURCES
   // ============================================================
+
+  // Brave Search: Fast, free research for simple queries
+  if (!usePerplexity) { // Only if NOT using deep research
+    try {
+      console.log("🔍 Brave Search: Running fast research...");
+      // Use performDeepResearch (it already uses Brave!)
+      const braveResult = await performDeepResearch(
+        isBug
+          ? `Quick search: ${userPrompt}. Find common solutions and patterns.`
+          : `Quick search: ${userPrompt}. Find similar tools and basic tech stack info.`
+      );
+      rawResearchText += `\n=== BRAVE SEARCH ===\n${braveResult}\n`;
+      sources.push("brave");
+    } catch (e) {
+      console.warn("⚠️ Brave Search failed, will use Perplexity as fallback...");
+      // Fall back to Perplexity if Brave fails
+      usePerplexity = true;
+    }
+  }
 
   // Perplexity: Deep web research (if available)
   if (usePerplexity) {
@@ -181,7 +240,7 @@ export async function runResearchPhaseJSON(
     }
   }
 
-  // Kimi K2: Alternative research (if enabled)
+  // Kimi K2: Synthesis and deep reasoning (recommended!)
   if (useKimi) {
     try {
       console.log("🌙 Kimi K2: Running secondary research...");

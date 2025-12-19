@@ -159,3 +159,33 @@ export function formatComponentRegistry(registry: Record<string, string>): strin
   return `AVAILABLE COMPONENTS (USE THESE IMPORTS):\n${entries}\n\nRULE: If a component exists in this list, IMPORT IT. Do not recreate it.`;
 }
 
+/**
+ * Inject Golden Components - Pre-validated UI components
+ * These are written BEFORE AI starts coding to prevent incorrect implementations
+ */
+export async function injectGoldenComponents(projectRoot: string): Promise<void> {
+  const uiDir = path.join(projectRoot, 'src/components/ui');
+  
+  // Create UI directory if it doesn't exist
+  if (!fs.existsSync(uiDir)) {
+    fs.mkdirSync(uiDir, { recursive: true });
+  }
+  
+  console.log('💎 [GOLDEN] Injecting pre-validated UI components...');
+  
+  let injectedCount = 0;
+  for (const [filename, content] of Object.entries(GOLDEN_COMPONENTS)) {
+    const filePath = path.join(uiDir, filename);
+    
+    try {
+      await writeFile(filePath, content);
+      console.log(`   ✨ [GOLDEN] Injected: src/components/ui/${filename}`);
+      injectedCount++;
+    } catch (error: any) {
+      console.error(`   ❌ [GOLDEN] Failed to inject ${filename}:`, error.message);
+    }
+  }
+  
+  console.log(`✅ [GOLDEN] Successfully injected ${injectedCount}/${Object.keys(GOLDEN_COMPONENTS).length} components`);
+}
+

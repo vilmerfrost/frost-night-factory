@@ -196,12 +196,71 @@ export async function transportPhaseContext(
       // ✅ A: Use stable planner manifest converter (always returns typed object + raw)
       const plannerManifest = await convertPlannerToManifestStable(rawOutput ?? "");
       
-      // Return typed object with _raw field (Coder always gets typed object, never just RAW text)
-      // Map PlannerManifest to PlannerPhaseJSON with all required fields
-      return {
+      // 🔍 DEBUG: Verify planner manifest
+      console.log('🔍 [DEBUG] Planner Manifest Generated:');
+      console.log('   Files in manifest:', plannerManifest.files?.length || 0);
+      console.log('   Has architecture:', !!plannerManifest.architecture);
+      console.log('   Architecture frontend:', plannerManifest.architecture?.frontend?.length || 0);
+      console.log('   Architecture backend:', plannerManifest.architecture?.backend?.length || 0);
+      console.log('   Has api routes:', plannerManifest.apiRoutes?.length || 0);
+      console.log('   Raw output length:', plannerManifest._raw?.length || 0);
+      console.log('   Errors:', plannerManifest._errors?.length || 0);
+      
+      if (plannerManifest.files && plannerManifest.files.length > 0) {
+        console.log('   First 5 files:', plannerManifest.files.slice(0, 5).map(f => f.path || f));
+      } else {
+        console.warn('   ⚠️ WARNING: No files found in planner manifest!');
+        console.warn('   This will cause Coder to be confused!');
+      }
+      
+      // 🔧 CRITICAL FIX: Convert PlannerManifest to FileStructurePlan format
+      // Add required fields that Coder expects
+      const filesWithTypes = plannerManifest.files.map(file => {
+        // Infer type from file extension
+        let type = 'unknown';
+        const ext = file.path.split('.').pop()?.toLowerCase();
+        
+        if (ext === 'tsx' || ext === 'jsx') {
+          type = 'component';
+        } else if (ext === 'ts' || ext === 'js') {
+          if (file.path.includes('/api/') || file.path.includes('route.ts')) {
+            type = 'api_route';
+          } else if (file.path.includes('/lib/') || file.path.includes('utils')) {
+            type = 'utility';
+          } else if (file.path.includes('layout') || file.path.includes('page')) {
+            type = 'page';
+          } else {
+            type = 'module';
+          }
+        } else if (ext === 'css') {
+          type = 'stylesheet';
+        } else if (ext === 'json') {
+          type = 'config';
+        } else if (ext === 'sql') {
+          type = 'migration';
+        } else if (ext === 'md') {
+          type = 'documentation';
+        }
+        
+        return {
+          path: file.path,
+          description: file.description || `${type} file`,
+          type: type,
+          dependencies: file.dependencies || [],
+        };
+      });
+      
+      // Build FileStructurePlan-compatible structure
+      const fileStructurePlan = {
         phase: "planner",
         timestamp: new Date().toISOString(),
-        // PlannerManifest doesn't have these fields, so provide defaults
+        
+        // FileStructurePlan required fields
+        files: filesWithTypes,
+        root: "src", // Default root directory
+        dependencies: [], // Will be populated by dependency detective
+        
+        // Keep original PlannerPhaseJSON fields for compatibility
         input_references: {
           research_timestamp: "",
           research_summary: "",
@@ -219,14 +278,59 @@ export async function transportPhaseContext(
         feature_breakdown: { phase_1_mvp: [] },
         database_schema_outline: { tables: [] },
         component_tree: { app: { children: [] }, components: {} },
-        api_routes_planned: (plannerManifest.apiRoutes || []).map(route => typeof route === "string" ? { path: route, method: "GET", description: "" } : route),
+        api_routes_planned: (plannerManifest.apiRoutes || []).map(route => 
+          typeof route === "string" ? { path: route, method: "GET", description: "" } : route
+        ),
         timeline: { total_weeks: 0, phases: [] },
         risks_and_mitigations: [],
         success_criteria: [],
         full_raw_output: plannerManifest._raw || rawOutput || "",
-        // Include PlannerManifest fields for compatibility
+        
+        // Include original manifest for debugging
         _manifest: plannerManifest,
-      } as PlannerPhaseJSON & { _manifest?: typeof plannerManifest };
+      };
+      
+      console.log('📡 [Info Transporter] Planner JSON converted successfully');
+      console.log('   FileStructurePlan files:', fileStructurePlan.files.length);
+      console.log('   File types:', [...new Set(fileStructurePlan.files.map(f => f.type))].join(', '));
+      
+      // 🔧 CRITICAL: Save to DB so re-hydration can find it!
+      try {
+        console.log('💾 [Info Transporter] Saving FileStructurePlan to DB for re-hydration...');
+        
+        // Get the latest planner step
+        const { data: steps, error: fetchError } = await supabase
+          .from('pipeline_steps')
+          .select('id')
+          .eq('pipeline_id', pipelineId)
+          .eq('name', 'planner')
+          .in('status', ['completed', 'skipped'])
+          .order('created_at', { ascending: false })
+          .limit(1);
+        
+        if (!fetchError && steps && steps.length > 0) {
+          const { error: updateError } = await supabase
+            .from('pipeline_steps')
+            .update({
+              output: fileStructurePlan,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', steps[0].id);
+          
+          if (updateError) {
+            console.warn('   ⚠️ Failed to save to DB:', updateError.message);
+          } else {
+            console.log('   ✅ FileStructurePlan saved to DB');
+          }
+        } else {
+          console.warn('   ⚠️ Could not find planner step to update');
+        }
+      } catch (saveError: any) {
+        console.warn('   ⚠️ Failed to save to DB:', saveError.message);
+        // Continue anyway - Info Transporter will still work
+      }
+      
+      return fileStructurePlan as PlannerPhaseJSON & { files: typeof filesWithTypes };
     }
 
     if (fromPhase === "coder") {
@@ -414,6 +518,15 @@ export async function accumulateAllContexts(
     if (c) {
       ctx[phase] = c;
       console.log(`   ✅ ${phase}: Context captured`);
+      
+      // 🔍 DEBUG: Show what was captured
+      if (phase === 'planner') {
+        console.log('   🔍 Planner context keys:', Object.keys(c));
+        console.log('   🔍 Has _manifest:', !!c._manifest);
+        if (c._manifest) {
+          console.log('   🔍 Manifest files:', c._manifest.files?.length || 0);
+        }
+      }
     }
   }
 

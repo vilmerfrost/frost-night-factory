@@ -53,7 +53,9 @@ import { CodebaseOracle, getOracle } from '../lib/nightFactory/codebaseOracle';
 import { createPipelineContext, validateContextForStage } from '../lib/nightFactory/contextTypes';
 import type { PipelineContext } from '../lib/nightFactory/contextTypes';
 import { verifyDataFlow, logContextState } from '../lib/nightFactory/flowChecker';
-import { generateScaffold, generateComponentRegistry, formatComponentRegistry } from '../lib/nightFactory/scaffoldAgent';
+import { generateScaffold, injectGoldenComponents, generateComponentRegistry, formatComponentRegistry } from '../lib/nightFactory/scaffoldAgent';
+import { log } from '../lib/nightFactory/logger';
+import { MCPHub } from '../lib/nightFactory/mcpHub';
 import { validateCode, autoFixFileExtension } from './code-validator';
 import type { ValidationResult as CodeValidationResult } from './code-validator';
 import { assertDefined } from '../lib/utils/assert';
@@ -1468,6 +1470,38 @@ async function fetchResearchOutput(pipelineId: string): Promise<any | null> {
 }
 
 /**
+ * Infer file type from path (matches logic in info-transporter.ts)
+ */
+function inferTypeFromPath(path: string): string {
+  let type = 'unknown';
+  const ext = path.split('.').pop()?.toLowerCase();
+  
+  if (ext === 'tsx' || ext === 'jsx') {
+    type = 'component';
+  } else if (ext === 'ts' || ext === 'js') {
+    if (path.includes('/api/') || path.includes('route.ts')) {
+      type = 'api_route';
+    } else if (path.includes('/lib/') || path.includes('utils')) {
+      type = 'utility';
+    } else if (path.includes('layout') || path.includes('page')) {
+      type = 'page';
+    } else {
+      type = 'module';
+    }
+  } else if (ext === 'css') {
+    type = 'stylesheet';
+  } else if (ext === 'json') {
+    type = 'config';
+  } else if (ext === 'sql') {
+    type = 'migration';
+  } else if (ext === 'md') {
+    type = 'documentation';
+  }
+  
+  return type;
+}
+
+/**
  * Re-hydrate the checkpoint object with missing phase data
  */
 async function rehydrateMissingPhaseData(pipelineId: string, pipeline: any): Promise<any> {
@@ -1489,9 +1523,28 @@ async function rehydrateMissingPhaseData(pipelineId: string, pipeline: any): Pro
         // The planner output might contain the plan in different formats
         let extractedPlan = null;
         
-        // Check if it's already a FileStructurePlan
+        // Check if it's already a FileStructurePlan (or can be converted)
         if (planFromDB.files && Array.isArray(planFromDB.files)) {
-          extractedPlan = planFromDB;
+          // If files have 'type' field, it's already FileStructurePlan
+          if (planFromDB.files.length > 0 && planFromDB.files[0].type) {
+            extractedPlan = planFromDB;
+          }
+          // If files exist but no type, it's PlannerManifest - add types!
+          else {
+            console.log('🔧 [Re-hydration] Converting PlannerManifest to FileStructurePlan format...');
+            extractedPlan = {
+              ...planFromDB,
+              files: planFromDB.files.map((f: any) => ({
+                ...f,
+                type: f.type || inferTypeFromPath(f.path),
+                description: f.description || `${inferTypeFromPath(f.path)} file`,
+                dependencies: f.dependencies || []
+              })),
+              root: planFromDB.root || 'src',
+              dependencies: planFromDB.dependencies || []
+            };
+            console.log(`   ✅ Converted ${extractedPlan.files.length} files with types`);
+          }
         } else if (planFromDB.fileStructurePlan) {
           extractedPlan = planFromDB.fileStructurePlan;
         } else if (planFromDB.plan) {
@@ -1902,10 +1955,15 @@ A comprehensive guide of BEST PRACTICES and ARCHITECTURE RECOMMENDATIONS.
   }
 
   try {
+    log.startTimer(`research-${researchType}`);
     const result = await performDeepResearch(researchPrompt);
+    log.endTimer(`research-${researchType}`, `Research Phase (${researchType})`, { 
+      cost: 0.30 // Approximate Perplexity cost
+    });
     console.log(`✅ [Research] ${researchType} completed (${result.length} chars)`);
     return result;
   } catch (error: any) {
+    log.error(error, { phase: 'research', file: 'pipeline-runner.ts' });
     console.error(`❌ [Research] ${researchType} failed:`, error);
     return `Research failed for ${researchType}: ${error.message}`;
   }
@@ -4495,7 +4553,12 @@ ${plannerData ? `\nPLANNER OUTPUT:\n${plannerData.slice(0, 2000)}\n` : ''}
   };
   
   await generateScaffold({ ...scaffoldConfig, projectRoot: repoPath });
-  
+
+  // =============================================================================
+  // 💎 GOLDEN COMPONENTS: Inject pre-validated UI components
+  // =============================================================================
+  await injectGoldenComponents(repoPath);
+
   // =============================================================================
   // 📦 COMPONENT REGISTRY: Generate list of available components
   // =============================================================================
@@ -6815,56 +6878,30 @@ async function buildSQLJSONFromRepo(repoPath: string, sqlContent: string): Promi
 async function executeMigration(sqlContent: string): Promise<void> {
   console.log('🗄️ Using Supabase MCP for migration...');
   
-  // Try Supabase MCP first (if available)
-  if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    try {
-      const supabase = createClient(
-        process.env.SUPABASE_URL,
-        process.env.SUPABASE_SERVICE_ROLE_KEY
-      );
-      
-      // Use Supabase RPC to execute SQL (if available)
-      // Fallback to direct postgres if RPC not available
-      const { error } = await supabase.rpc('exec', { sql: sqlContent }).catch(() => {
-        // RPC might not exist, fall back to postgres
-        return { error: { message: 'RPC not available' } };
-      });
-      
-      if (!error || error.message === 'RPC not available') {
-        // Fallback to direct postgres connection
-        if (!process.env.DATABASE_URL) {
-          throw new Error("Missing DATABASE_URL environment variable");
-        }
-        const sql = postgres(process.env.DATABASE_URL);
-        try {
-          await sql.unsafe(sqlContent);
-          console.log('✅ Migration successful via postgres!');
-        } finally {
-          await sql.end();
-        }
-      } else {
-        throw error;
-      }
-      
-      console.log('✅ Migration successful via Supabase MCP!');
-      return;
-    } catch (error: any) {
-      console.warn('⚠️ Supabase MCP migration failed, falling back to postgres:', error.message);
-      // Fall through to postgres fallback
-    }
-  }
-  
-  // Fallback to direct postgres connection
-  if (!process.env.DATABASE_URL) {
-    throw new Error("Missing DATABASE_URL environment variable");
-  }
-
-  const sql = postgres(process.env.DATABASE_URL);
   try {
-    await sql.unsafe(sqlContent);
-    console.log('✅ Migration successful via postgres!');
-  } finally {
-    await sql.end();
+    log.startTimer('migration');
+    
+    // 🔌 Use MCP Hub
+    await MCPHub.supabase.executeMigration(sqlContent);
+    
+    log.endTimer('migration', 'SQL Migration', { cost: 0 });
+    console.log('✅ Migration successful via Supabase MCP!');
+    return;
+  } catch (error: any) {
+    console.error('❌ Supabase MCP migration failed:', error.message);
+    
+    // Fallback to direct postgres connection
+    if (!process.env.DATABASE_URL) {
+      throw new Error("Missing DATABASE_URL environment variable");
+    }
+
+    const sql = postgres(process.env.DATABASE_URL);
+    try {
+      await sql.unsafe(sqlContent);
+      console.log('✅ Migration successful via postgres!');
+    } finally {
+      await sql.end();
+    }
   }
 }
 
@@ -6916,6 +6953,7 @@ async function runSqlStep(pipeline: any, repoPath: string, context?: any) {
               console.log("[SQL] ⏭️ Scope Analyzer: No SQL changes required. Skipping SQL generation to save time.");
               await updateStep(pipeline.id, 'sql', 'skipped', JSON.stringify({ reason: 'Scope analysis determined no database changes needed', scope }));
               await updatePipeline(pipeline.id, { current_phase: "tester" });
+              log.phaseTransition('sql', 'tester', pipeline.id);
               return;
           }
       } catch (scopeError: any) {
@@ -7227,6 +7265,7 @@ Use this context to understand:
         }
         
         await updatePipeline(pipeline.id, { current_phase: 'tester' });
+        log.phaseTransition('sql', 'tester', pipeline.id);
         return; // Success! Exit function
 
       } catch (error: any) {
@@ -8897,6 +8936,76 @@ async function runTesterStep(pipeline: any, repoPath: string, context?: any) {
   
   console.log(`[Tester] Attempt ${(global as any).testerAttempts[attemptKey]}/${MAX_TESTER_ATTEMPTS}...`);
 
+  // ═══════════════════════════════════════════════════════════════════
+  // 🎭 TESTSPRITE INTEGRATION: Automated E2E Testing (Optional)
+  // ═══════════════════════════════════════════════════════════════════
+  if (process.env.TESTSPRITE_API_KEY && process.env.ENABLE_TESTSPRITE === 'true') {
+    console.log('\n🎭 [TestSprite] Running automated E2E tests...');
+    
+    try {
+      log.startTimer('testsprite');
+      
+      // 1. Create project (or use existing)
+      const projectName = `pipeline-${pipeline.id}`;
+      const projectUrl = `http://localhost:3000`; // Assumes dev server running
+      
+      let projectId: string;
+      try {
+        const project = await MCPHub.testsprite.createProject(projectName, projectUrl);
+        projectId = project.id;
+        console.log(`   ✅ TestSprite project created: ${projectId}`);
+      } catch (error: any) {
+        // Project might already exist
+        console.log(`   ℹ️ Using existing project`);
+        projectId = projectName; // Fallback to name as ID
+      }
+      
+      // 2. Run tests
+      const run = await MCPHub.testsprite.runTests(projectId, {
+        browser: 'chromium',
+        viewport: { width: 1280, height: 720 }
+      });
+      
+      console.log(`   🏃 Test run started: ${run.id}`);
+      
+      // 3. Wait for completion (5 min timeout)
+      const results = await MCPHub.testsprite.waitForTestCompletion(run.id, 300000);
+      
+      log.endTimer('testsprite', 'TestSprite E2E Tests', { 
+        cost: 0.10 // Approximate
+      });
+      
+      // 4. Check results
+      if (results.status === 'completed' && results.passed) {
+        console.log(`   ✅ All E2E tests passed! (${results.total_tests} tests)`);
+        log.success('TestSprite E2E Tests Passed', { 
+          total: results.total_tests,
+          passed: results.passed_tests 
+        });
+      } else {
+        console.warn(`   ⚠️ Some tests failed: ${results.failed_tests}/${results.total_tests}`);
+        
+        // Log failed tests
+        if (results.failures && Array.isArray(results.failures)) {
+          results.failures.forEach((failure: any) => {
+            log.warning(`TestSprite test failed: ${failure.test_name}`, {
+              error: failure.error,
+              screenshot: failure.screenshot_url
+            });
+          });
+        }
+        
+        // Don't fail the pipeline for now, just warn
+        console.log(`   ℹ️ Continuing despite test failures (TestSprite is experimental)`);
+      }
+    } catch (error: any) {
+      log.warning(`TestSprite integration failed: ${error.message}`);
+      console.log(`   ℹ️ Continuing without E2E tests`);
+    }
+  } else {
+    console.log('ℹ️ [TestSprite] Skipped (not enabled or API key missing)');
+  }
+
   // =============================================================================
   // 🥉 #3: VERSION CONTROL / UNDO - Create snapshot before risky operations
   // =============================================================================
@@ -8914,6 +9023,7 @@ async function runTesterStep(pipeline: any, repoPath: string, context?: any) {
 
   console.log(`[Tester] Starting verification for ${pipeline.id}...`);
   await updatePipeline(pipeline.id, { current_phase: 'tester' });
+  log.phaseTransition(pipeline.current_phase || 'sql', 'tester', pipeline.id);
   await createStep(pipeline.id, 'tester', 'running');
   
   // --- INFO TRANSPORTER: Inject accumulated context ---
@@ -13417,47 +13527,62 @@ async function runPublisherStep(pipeline: any, repoPath: string) {
         console.log(`[Publisher] 🤖 Agent named this project: "${slug}"`);
         console.log(`[Publisher] 🎯 Target Repo: ${targetRepoUrl}`);
 
-        // 🐙 Using GitHub MCP (Octokit) for repo creation
+        // 🐙 Using GitHub MCP for repo creation
         const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
         if (GITHUB_TOKEN) {
             try {
                 console.log('🐙 Using GitHub MCP for repo creation...');
-                const octokit = new Octokit({
-                    auth: GITHUB_TOKEN
+                log.startTimer('github-create-repo');
+                
+                // 🔌 Use MCP Hub
+                const repo = await MCPHub.github.createRepo(repoName, {
+                  description: `Generated by Frost Night Factory - ${pipeline.initial_prompt.substring(0, 100)}`,
+                  private: false
                 });
                 
-                // Create repo using Octokit
-                const { data: repo } = await octokit.repos.createForAuthenticatedUser({
-                    name: repoName,
-                    private: true,
-                    auto_init: false,
-                    description: 'Generated by Frost Night Factory'
-                });
+                log.endTimer('github-create-repo', 'GitHub Repo Creation', { cost: 0 });
+                console.log(`✅ Repository created: ${repo.html_url}`);
                 
-                console.log(`✅ Created repo: ${repo.html_url}`);
+                // Prepare files for initial commit
+                const filesToCommit: Array<{ path: string; content: string }> = [];
                 
-                // Add branch protection
-                try {
-                    await octokit.repos.updateBranchProtection({
-                        owner: repo.owner.login,
-                        repo: repo.name,
-                        branch: 'main',
-                        required_status_checks: null,
-                        enforce_admins: false,
-                        required_pull_request_reviews: null,
-                        restrictions: null
+                // Collect all files from the project
+                const projectFiles = await fs.promises.readdir(repoPath, { recursive: true });
+                for (const file of projectFiles) {
+                  const filePath = path.join(repoPath, file as string);
+                  const stats = await fs.promises.stat(filePath);
+                  
+                  if (stats.isFile() && !filePath.includes('node_modules') && !filePath.includes('.git')) {
+                    const content = await fs.promises.readFile(filePath, 'utf-8');
+                    filesToCommit.push({
+                      path: (file as string).replace(/\\/g, '/'), // Normalize path
+                      content
                     });
-                    console.log('✅ Branch protection enabled!');
-                } catch (protectError: any) {
-                    // Branch protection might fail if main branch doesn't exist yet
-                    console.warn('⚠️ Branch protection setup skipped (will be enabled after first push):', protectError.message);
+                  }
                 }
                 
-                targetRepoUrl = repo.clone_url;
-                console.log(`[Publisher] 📦 Created new repo: ${repoName}`);
+                // Commit files if any exist
+                if (filesToCommit.length > 0) {
+                  log.startTimer('github-commit');
+                  
+                  const commit = await MCPHub.github.createCommit(
+                    repo.owner.login,
+                    repo.name,
+                    `Initial commit - Generated application\n\nPrompt: ${pipeline.initial_prompt}`,
+                    filesToCommit.slice(0, 100) // Limit to first 100 files to avoid API limits
+                  );
+                  
+                  log.endTimer('github-commit', 'GitHub Commit', { cost: 0 });
+                  console.log(`✅ Files committed: ${commit.sha}`);
+                  console.log(`   📁 Committed ${Math.min(filesToCommit.length, 100)} files`);
+                }
+                
+                targetRepoUrl = repo.html_url;
+                
+                console.log(`✅ Repository created and files committed: ${targetRepoUrl}`);
             } catch (e: any) {
                 if (e.status === 422 && (e.message?.includes("name already exists") || e.message?.includes("already exists"))) {
-                    // Retry med pivot om det fortfarande misslyckas
+                    // Retry with pivot
                     console.warn("⚠️ Repo exists. Activating Auto-Pivot...");
                     const newName = `${repoName}-${Math.floor(Math.random() * 1000)}`;
                     repoName = newName;
@@ -13466,14 +13591,11 @@ async function runPublisherStep(pipeline: any, repoPath: string) {
                     
                     // Retry with new name
                     try {
-                        const octokit = new Octokit({ auth: GITHUB_TOKEN });
-                        const { data: repo } = await octokit.repos.createForAuthenticatedUser({
-                            name: repoName,
-                            private: true,
-                            auto_init: false,
-                            description: 'Generated by Frost Night Factory'
+                        const repo = await MCPHub.github.createRepo(repoName, {
+                          description: `Generated by Frost Night Factory - ${pipeline.initial_prompt.substring(0, 100)}`,
+                          private: false
                         });
-                        targetRepoUrl = repo.clone_url;
+                        targetRepoUrl = repo.html_url;
                         console.log(`[Publisher] 📦 Created new repo (pivoted): ${repoName}`);
                     } catch (retryError: any) {
                         console.error("[Publisher] ❌ Failed to create GitHub repo after pivot:", retryError.message);

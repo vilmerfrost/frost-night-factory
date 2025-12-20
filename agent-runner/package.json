@@ -4,7 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "cd .. && tsx --tsconfig tsconfig.json agent-runner/index.ts"
+    "start": "cd .. && tsx --tsconfig tsconfig.json agent-runner/index.ts",
+    "preflight": "cd .. && tsx --tsconfig tsconfig.json agent-runner/preflight.ts",
+    "check": "npm run preflight",
+    "test-setup": "npm run preflight"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.1",

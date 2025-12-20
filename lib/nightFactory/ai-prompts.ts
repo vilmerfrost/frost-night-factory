@@ -3,6 +3,7 @@
 // =============================================================================
 
 import { getTypeRegistryPrompt, TYPE_REGISTRY } from './type-registry';
+import { getExpectedExports } from './completionValidator';
 
 /**
  * Build enhanced coder prompt with type registry
@@ -158,4 +159,65 @@ Generate the complete scaffold.
 `;
 
 }
+
+/**
+ * Completeness rules for code generation
+ * Prevents stub/TODO code from being generated
+ */
+export const CODER_COMPLETENESS_RULES = `
+CRITICAL: GENERATE COMPLETE, PRODUCTION-READY CODE
+
+❌ DO NOT generate:
+- TODO comments
+- Stub implementations
+- Empty functions
+- Placeholder comments like "Pending implementation"
+- Export statements without actual code
+
+✅ DO generate:
+- Complete, working implementations
+- All required exports fully implemented
+- Actual business logic
+- Full TypeScript types
+- For UI components: complete JSX markup
+- Error handling where appropriate
+- Comments explaining complex logic (not TODOs)
+
+VALIDATION: Your code will be checked for:
+1. No TODO/stub markers
+2. Sufficient code length (300+ chars for UI, 150+ for others)
+3. Actual logic (returns, conditionals, assignments)
+4. All required exports present
+5. JSX elements for components
+
+If code is incomplete, you will be asked to regenerate.
+Generate COMPLETE, PRODUCTION-READY code on first attempt.
+`;
+
+/**
+ * Get enhanced coder prompt with completeness rules
+ */
+export function getCoderPrompt(
+  file: { path: string; type?: string; description?: string },
+  context?: {
+    requirements?: string;
+    existingFiles?: string[];
+    techStack?: string[];
+  }
+): string {
+  const basePrompt = buildCoderPrompt(file.path, context || {});
+  const expectedExports = getExpectedExports(file.path);
+  
+  return `
+${basePrompt}
+
+${CODER_COMPLETENESS_RULES}
+
+Required exports for ${file.path}:
+${expectedExports.length > 0 ? expectedExports.map(e => `- ${e}`).join('\n') : '- (generate appropriate exports)'}
+
+Generate COMPLETE implementation now:
+  `.trim();
+}
+
 

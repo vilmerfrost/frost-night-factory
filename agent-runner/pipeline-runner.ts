@@ -53,7 +53,7 @@ import { CodebaseOracle, getOracle } from '../lib/nightFactory/codebaseOracle';
 import { createPipelineContext, validateContextForStage } from '../lib/nightFactory/contextTypes';
 import type { PipelineContext } from '../lib/nightFactory/contextTypes';
 import { verifyDataFlow, logContextState } from '../lib/nightFactory/flowChecker';
-import { generateScaffold, injectGoldenComponents, generateComponentRegistry, formatComponentRegistry } from '../lib/nightFactory/scaffoldAgent';
+import { generateScaffold, injectGoldenComponents, generateComponentRegistry, formatComponentRegistry, shouldSkipFile, filterFilesToGenerate } from '../lib/nightFactory/scaffoldAgent';
 import { log } from '../lib/nightFactory/logger';
 import { MCPHub } from '../lib/nightFactory/mcpHub';
 import { validateCode, autoFixFileExtension } from './code-validator';
@@ -64,6 +64,16 @@ import { classifyError, recordErrorPattern } from './error-classifier';
 import type { ErrorAnalysis } from './error-classifier';
 import { validateCodeCompleteness } from './ast-validator';
 import { generateWithValidation } from './multi-pass-generator';  // ✅ Phase 1: Multi-pass generation
+import { 
+  validateCodeWithCompletion, 
+  getExpectedExports 
+} from '../lib/nightFactory/completionValidator';  // ✅ Completion Validator
+import { 
+  selectModelForFile, 
+  getRoutingStats,
+  type RoutingDecision 
+} from '../lib/nightFactory/modelRouter';  // ✅ Model Router
+import { costTracker } from '../lib/nightFactory/costTracker';  // ✅ Cost Tracker
 import { generateRepositoryMap } from './repo-map-generator';  // ✅ Phase 1: Repository map
 import { parsePackageJson, DEFAULT_PACKAGE_JSON, installDependencies } from './lib/dependency-detective';  // ✅ Robust JSON parsing with auto-repair
 import { writeDeterministicPackageJson } from './lib/nightFactory/invariants/packageJsonBuilder';  // ✅ D: Deterministic package.json builder
@@ -4432,6 +4442,9 @@ async function runCoderStep(pipeline: any, repoPath: string, context?: any) {
   await updatePipeline(pipeline.id, { current_phase: 'coder' });
   const coderStep = await createStep(pipeline.id, 'coder', 'running');
   const coderStepId = coderStep.id;
+  
+  // Reset cost tracker for this pipeline run
+  costTracker.reset();
 
   // ✅ P0: Ensure critical files exist BEFORE any file generation
   const { ensureCriticalFiles } = await import("./lib/workspace/critical-files");
@@ -5485,16 +5498,51 @@ PRIORITY: Visual accuracy to the reference image > Generic design rules.
 
       const fePrompt = PREMIUM_SAAS_PROMPT + visionInstruction;
 
+      // === SMART MODEL ROUTING FOR FRONTEND ===
+      const feRouting = selectModelForFile(
+        'frontend',
+        'page',
+        {
+          complexity: 70, // Frontend is typically complex
+          hasJSX: true,
+          linesOfCode: 500 // Estimate for frontend generation
+        }
+      );
+      
+      console.log(chalk.blue(`🎯 [ROUTER] Frontend Generation`));
+      console.log(chalk.blue(`   Model: ${feRouting.model} (${feRouting.tier})`));
+      console.log(chalk.blue(`   Reason: ${feRouting.reason}`));
+      console.log(chalk.blue(`   Est. Cost: $${feRouting.estimatedCost.toFixed(3)}`));
+
       // Kör Claude för Frontend (med bild om den finns)
-      const feCode = await callAI({
-        pipelineId: pipeline.id,
-        step: 'coder',
-        role: 'CODER',
-        model: selectModel('CODER'),
-        messages: [
-          { role: 'user', content: fePrompt }
-        ]
-      });
+      let feCode: string;
+      try {
+        feCode = await callAI({
+          pipelineId: pipeline.id,
+          step: 'coder',
+          role: 'CODER',
+          model: feRouting.model, // Use routed model
+          messages: [
+            { role: 'user', content: fePrompt }
+          ]
+        });
+      } catch (error: any) {
+        // Fallback to backup model
+        if (feRouting.fallbackModel) {
+          console.log(chalk.yellow(`⚠️ [ROUTER] ${feRouting.model} failed, trying ${feRouting.fallbackModel}`));
+          feCode = await callAI({
+            pipelineId: pipeline.id,
+            step: 'coder',
+            role: 'CODER',
+            model: feRouting.fallbackModel,
+            messages: [
+              { role: 'user', content: fePrompt }
+            ]
+          });
+        } else {
+          throw error;
+        }
+      }
       
       // ✅ POST-MORTEM DEBUG: Save raw output immediately after LLM call (before parsing/validation)
       // Note: callAI() already persists raw output internally, but we also save here as backup
@@ -5570,6 +5618,15 @@ PRIORITY: Visual accuracy to the reference image > Generic design rules.
       
       const feFilesCreated = await parseAndWriteFiles(finalFeCode, repoPath, pipeline.id);
       console.log(`✅ Frontend Phase Complete: ${feFilesCreated} files created.`);
+      
+      // Track cost for frontend generation
+      costTracker.track({
+        model: feRouting.model,
+        tier: feRouting.tier,
+        cost: feRouting.estimatedCost,
+        tokens: 0,
+        file: 'frontend-batch'
+      });
 
       // STEG B: Backend (Backend Router - Välj modell baserat på språk)
       console.log("⚙️ [Phase 2] Building Backend...");
@@ -5665,16 +5722,51 @@ ${STRICT_OUTPUT_FORMAT}
 
       const bePrompt = BRAINY_BACKEND_PROMPT;
 
+      // === SMART MODEL ROUTING FOR BACKEND ===
+      const beRouting = selectModelForFile(
+        'backend',
+        'api_route',
+        {
+          complexity: 60, // Backend logic complexity
+          hasJSX: false,
+          linesOfCode: 400 // Estimate for backend generation
+        }
+      );
+      
+      console.log(chalk.blue(`🎯 [ROUTER] Backend Generation`));
+      console.log(chalk.blue(`   Model: ${beRouting.model} (${beRouting.tier})`));
+      console.log(chalk.blue(`   Reason: ${beRouting.reason}`));
+      console.log(chalk.blue(`   Est. Cost: $${beRouting.estimatedCost.toFixed(3)}`));
+
       // Kör Backend med vald modell
-      const beCode = await callAI({
-        pipelineId: pipeline.id,
-        step: 'coder',
-        role: 'CODER',
-        model: selectModel('CODER'), // Use CODER model selection
-        messages: [
-          { role: 'user', content: bePrompt }
-        ]
-      });
+      let beCode: string;
+      try {
+        beCode = await callAI({
+          pipelineId: pipeline.id,
+          step: 'coder',
+          role: 'CODER',
+          model: beRouting.model, // Use routed model
+          messages: [
+            { role: 'user', content: bePrompt }
+          ]
+        });
+      } catch (error: any) {
+        // Fallback to backup model
+        if (beRouting.fallbackModel) {
+          console.log(chalk.yellow(`⚠️ [ROUTER] ${beRouting.model} failed, trying ${beRouting.fallbackModel}`));
+          beCode = await callAI({
+            pipelineId: pipeline.id,
+            step: 'coder',
+            role: 'CODER',
+            model: beRouting.fallbackModel,
+            messages: [
+              { role: 'user', content: bePrompt }
+            ]
+          });
+        } else {
+          throw error;
+        }
+      }
       
       // ✅ POST-MORTEM DEBUG: Save raw output immediately after LLM call (before parsing/validation)
       // Note: callAI() already persists raw output internally, but we also save here as backup
@@ -5751,6 +5843,15 @@ ${STRICT_OUTPUT_FORMAT}
       const beFilesCreated = await parseAndWriteFiles(finalBeCode, repoPath, pipeline.id);
       console.log(`✅ Backend Phase Complete: ${beFilesCreated} files created.`);
       
+      // Track cost for backend generation
+      costTracker.track({
+        model: beRouting.model,
+        tier: beRouting.tier,
+        cost: beRouting.estimatedCost,
+        tokens: 0,
+        file: 'backend-batch'
+      });
+      
       // 🔗 INTEGRATION AGENT: Sync backend types to frontend
       if (matrix.architecture === "Hybrid" && beFilesCreated > 0) {
         console.log("🔗 Running Integration Agent to sync types...");
@@ -5759,6 +5860,24 @@ ${STRICT_OUTPUT_FORMAT}
 
       if (feFilesCreated === 0 && beFilesCreated === 0) {
         throw new Error("AI generated 0 valid files for hybrid project.");
+      }
+      
+      // === FINAL COST REPORT FOR HYBRID MODE ===
+      console.log('\n' + costTracker.getReport());
+      
+      // Save to pipeline
+      try {
+        const costSummary = costTracker.getSummary();
+        await updatePipeline(pipeline.id, {
+          metadata: {
+            ...(pipeline.metadata || {}),
+            v10_cost_summary: costSummary,
+            v10_cost_report: costTracker.getReport()
+          }
+        });
+        console.log('✅ Cost report saved to pipeline');
+      } catch (err: any) {
+        console.warn('⚠️  Could not save cost report:', err?.message || err);
       }
 
       // Fortsätt med resten av processen (config fixes, review loop, etc.)
@@ -5796,6 +5915,19 @@ ${STRICT_OUTPUT_FORMAT}
         // =============================================================================
         // V7.5: SCAFFOLD FILES FIRST (Create empty files)
         // =============================================================================
+        
+        // === FILTER OUT GOLDEN/UI CONFLICTS ===
+        console.log(chalk.cyan("\n🔍 [FILTER] Checking for Golden component conflicts..."));
+        const allPlannedFiles = structurePlan.files || [];
+        const filesToGenerate = filterFilesToGenerate(allPlannedFiles);
+        
+        // Update the plan
+        structurePlan.files = filesToGenerate;
+        
+        if (allPlannedFiles.length > filesToGenerate.length) {
+          console.log(chalk.green(`✅ [FILTER] Filtered ${allPlannedFiles.length - filesToGenerate.length} conflicting files`));
+        }
+        
         console.log(chalk.cyan("\n📁 V7.5: Creating scaffold files..."));
         const filesToScaffold = structurePlan.files || [];
         for (const file of filesToScaffold) {
@@ -5817,6 +5949,8 @@ ${STRICT_OUTPUT_FORMAT}
         
         let filesCreated = 0;
         const filesToCode = structurePlan.files || [];
+        const routingDecisions: RoutingDecision[] = []; // Track routing decisions
+        
         for (const file of filesToCode) {
           // ═══════════════════════════════════════════════════════════════════
           // ✨ GOLDEN COMPONENT BYPASS: Skip AI generation (pre-injected)
@@ -5836,6 +5970,24 @@ ${STRICT_OUTPUT_FORMAT}
           }
           
           console.log(chalk.cyan(`\n   🎨 Coding: ${file.path}...`));
+          
+          // === SMART MODEL ROUTING ===
+          const routing = selectModelForFile(
+            file.path,
+            file.type || 'unknown',
+            {
+              complexity: (file as any).complexity || 50,
+              hasJSX: file.path.endsWith('.tsx'),
+              linesOfCode: (file as any).estimatedLines || 100
+            }
+          );
+          
+          console.log(chalk.blue(`🎯 [ROUTER] ${file.path}`));
+          console.log(chalk.blue(`   Model: ${routing.model} (${routing.tier})`));
+          console.log(chalk.blue(`   Reason: ${routing.reason}`));
+          console.log(chalk.blue(`   Est. Cost: $${routing.estimatedCost.toFixed(3)}`));
+          
+          routingDecisions.push(routing);
           
           const filePaths = filesToCode.map(f => f?.path).filter(Boolean);
           const contextPrompt = `
@@ -5923,6 +6075,52 @@ You MUST use this exact format:
             continue;
           }
           
+          // ✅ COMPLETION VALIDATOR: Check if code is complete (not a stub)
+          const expectedExports = getExpectedExports(targetFile);
+          const completionCheck = validateCodeWithCompletion(
+            code,
+            targetFile,
+            { 
+              expectedExports,
+              minConfidence: 80 
+            }
+          );
+          
+          if (!completionCheck.valid) {
+            console.log(chalk.yellow(`⚠️ [COMPLETION] Code incomplete or stub detected for ${targetFile}:`));
+            completionCheck.errors.forEach(err => {
+              console.log(chalk.yellow(`   - ${err}`));
+            });
+            
+            // Add to feedback for retry
+            const feedback = `
+The generated code appears incomplete or is a stub.
+Issues found:
+${completionCheck.errors.map(e => `- ${e}`).join('\n')}
+
+REQUIREMENTS:
+1. Generate COMPLETE, working code (no TODOs or stubs)
+2. Include all required exports: ${expectedExports.join(', ') || 'appropriate exports'}
+3. Include actual implementation logic
+4. For UI components, include full JSX markup
+5. Make code production-ready
+
+Please regenerate with COMPLETE implementation.
+            `.trim();
+            
+            // Log failure and continue to next attempt
+            await logEvent(pipeline.id, 'COMPLETION_CHECK_FAILED', 'coder', {
+              file: targetFile,
+              issues: completionCheck.errors,
+              confidence: completionCheck.completion.confidence
+            });
+            
+            // Retry with enhanced feedback (will be handled by generateWithValidation retry logic)
+            continue; // Goes to next file
+          }
+          
+          console.log(chalk.green(`✅ [COMPLETION] Code is complete (${completionCheck.completion.confidence}% confidence)`));
+          
           // ✅ LAYER A: Pre-normalize output with wrapper (prevents "0 files" errors)
           let normalizedCode = ensureSingleFileWrapper(code, targetFile, targetFile.endsWith('.tsx') ? 'tsx' : 'typescript');
           
@@ -5954,6 +6152,15 @@ You MUST use this exact format:
           if (fileCreated > 0) {
             filesCreated += fileCreated;
             console.log(chalk.green(`   ✅ Coded: ${file.path}`));
+            
+            // Track cost for this file
+            costTracker.track({
+              model: routing.model,
+              tier: routing.tier,
+              cost: routing.estimatedCost,
+              tokens: 0, // Will be updated with actual if available
+              file: file.path
+            });
           } else {
             console.log(chalk.yellow(`   ⚠️ Failed to code: ${file.path}`));
           }
@@ -5963,7 +6170,39 @@ You MUST use this exact format:
           throw new Error("V7.5: Failed to create any files from plan.");
         }
         
+        // Show routing stats with cost tracking
+        if (routingDecisions.length > 0) {
+          const stats = getRoutingStats(routingDecisions);
+          console.log(chalk.cyan(`\n📊 [ROUTER] Model Usage Stats:`));
+          console.log(chalk.cyan(`   💎 Premium (Claude): ${stats.byTier.premium} files`));
+          console.log(chalk.cyan(`   💰 Economy (DeepSeek): ${stats.byTier.economy} files`));
+          console.log(chalk.cyan(`   📦 Standard (Qwen/FREE): ${stats.byTier.standard} files`));
+          console.log(chalk.cyan(`   📊 Total Est. Cost: $${stats.totalCost.toFixed(2)}`));
+          console.log(chalk.cyan(`   📊 Avg Per File: $${stats.averageCost.toFixed(3)}`));
+          
+          // Show cost tracking summary
+          console.log(chalk.cyan(`\n${costTracker.getCompactSummary()}`));
+        }
+        
         console.log(chalk.green(`\n✅ V7.5 Complete: ${filesCreated} files created from plan.`));
+        
+        // === FINAL COST REPORT ===
+        console.log('\n' + costTracker.getReport());
+        
+        // Save to pipeline
+        try {
+          const costSummary = costTracker.getSummary();
+          await updatePipeline(pipeline.id, {
+            metadata: {
+              ...(pipeline.metadata || {}),
+              v10_cost_summary: costSummary,
+              v10_cost_report: costTracker.getReport()
+            }
+          });
+          console.log('✅ Cost report saved to pipeline');
+        } catch (err: any) {
+          console.warn('⚠️  Could not save cost report:', err?.message || err);
+        }
         
       } else {
         // =============================================================================

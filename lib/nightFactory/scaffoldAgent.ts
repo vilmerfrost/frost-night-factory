@@ -189,3 +189,57 @@ export async function injectGoldenComponents(projectRoot: string): Promise<void>
   console.log(`✅ [GOLDEN] Successfully injected ${injectedCount}/${Object.keys(GOLDEN_COMPONENTS).length} components`);
 }
 
+/**
+ * Check if file should be skipped (Golden component exists)
+ */
+export function shouldSkipFile(filePath: string): boolean {
+  // Normalize path
+  const normalizedPath = filePath.toLowerCase().replace(/\\/g, '/');
+  
+  // Extract component name
+  const fileName = normalizedPath.split('/').pop()?.replace(/\.(tsx?|jsx?)$/, '') || '';
+  
+  // Check against Golden components
+  const goldenComponentNames = Object.keys(GOLDEN_COMPONENTS).map(name => 
+    name.toLowerCase().replace(/\.(tsx?|jsx?)$/, '')
+  );
+  
+  if (goldenComponentNames.includes(fileName)) {
+    console.log(`⏭️  [SKIP] ${filePath} - Golden component exists`);
+    return true;
+  }
+  
+  // Check for common UI library conflicts
+  const uiLibraryComponents = [
+    'alert', 'badge', 'button', 'card', 'input', 
+    'label', 'select', 'toast', 'toaster', 'dialog', 
+    'dropdown', 'dropdown-menu', 'alert-dialog',
+    'skeleton', 'table', 'form'
+  ];
+  
+  if (normalizedPath.includes('components/ui/') && 
+      uiLibraryComponents.includes(fileName)) {
+    console.log(`⏭️  [SKIP] ${filePath} - UI library component (use shadcn or Golden)`);
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * Filter file list to skip Golden/UI conflicts
+ */
+export function filterFilesToGenerate(files: any[]): any[] {
+  const filtered = files.filter(file => !shouldSkipFile(file.path));
+  
+  const skipped = files.length - filtered.length;
+  if (skipped > 0) {
+    console.log(`\n📋 [FILTER] Filtering file list:`);
+    console.log(`   Total files: ${files.length}`);
+    console.log(`   Will generate: ${filtered.length}`);
+    console.log(`   Skipped (Golden/UI): ${skipped}`);
+  }
+  
+  return filtered;
+}
+
